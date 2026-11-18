@@ -2,11 +2,18 @@
   import EmptyState from './app/EmptyState.svelte'
   import StatusBar from './app/StatusBar.svelte'
   import TitleBar from './app/TitleBar.svelte'
+  import { keybindings } from './core/registry/keybindings'
+
+  function onKeydown(e: KeyboardEvent) {
+    if (keybindings.handle(e)) e.preventDefault()
+  }
 
   function openPdf() {
     // Wired in a later task.
   }
 </script>
+
+<svelte:window onkeydown={onKeydown} />
 
 <div class="shell">
   <div class="titlebar-region"><TitleBar /></div>
