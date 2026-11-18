@@ -68,7 +68,8 @@
       renderCache.set(key, bmp)
       show(bmp, bmp.width, bmp.height)
     })().catch((e: unknown) => {
-      if (!cancelled) console.error(`Failed to render page ${pageNumber}`, e)
+      // Cancelled renders and renders of a closed tab's doc reject by design.
+      if (!cancelled && !doc.destroyed) console.error(`Failed to render page ${pageNumber}`, e)
     })
 
     return () => {

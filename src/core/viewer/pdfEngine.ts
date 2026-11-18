@@ -12,11 +12,16 @@ GlobalWorkerOptions.workerSrc = workerUrl
 
 export interface PdfDoc {
   numPages: number
+  /** True once destroy() was called; renders failing afterwards are expected. */
+  readonly destroyed: boolean
+  /** `i` is the 1-based page number. */
   getPage(i: number): Promise<PDFPageProxy>
   destroy(): Promise<void>
 }
 
 class PdfJsDoc implements PdfDoc {
+  destroyed = false
+
   constructor(
     private readonly task: PDFDocumentLoadingTask,
     private readonly proxy: PDFDocumentProxy,
@@ -31,6 +36,7 @@ class PdfJsDoc implements PdfDoc {
   }
 
   destroy(): Promise<void> {
+    this.destroyed = true
     // Destroying the loading task tears down the worker and the document.
     return this.task.destroy()
   }

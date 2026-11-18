@@ -14,13 +14,29 @@ export function fileNameOf(path: string): string {
   return path.split(/[\\/]/).pop() || path
 }
 
+const SIZE_CHUNK = 16
+
+async function pageSizeOf(doc: PdfDoc, page: number): Promise<PageSize> {
+  const { width, height } = (await doc.getPage(page)).getViewport({ scale: 1 })
+  return { width, height }
+}
+
+function sameSize(a: PageSize, b: PageSize): boolean {
+  return a.width === b.width && a.height === b.height
+}
+
 export class DocumentSession {
   readonly id: string = crypto.randomUUID()
   path: string
   fileName: string
   doc: PdfDoc
-  /** Rotated page sizes at scale 1 (points). */
-  pageSizes: PageSize[]
+  /**
+   * Rotated page sizes at scale 1 (points). Starts as page 1's size for every
+   * page; the real sizes are filled in the background (see pageSizesLoaded).
+   */
+  pageSizes: PageSize[] = $state.raw([])
+  /** Resolves once every page's real size is known (or the session is disposed). */
+  readonly pageSizesLoaded: Promise<void>
   scale = $state(1)
   scrollTop = $state(0)
   scrollLeft = $state(0)
@@ -36,30 +52,58 @@ export class DocumentSession {
 
   /** Set by goToPage so the echoing scroll event keeps the requested page. */
   private pinnedTop: number | null = null
+  private disposed = false
   // Replaced by a history-derived value in Task 9.
   dirty = $state(false)
 
-  private constructor(path: string, doc: PdfDoc, pageSizes: PageSize[]) {
+  private constructor(path: string, doc: PdfDoc, first: PageSize) {
     this.path = path
     this.fileName = fileNameOf(path)
     this.doc = doc
-    this.pageSizes = pageSizes
+    this.pageSizes = Array.from({ length: doc.numPages }, () => first)
+    this.pageSizesLoaded = this.loadRemainingSizes().catch((e: unknown) => {
+      if (!this.disposed) console.error(`Failed to read page sizes of ${path}`, e)
+    })
   }
 
+  /** Opens a PDF. Resolves as soon as page 1's size is known (fast first page). */
   static async open(path: string): Promise<DocumentSession> {
     const doc = await loadPdf(await openPdf(path))
     try {
-      const pageSizes = await Promise.all(
-        Array.from({ length: doc.numPages }, async (_, i) => {
-          const { width, height } = (await doc.getPage(i + 1)).getViewport({ scale: 1 })
-          return { width, height }
-        }),
-      )
-      return new DocumentSession(path, doc, pageSizes)
+      return new DocumentSession(path, doc, await pageSizeOf(doc, 1))
     } catch (e) {
       await doc.destroy()
       throw e
     }
+  }
+
+  private async loadRemainingSizes(): Promise<void> {
+    // Let the first page's render request reach the worker before ours.
+    await new Promise((r) => setTimeout(r, 0))
+    const n = this.doc.numPages
+    for (let start = 2; start <= n && !this.disposed; start += SIZE_CHUNK) {
+      const end = Math.min(n, start + SIZE_CHUNK - 1)
+      const chunk = await Promise.all(
+        Array.from({ length: end - start + 1 }, (_, k) => pageSizeOf(this.doc, start + k)),
+      )
+      if (this.disposed) return
+      const old = this.pageSizes
+      if (chunk.every((s, k) => sameSize(s, old[start - 1 + k]))) continue
+      const next = old.slice()
+      chunk.forEach((s, k) => (next[start - 1 + k] = s))
+      this.applyPageSizes(next)
+    }
+  }
+
+  /** Replaces pageSizes, keeping the current page's position in the viewport. */
+  private applyPageSizes(sizes: PageSize[]): void {
+    const p = this.currentPage - 1
+    const oldTop = this.layout.tops[p]
+    this.pageSizes = sizes
+    const delta = this.layout.tops[p] - oldTop
+    if (delta === 0) return
+    this.scrollTop += delta
+    if (this.pinnedTop !== null) this.pinnedTop += delta
   }
 
   setViewport(width: number, height: number): void {
@@ -120,6 +164,7 @@ export class DocumentSession {
   }
 
   dispose(): Promise<void> {
+    this.disposed = true
     renderCache.evictPrefix(`${this.id}:`)
     return this.doc.destroy()
   }
