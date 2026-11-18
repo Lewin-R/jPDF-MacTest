@@ -27,8 +27,8 @@ pub enum InkRole {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Background {
-    pub color: [f32; 3],
-    pub opacity: f32,
+    pub color: [f64; 3],
+    pub opacity: f64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -37,28 +37,28 @@ pub enum AnnotationDto {
     Highlight {
         #[serde(flatten)]
         common: Common,
-        quads: Vec<[f32; 8]>,
-        color: [f32; 3],
-        opacity: f32,
+        quads: Vec<[f64; 8]>,
+        color: [f64; 3],
+        opacity: f64,
     },
     Ink {
         #[serde(flatten)]
         common: Common,
-        strokes: Vec<Vec<[f32; 2]>>,
-        color: [f32; 3],
-        width: f32,
-        opacity: f32,
+        strokes: Vec<Vec<[f64; 2]>>,
+        color: [f64; 3],
+        width: f64,
+        opacity: f64,
         blend: Blend,
         role: InkRole,
     },
     Freetext {
         #[serde(flatten)]
         common: Common,
-        rect: [f32; 4],
+        rect: [f64; 4],
         text: String,
         lines: Vec<String>,
-        font_size: f32,
-        text_color: [f32; 3],
+        font_size: f64,
+        text_color: [f64; 3],
         background: Option<Background>,
     },
 }
@@ -102,9 +102,17 @@ mod tests {
 
     #[test]
     fn dto_highlight_roundtrip() {
-        let src = r#"{"kind":"highlight","id":"h","page":1,"sourceRef":null,"modifiedAt":"t","author":"J","quads":[[0,10,10,10,0,0,10,0]],"color":[1,1,0],"opacity":0.5}"#;
+        let src = r#"{"kind":"highlight","id":"h","page":1,"sourceRef":null,"modifiedAt":"t","author":"J","quads":[[0,10,10,10,0,0,10,0]],"color":[1,1,0],"opacity":0.4}"#;
         let (dto, out, orig) = roundtrip(src);
         assert!(matches!(dto, AnnotationDto::Highlight { .. }));
         assert_eq!(out, orig);
+    }
+
+    #[test]
+    fn dto_roundtrip_is_exact_for_non_dyadic_values() {
+        let src = r#"{"kind":"ink","id":"a","page":0,"sourceRef":null,"modifiedAt":"t","author":"J","strokes":[[[123.456789,0.1]]],"color":[0.4,0.2,0.7],"width":2.5,"opacity":0.4,"blend":"multiply","role":"marker"}"#;
+        let dto: AnnotationDto = serde_json::from_str(src).unwrap();
+        let out = serde_json::to_value(&dto).unwrap();
+        assert_eq!(out, serde_json::from_str::<Value>(src).unwrap());
     }
 }

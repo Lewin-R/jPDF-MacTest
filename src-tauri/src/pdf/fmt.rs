@@ -1,7 +1,7 @@
 /// Formats a number for a PDF content stream: at most 3 decimals, trailing
 /// zeros trimmed, never exponent notation, and "-0" becomes "0".
 #[allow(dead_code)] // used by ink_appearance; reused by freetext/highlight appearances later
-pub fn fmt_num(v: f32) -> String {
+pub fn fmt_num(v: f64) -> String {
     if !v.is_finite() {
         return "0".to_string();
     }
@@ -41,6 +41,6 @@ mod tests {
     fn no_exponent_for_extremes() {
         assert_eq!(fmt_num(1e-10), "0");
         assert_eq!(fmt_num(1e7), "10000000");
-        assert_eq!(fmt_num(f32::NAN), "0");
+        assert_eq!(fmt_num(f64::NAN), "0");
     }
 }

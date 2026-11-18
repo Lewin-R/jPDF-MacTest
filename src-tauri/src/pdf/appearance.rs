@@ -10,25 +10,25 @@ use super::fmt::fmt_num;
 #[allow(dead_code)] // consumed by the PDF writer in Task 16
 #[derive(Clone, Debug, PartialEq)]
 pub struct Appearance {
-    pub bbox: [f32; 4],
+    pub bbox: [f64; 4],
     pub content: Vec<u8>,
-    pub opacity: f32,
+    pub opacity: f64,
     pub multiply: bool,
     pub uses_helvetica: bool,
-    pub matrix: Option<[f32; 6]>,
+    pub matrix: Option<[f64; 6]>,
 }
 
-fn mid(a: [f32; 2], b: [f32; 2]) -> [f32; 2] {
+fn mid(a: [f64; 2], b: [f64; 2]) -> [f64; 2] {
     [(a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0]
 }
 
-fn pt(p: [f32; 2]) -> String {
+fn pt(p: [f64; 2]) -> String {
     format!("{} {}", fmt_num(p[0]), fmt_num(p[1]))
 }
 
 /// Same midpoint-quadratic scheme as the TS `smoothPath`, with quadratics
 /// converted to cubics.
-fn stroke_path(s: &[[f32; 2]], out: &mut String) {
+fn stroke_path(s: &[[f64; 2]], out: &mut String) {
     let n = s.len();
     out.push_str(&format!("{} m\n", pt(s[0])));
     if n == 1 {
@@ -47,9 +47,11 @@ fn stroke_path(s: &[[f32; 2]], out: &mut String) {
     out.push_str(&format!("{} l\n", pt(s[n - 1])));
 }
 
+/// Callers (the writer) must skip ink annotations whose strokes are all empty:
+/// they yield a zero bbox and no drawing operators.
 #[allow(dead_code)] // consumed by the PDF writer in Task 16
-pub fn ink_appearance(strokes: &[Vec<[f32; 2]>], color: [f32; 3], width: f32, opacity: f32, multiply: bool) -> Appearance {
-    let (mut x1, mut y1, mut x2, mut y2) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+pub fn ink_appearance(strokes: &[Vec<[f64; 2]>], color: [f64; 3], width: f64, opacity: f64, multiply: bool) -> Appearance {
+    let (mut x1, mut y1, mut x2, mut y2) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
     let mut any = false;
     for p in strokes.iter().flatten() {
         any = true;
@@ -133,5 +135,20 @@ mod tests {
         assert_eq!(a.opacity, 0.5);
         assert!(!a.uses_helvetica);
         assert!(a.matrix.is_none());
+    }
+
+    #[test]
+    fn ink_four_points_second_segment_starts_at_midpoint() {
+        let a = ink_appearance(&[vec![[0.0, 0.0], [10.0, 0.0], [20.0, 10.0], [30.0, 10.0]]], [0.0; 3], 2.0, 1.0, false);
+        let t = text(&a);
+        // first end = mid(p1,p2) = (15,5); second curve: c = p2, p0' = (15,5), end = mid(p2,p3) = (25,10)
+        // c1 = 15+2/3*(20-15), 5+2/3*(10-5) = 18.333 8.333; c2 = 25+2/3*(20-25), 10+2/3*(10-10) = 21.667 10
+        assert!(t.contains("15 5 c
+18.333 8.333 21.667 10 25 10 c
+30 10 l
+S
+"), "{t}");
+        assert_eq!(t.matches(" c
+").count(), 2);
     }
 }
