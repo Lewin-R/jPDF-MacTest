@@ -8,3 +8,4 @@ src-tauri/target/
 !.vscode/extensions.json
 /src-tauri/gen/schemas
 /public/pdfjs/
+.idea/
