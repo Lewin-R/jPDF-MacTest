@@ -1,0 +1,86 @@
+export const PAGE_GAP = 16, MIN_SCALE = 0.1, MAX_SCALE = 8;
+
+export interface Layout {
+  tops: number[];
+  heights: number[];
+  widths: number[];
+  totalHeight: number;
+  maxWidth: number;
+}
+
+export function computeLayout(sizes: { width: number; height: number }[], scale: number): Layout {
+  const tops: number[] = [];
+  const heights: number[] = [];
+  const widths: number[] = [];
+  let y = PAGE_GAP;
+  let maxWidth = 0;
+  for (const s of sizes) {
+    const w = s.width * scale;
+    const h = s.height * scale;
+    tops.push(y);
+    heights.push(h);
+    widths.push(w);
+    if (w > maxWidth) maxWidth = w;
+    y += h + PAGE_GAP;
+  }
+  return { tops, heights, widths, totalHeight: y, maxWidth };
+}
+
+/** Smallest index in [0, n] for which pred is true (pred must be monotonic). */
+function lowerBound(n: number, pred: (i: number) => boolean): number {
+  let lo = 0, hi = n;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (pred(mid)) hi = mid; else lo = mid + 1;
+  }
+  return lo;
+}
+
+export function visibleRange(
+  l: Layout, scrollTop: number, viewportH: number, overscan = 1,
+): { first: number; last: number } {
+  const n = l.tops.length;
+  if (n === 0) return { first: 0, last: -1 };
+  const bottom = scrollTop + viewportH;
+  const first = Math.min(n - 1, lowerBound(n, (i) => l.tops[i] + l.heights[i] >= scrollTop));
+  const last = Math.max(0, lowerBound(n, (i) => l.tops[i] > bottom) - 1);
+  return { first: Math.max(0, first - overscan), last: Math.min(n - 1, last + overscan) };
+}
+
+export function pageAt(l: Layout, y: number): number {
+  const n = l.tops.length;
+  if (n === 0) return 0;
+  const idx = lowerBound(n, (i) => l.tops[i] - PAGE_GAP / 2 > y) - 1;
+  return Math.max(0, Math.min(n - 1, idx));
+}
+
+export function clampScale(s: number): number {
+  return Math.min(MAX_SCALE, Math.max(MIN_SCALE, s));
+}
+
+export function fitWidthScale(maxPageWidthPt: number, containerW: number): number {
+  return clampScale((containerW - 2 * PAGE_GAP) / maxPageWidthPt);
+}
+
+export function contentWidth(l: Layout, containerW: number): number {
+  return Math.max(containerW, l.maxWidth + 2 * PAGE_GAP);
+}
+
+export function pageLeft(l: Layout, i: number, containerW: number): number {
+  return (contentWidth(l, containerW) - l.widths[i]) / 2;
+}
+
+export function zoomAround(
+  l0: Layout, l1: Layout, s0: number, s1: number,
+  anchor: { x: number; y: number }, scroll: { top: number; left: number }, containerW: number,
+): { top: number; left: number } {
+  if (l0.tops.length === 0 || l1.tops.length === 0) return { top: scroll.top, left: scroll.left };
+  const cx = scroll.left + anchor.x;
+  const cy = scroll.top + anchor.y;
+  const i = pageAt(l0, cy);
+  const offX = (cx - pageLeft(l0, i, containerW)) / s0;
+  const offY = (cy - l0.tops[i]) / s0;
+  const nx = pageLeft(l1, i, containerW) + offX * s1;
+  const ny = l1.tops[i] + offY * s1;
+  return { top: Math.max(0, ny - anchor.y), left: Math.max(0, nx - anchor.x) };
+}
