@@ -6,8 +6,8 @@ export interface PageSize {
   height: number
 }
 
-function fileNameOf(path: string): string {
-  return path.split(/[\/]/).pop() || path
+export function fileNameOf(path: string): string {
+  return path.split(/[\\/]/).pop() || path
 }
 
 export class DocumentSession {

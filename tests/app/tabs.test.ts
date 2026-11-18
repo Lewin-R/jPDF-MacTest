@@ -10,8 +10,8 @@ function fake(path: string): DocumentSession {
 describe('TabsStore', () => {
   it('add activates new session', () => {
     const t = new TabsStore()
-    const a = fake('C:\a.pdf')
-    const b = fake('C:\b.pdf')
+    const a = fake('C:\\a.pdf')
+    const b = fake('C:\\b.pdf')
     t.add(a)
     expect(t.activeId).toBe(a.id)
     t.add(b)
@@ -22,14 +22,32 @@ describe('TabsStore', () => {
 
   it('add same path twice activates existing, keeps one tab', () => {
     const t = new TabsStore()
-    const a = fake('C:\a.pdf')
-    const b = fake('C:\b.pdf')
-    const dup = fake('c:\A.PDF')
+    const a = fake('C:\\a.pdf')
+    const b = fake('C:\\b.pdf')
+    const dup = fake('c:\\A.PDF')
     t.add(a)
     t.add(b)
     t.add(dup)
     expect(t.sessions).toHaveLength(2)
     expect(t.activeId).toBe(a.id)
+  })
+
+  it('add disposes a rejected duplicate session', () => {
+    const t = new TabsStore()
+    const a = fake('C:\\a.pdf')
+    const dup = fake('c:\\A.PDF')
+    t.add(a)
+    t.add(dup)
+    expect(dup.dispose).toHaveBeenCalledOnce()
+    expect(a.dispose).not.toHaveBeenCalled()
+  })
+
+  it('findByPath matches case-insensitively', () => {
+    const t = new TabsStore()
+    const a = fake('C:\\docs\\a.pdf')
+    t.add(a)
+    expect(t.findByPath('c:\\DOCS\\A.PDF')?.id).toBe(a.id)
+    expect(t.findByPath('C:\\other.pdf')).toBeUndefined()
   })
 
   it('close active activates right neighbour, else left', async () => {

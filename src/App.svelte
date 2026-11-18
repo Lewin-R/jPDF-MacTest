@@ -26,7 +26,9 @@
   onMount(() => {
     const disposeOpening = initFileOpening(async (path) => {
       try {
-        tabs.add(await DocumentSession.open(path))
+        const existing = tabs.findByPath(path)
+        if (existing) tabs.activeId = existing.id
+        else tabs.add(await DocumentSession.open(path))
       } catch (e) {
         // Toasts arrive in Task 12.
         console.error(`Failed to open ${path}`, e)

@@ -8,11 +8,16 @@ export class TabsStore {
     this.sessions.find((s) => s.id === this.activeId) ?? null,
   )
 
+  findByPath(path: string): DocumentSession | undefined {
+    const key = path.toLowerCase()
+    return this.sessions.find((x) => x.path.toLowerCase() === key)
+  }
+
   add(s: DocumentSession): void {
-    const key = s.path.toLowerCase()
-    const existing = this.sessions.find((x) => x.path.toLowerCase() === key)
+    const existing = this.findByPath(s.path)
     if (existing) {
       this.activeId = existing.id
+      if (existing !== s) void s.dispose()
       return
     }
     this.sessions.push(s)
