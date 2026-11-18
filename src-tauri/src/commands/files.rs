@@ -1,9 +1,14 @@
-use std::io;
+use std::collections::HashMap;
+use std::io::{self, Write};
+use std::path::Path;
 use std::sync::Mutex;
 
+use serde::Serialize;
 use tauri::State;
 
 use crate::error::AppError;
+use crate::pdf::dto::AnnotationDto;
+use crate::pdf::writer::write_incremental;
 
 /// Windows ERROR_SHARING_VIOLATION: file is open in another process.
 const SHARING_VIOLATION: i32 = 32;
@@ -32,9 +37,74 @@ pub fn read_file(path: &str) -> Result<Vec<u8>, AppError> {
     })
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveResult {
+    pub refs: HashMap<String, String>,
+}
+
+/// Windows ERROR_LOCK_VIOLATION: part of the file is locked by another process.
+const LOCK_VIOLATION: i32 = 33;
+
+fn write_error(target: &Path, e: io::Error) -> AppError {
+    let msg = format!("{}: {e}", target.display());
+    let denied = e.kind() == io::ErrorKind::PermissionDenied
+        || matches!(e.raw_os_error(), Some(SHARING_VIOLATION | LOCK_VIOLATION));
+    if !denied {
+        return AppError::Io(msg);
+    }
+    let read_only = std::fs::metadata(target).is_ok_and(|m| m.permissions().readonly());
+    if read_only { AppError::ReadOnly(msg) } else { AppError::Locked(msg) }
+}
+
+/// Appends the annotation changes to `source` and atomically replaces `target`
+/// (temp file in the target's directory, flushed, then renamed over it). On any
+/// error `target` is left untouched.
+pub fn save_to_path(
+    source: &Path,
+    target: &Path,
+    upserts: &[AnnotationDto],
+    deletes: &[String],
+) -> Result<SaveResult, AppError> {
+    let original = read_file(&source.to_string_lossy())?;
+    let (bytes, refs) = write_incremental(&original, upserts, deletes)?;
+    let dir = match target.parent() {
+        Some(d) if !d.as_os_str().is_empty() => d,
+        _ => Path::new("."),
+    };
+    let mut tmp = tempfile::NamedTempFile::new_in(dir).map_err(|e| write_error(target, e))?;
+    tmp.write_all(&bytes).map_err(|e| write_error(target, e))?;
+    tmp.as_file().sync_all().map_err(|e| write_error(target, e))?;
+    tmp.persist(target).map_err(|e| write_error(target, e.error))?;
+    Ok(SaveResult { refs })
+}
+
+async fn blocking<T: Send + 'static>(
+    f: impl FnOnce() -> Result<T, AppError> + Send + 'static,
+) -> Result<T, AppError> {
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| AppError::Io(e.to_string()))?
+}
+
 #[tauri::command]
 pub async fn open_pdf(path: String) -> Result<tauri::ipc::Response, AppError> {
-    read_file(&path).map(tauri::ipc::Response::new)
+    blocking(move || read_file(&path).map(tauri::ipc::Response::new)).await
+}
+
+#[tauri::command]
+pub async fn save_pdf(
+    source_path: String,
+    target_path: String,
+    upserts: Vec<AnnotationDto>,
+    deletes: Vec<String>,
+) -> Result<SaveResult, AppError> {
+    blocking(move || save_to_path(Path::new(&source_path), Path::new(&target_path), &upserts, &deletes)).await
+}
+
+#[tauri::command]
+pub async fn read_annotations(path: String) -> Result<Vec<AnnotationDto>, AppError> {
+    blocking(move || crate::pdf::reader::read_annotations(&read_file(&path)?)).await
 }
 
 #[tauri::command]

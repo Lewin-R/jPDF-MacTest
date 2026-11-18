@@ -1,6 +1,5 @@
 /// Formats a number for a PDF content stream: at most 3 decimals, trailing
 /// zeros trimmed, never exponent notation, and "-0" becomes "0".
-#[allow(dead_code)] // used by ink_appearance; reused by freetext/highlight appearances later
 pub fn fmt_num(v: f64) -> String {
     if !v.is_finite() {
         return "0".to_string();

@@ -1,6 +1,5 @@
 use serde::Serialize;
 
-#[allow(dead_code)] // ReadOnly, Encrypted, InvalidPdf are produced by later tasks
 #[derive(Debug, Serialize, thiserror::Error)]
 #[serde(tag = "code", content = "message")]
 pub enum AppError {

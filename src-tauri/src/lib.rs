@@ -1,8 +1,8 @@
-mod commands;
-mod error;
-mod pdf;
+pub mod commands;
+pub mod error;
+pub mod pdf;
 
-use commands::files::{LaunchFiles, get_launch_files, open_pdf, pdf_args};
+use commands::files::{LaunchFiles, get_launch_files, open_pdf, pdf_args, read_annotations, save_pdf};
 use commands::settings::{load_settings, save_settings};
 use tauri::{Emitter, Manager};
 
@@ -21,7 +21,14 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_dialog::init())
         .manage(LaunchFiles(std::sync::Mutex::new(pdf_args(std::env::args().skip(1)))))
-        .invoke_handler(tauri::generate_handler![open_pdf, get_launch_files, load_settings, save_settings])
+        .invoke_handler(tauri::generate_handler![
+            open_pdf,
+            get_launch_files,
+            load_settings,
+            save_settings,
+            save_pdf,
+            read_annotations
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

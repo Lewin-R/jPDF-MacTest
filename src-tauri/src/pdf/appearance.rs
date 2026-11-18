@@ -7,7 +7,6 @@ use super::fmt::fmt_num;
 /// (unless `matrix` is set) and the annotation `/Rect` = `bbox`.
 /// The writer builds the `/ExtGState` resource `GS0` from `opacity` (`/CA`, `/ca`)
 /// and `multiply` (`/BM /Multiply`), and a Helvetica font resource if `uses_helvetica`.
-#[allow(dead_code)] // consumed by the PDF writer in Task 16
 #[derive(Clone, Debug, PartialEq)]
 pub struct Appearance {
     pub bbox: [f64; 4],
@@ -49,7 +48,6 @@ fn stroke_path(s: &[[f64; 2]], out: &mut String) {
 
 /// Callers (the writer) must skip ink annotations whose strokes are all empty:
 /// they yield a zero bbox and no drawing operators.
-#[allow(dead_code)] // consumed by the PDF writer in Task 16
 pub fn ink_appearance(strokes: &[Vec<[f64; 2]>], color: [f64; 3], width: f64, opacity: f64, multiply: bool) -> Appearance {
     let (mut x1, mut y1, mut x2, mut y2) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
     let mut any = false;

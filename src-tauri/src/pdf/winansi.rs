@@ -23,7 +23,6 @@ fn encode_char(c: char) -> u8 {
 }
 
 /// Encodes text as WinAnsiEncoding (cp1252). Unmappable characters become `?`.
-#[allow(dead_code)] // used by freetext appearance (Task 19+)
 pub fn encode_winansi(s: &str) -> Vec<u8> {
     s.chars().map(encode_char).collect()
 }
