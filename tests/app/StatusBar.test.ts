@@ -9,6 +9,7 @@ function fakeSession(over: Partial<DocumentSession> = {}) {
     currentPage: 2,
     scale: 1.5,
     pageSizes: Array.from({ length: 10 }, () => ({ width: 600, height: 800 })),
+    history: { canUndo: false, canRedo: false },
     goToPage: vi.fn(),
     zoomTo: vi.fn(),
     ...over,
@@ -19,6 +20,16 @@ const disposers: (() => void)[] = []
 afterEach(() => disposers.splice(0).forEach((d) => d()))
 
 describe('StatusBar', () => {
+  it('undo/redo buttons follow history and run the edit commands', async () => {
+    const run = vi.fn()
+    disposers.push(commands.register({ id: 'edit.undo', title: 'Undo', run }))
+    const s = fakeSession({ history: { canUndo: true, canRedo: false } as never })
+    const { getByRole } = render(StatusBar, { props: { session: s } })
+    expect((getByRole('button', { name: 'Redo' }) as HTMLButtonElement).disabled).toBe(true)
+    await fireEvent.click(getByRole('button', { name: 'Undo' }))
+    expect(run).toHaveBeenCalledOnce()
+  })
+
   it('disables navigation and zoom without a document', () => {
     const { getByRole } = render(StatusBar, { props: { session: null } })
     expect(getByRole('button', { name: 'Previous page' })).toHaveProperty('disabled', true)

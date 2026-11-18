@@ -4,6 +4,8 @@ import {
 } from '../viewer/layout'
 import { loadPdf, type PdfDoc } from '../viewer/pdfEngine'
 import { renderCache } from '../viewer/renderCache'
+import { History } from './history.svelte'
+import { AnnotationStore } from './store.svelte'
 
 export interface PageSize {
   width: number
@@ -53,8 +55,12 @@ export class DocumentSession {
   /** Set by goToPage so the echoing scroll event keeps the requested page. */
   private pinnedTop: number | null = null
   private disposed = false
-  // Replaced by a history-derived value in Task 9.
-  dirty = $state(false)
+  readonly store = new AnnotationStore()
+  readonly history = new History(this.store)
+
+  get dirty(): boolean {
+    return this.history.isDirty
+  }
 
   private constructor(path: string, doc: PdfDoc, first: PageSize) {
     this.path = path

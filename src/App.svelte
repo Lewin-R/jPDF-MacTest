@@ -10,6 +10,7 @@
   import TitleBar from './app/TitleBar.svelte'
   import { keybindings } from './core/registry/keybindings'
   import Viewer from './core/viewer/Viewer.svelte'
+  import { registerEditCommands } from './core/session/editCommands'
   import { registerViewCommands } from './core/viewer/viewCommands'
 
   function closeActive() {
@@ -57,7 +58,9 @@
       keybindings.bind(c.chord, c.id),
     ])
     const disposeView = registerViewCommands(() => tabs.active)
+    const disposeEdit = registerEditCommands(() => tabs.active)
     return () => {
+      disposeEdit()
       disposeView()
       disposeTabs.forEach((d) => d())
       disposeKey()

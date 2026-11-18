@@ -52,8 +52,22 @@
 
 <footer class="statusbar">
   <div class="left">
-    <button type="button" aria-label="Undo" disabled={!session}><Undo2 size={16} /></button>
-    <button type="button" aria-label="Redo" disabled={!session}><Redo2 size={16} /></button>
+    <button
+      type="button"
+      aria-label="Undo"
+      disabled={!session?.history.canUndo}
+      onclick={() => commands.execute('edit.undo')}
+    >
+      <Undo2 size={16} />
+    </button>
+    <button
+      type="button"
+      aria-label="Redo"
+      disabled={!session?.history.canRedo}
+      onclick={() => commands.execute('edit.redo')}
+    >
+      <Redo2 size={16} />
+    </button>
   </div>
   <div class="center" data-region="page-nav">
     <button
