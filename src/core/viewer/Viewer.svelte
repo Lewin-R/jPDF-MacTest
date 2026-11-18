@@ -6,6 +6,7 @@
   import { clampScale, contentWidth, pageLeft, visibleRange } from './layout'
   import Overlay from './Overlay.svelte'
   import PageView from './PageView.svelte'
+  import { blurAfterPointerClick, isSpacePanBlocked } from './spacePan'
   import { wheelZoomFactor } from './viewerMath'
 
   // Mount one Viewer per session ({#key session.id}); scroll and scale live on
@@ -68,14 +69,8 @@
   let panning = $state(false)
   let panPointer: { id: number; x: number; y: number } | null = null
 
-  function typingTarget(t: EventTarget | null): boolean {
-    if (!(t instanceof Element)) return false
-    // Space belongs to text entry and to modals.
-    return !!t.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), dialog, [role="dialog"], [aria-modal="true"]')
-  }
-
   function onWindowKeyDown(e: KeyboardEvent) {
-    if (e.code !== 'Space' || e.ctrlKey || e.metaKey || e.altKey || typingTarget(e.target)) return
+    if (e.code !== 'Space' || e.ctrlKey || e.metaKey || e.altKey || isSpacePanBlocked(e.target)) return
     e.preventDefault() // no page scroll
     spaceHeld = true
   }
@@ -100,6 +95,8 @@
 
   function onPanMove(e: PointerEvent) {
     if (!panPointer || panPointer.id !== e.pointerId) return
+    // The up/cancel was lost: do not keep panning (or blocking new pans).
+    if (e.buttons === 0) return endPan(e)
     // Client deltas: page-local coordinates move with the page while panning.
     session.scrollBy(-(e.clientX - panPointer.x), -(e.clientY - panPointer.y))
     panPointer.x = e.clientX
@@ -163,7 +160,12 @@
     el.addEventListener('pointerup', endPan, { capture: true })
     el.addEventListener('pointercancel', endPan, { capture: true })
     el.addEventListener('mousedown', onPanMouseDown, { capture: true })
-    const clearSpace = () => (spaceHeld = false)
+    const clearSpace = () => {
+      spaceHeld = false
+      if (panPointer) endPan({ pointerId: panPointer.id } as PointerEvent)
+    }
+    el.addEventListener('lostpointercapture', endPan)
+    window.addEventListener('click', blurAfterPointerClick)
     window.addEventListener('keydown', onWindowKeyDown)
     window.addEventListener('keyup', onWindowKeyUp)
     window.addEventListener('blur', clearSpace)
@@ -176,6 +178,8 @@
       window.removeEventListener('keydown', onWindowKeyDown)
       window.removeEventListener('keyup', onWindowKeyUp)
       window.removeEventListener('blur', clearSpace)
+      el.removeEventListener('lostpointercapture', endPan)
+      window.removeEventListener('click', blurAfterPointerClick)
       ro.disconnect()
       el.removeEventListener('wheel', onWheel)
       commitWheelZoom()
