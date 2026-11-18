@@ -1,5 +1,6 @@
 mod commands;
 mod error;
+mod pdf;
 
 use commands::files::{LaunchFiles, get_launch_files, open_pdf, pdf_args};
 use commands::settings::{load_settings, save_settings};
