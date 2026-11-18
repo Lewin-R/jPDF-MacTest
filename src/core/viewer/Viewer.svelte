@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import type { DocumentSession } from '../session/session.svelte'
   import { clampScale, contentWidth, pageLeft, visibleRange } from './layout'
+  import Overlay from './Overlay.svelte'
   import PageView from './PageView.svelte'
   import { wheelZoomFactor } from './viewerMath'
 
@@ -105,7 +106,9 @@
           scale={session.scale}
           left={pageLeft(layout, i, session.viewportW)}
           top={layout.tops[i]}
-        />
+        >
+          <Overlay doc={session.doc} pageNumber={i + 1} scale={session.scale} store={session.store} />
+        </PageView>
       {/each}
     </div>
   </div>
