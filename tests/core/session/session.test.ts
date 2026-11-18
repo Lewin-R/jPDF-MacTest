@@ -43,6 +43,14 @@ describe('DocumentSession view state', () => {
     expect(s.scale).toBeCloseTo((1000 - 2 * PAGE_GAP) / 600)
   })
 
+  it('scrollBy moves the scroll position and never goes negative', () => {
+    s.setScroll(100, 50)
+    s.scrollBy(20, -30)
+    expect([s.scrollTop, s.scrollLeft]).toEqual([70, 70])
+    s.scrollBy(-500, -500)
+    expect([s.scrollTop, s.scrollLeft]).toEqual([0, 0])
+  })
+
   it('initView fits width at the top once', () => {
     s.initView()
     expect(s.scale).toBeCloseTo((1000 - 2 * PAGE_GAP) / 600)

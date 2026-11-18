@@ -31,6 +31,10 @@ export interface ToolContext {
   selection: { ids: string[]; set(ids: string[]): void }
   /** Live, uncommitted annotation drawn by Overlay. */
   preview: { set(a: Annotation | null): void }
+  /** Annotations hidden by Overlay while a gesture (e.g. erasing) is in progress; cleared when the tool changes. */
+  hidden: { readonly ids: ReadonlySet<string>; set(ids: Iterable<string>): void }
+  /** Overrides the tool's cursor (e.g. 'grabbing' during a drag); null restores it. */
+  cursor: { set(c: string | null): void }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

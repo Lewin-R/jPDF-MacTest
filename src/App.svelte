@@ -99,6 +99,7 @@
           tool={router.handler}
           cursor={router.cursor}
           toolPreview={router.stateOf(tabs.active).preview}
+          toolHidden={router.stateOf(tabs.active).hidden}
         />
       {/key}
     {:else}

@@ -125,6 +125,20 @@ describe('ToolRouter', () => {
     expect(router.handler).toBeNull()
   })
 
+  it('hidden ids and the cursor override are per-session and cleared when the tool changes', () => {
+    const { router, created, store } = setup()
+    router.sync()
+    const ctx = created[0].ctx
+    ctx.hidden.set(['a', 'b'])
+    ctx.cursor.set('grabbing')
+    expect([...ctx.hidden.ids]).toEqual(['a', 'b'])
+    expect(router.cursor).toBe('grabbing')
+    store.setActive('p2')
+    router.sync()
+    expect(router.stateOf(ctx.session).hidden.size).toBe(0)
+    expect(router.cursor).toBeUndefined()
+  })
+
   it('exposes the tool cursor', () => {
     const { router, registry, store } = setup()
     registry.get('pen').cursor = (s: { width: number }) => `cell-${s.width}`

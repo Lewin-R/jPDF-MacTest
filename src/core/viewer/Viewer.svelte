@@ -15,6 +15,7 @@
     tool = null,
     cursor,
     toolPreview = null,
+    toolHidden,
   }: {
     session: DocumentSession
     /** Active tool's handler (see ToolRouter); page overlays forward pointer input to it. */
@@ -22,6 +23,8 @@
     cursor?: string
     /** The tool's live, uncommitted annotation, drawn on its page. */
     toolPreview?: Annotation | null
+    /** Annotation ids the active tool has hidden (erased, not yet committed). */
+    toolHidden?: ReadonlySet<string>
   } = $props()
 
   const WHEEL_COMMIT_MS = 150
@@ -59,6 +62,66 @@
     }
   })
 
+  // Temporary pan: Space held or the middle button, in any tool. Handled in the
+  // capture phase on the viewer so the active tool never sees those events.
+  let spaceHeld = $state(false)
+  let panning = $state(false)
+  let panPointer: { id: number; x: number; y: number } | null = null
+
+  function typingTarget(t: EventTarget | null): boolean {
+    if (!(t instanceof Element)) return false
+    // Space belongs to text entry and to modals.
+    return !!t.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), dialog, [role="dialog"], [aria-modal="true"]')
+  }
+
+  function onWindowKeyDown(e: KeyboardEvent) {
+    if (e.code !== 'Space' || e.ctrlKey || e.metaKey || e.altKey || typingTarget(e.target)) return
+    e.preventDefault() // no page scroll
+    spaceHeld = true
+  }
+
+  function onWindowKeyUp(e: KeyboardEvent) {
+    if (e.code === 'Space') spaceHeld = false
+  }
+
+  function onPanDown(e: PointerEvent) {
+    const middle = e.button === 1
+    if (panPointer || !(middle || (e.button === 0 && spaceHeld))) return
+    e.preventDefault()
+    e.stopPropagation()
+    panPointer = { id: e.pointerId, x: e.clientX, y: e.clientY }
+    panning = true
+    try {
+      el.setPointerCapture(e.pointerId)
+    } catch {
+      // Pointer already gone; the gesture ends with the next up/cancel.
+    }
+  }
+
+  function onPanMove(e: PointerEvent) {
+    if (!panPointer || panPointer.id !== e.pointerId) return
+    // Client deltas: page-local coordinates move with the page while panning.
+    session.scrollBy(-(e.clientX - panPointer.x), -(e.clientY - panPointer.y))
+    panPointer.x = e.clientX
+    panPointer.y = e.clientY
+  }
+
+  function endPan(e: PointerEvent) {
+    if (!panPointer || panPointer.id !== e.pointerId) return
+    panPointer = null
+    panning = false
+    try {
+      el.releasePointerCapture(e.pointerId)
+    } catch {
+      // Capture may already be gone.
+    }
+  }
+
+  // WebView2 starts autoscroll on a middle-button mousedown.
+  function onPanMouseDown(e: MouseEvent) {
+    if (e.button === 1) e.preventDefault()
+  }
+
   function onWheel(e: WheelEvent) {
     // Touchpad pinch arrives as Ctrl+wheel too.
     if (!e.ctrlKey) return
@@ -95,7 +158,24 @@
     ro.observe(el)
     // Non-passive so preventDefault stops WebView2 from zooming the whole UI.
     el.addEventListener('wheel', onWheel, { passive: false })
+    el.addEventListener('pointerdown', onPanDown, { capture: true })
+    el.addEventListener('pointermove', onPanMove, { capture: true })
+    el.addEventListener('pointerup', endPan, { capture: true })
+    el.addEventListener('pointercancel', endPan, { capture: true })
+    el.addEventListener('mousedown', onPanMouseDown, { capture: true })
+    const clearSpace = () => (spaceHeld = false)
+    window.addEventListener('keydown', onWindowKeyDown)
+    window.addEventListener('keyup', onWindowKeyUp)
+    window.addEventListener('blur', clearSpace)
     return () => {
+      el.removeEventListener('pointerdown', onPanDown, { capture: true })
+      el.removeEventListener('pointermove', onPanMove, { capture: true })
+      el.removeEventListener('pointerup', endPan, { capture: true })
+      el.removeEventListener('pointercancel', endPan, { capture: true })
+      el.removeEventListener('mousedown', onPanMouseDown, { capture: true })
+      window.removeEventListener('keydown', onWindowKeyDown)
+      window.removeEventListener('keyup', onWindowKeyUp)
+      window.removeEventListener('blur', clearSpace)
       ro.disconnect()
       el.removeEventListener('wheel', onWheel)
       commitWheelZoom()
@@ -103,7 +183,12 @@
   })
 </script>
 
-<div class="viewer" bind:this={el} onscroll={onScroll}>
+<div
+  class="viewer"
+  style:cursor={panning ? 'grabbing' : spaceHeld ? 'grab' : undefined}
+  bind:this={el}
+  onscroll={onScroll}
+>
   <div class="content" style:width="{width}px" style:height="{layout.totalHeight}px">
     <div
       class="pages"
@@ -127,8 +212,9 @@
             scale={session.scale}
             store={session.store}
             preview={toolPreview?.page === i ? toolPreview : null}
+            hidden={toolHidden}
             {tool}
-            {cursor}
+            cursor={panning ? 'grabbing' : spaceHeld ? 'grab' : cursor}
           />
         </PageView>
       {/each}

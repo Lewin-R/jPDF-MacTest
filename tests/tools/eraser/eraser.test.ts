@@ -1,0 +1,80 @@
+import { describe, expect, it } from 'vitest'
+import { createEraserHandler, eraserTool } from '../../../src/tools/eraser'
+import { annotationKinds } from '../../../src/core/registry/annotationKinds'
+import { distToSegment } from '../../../src/core/geometry/hit'
+import type { PagePointerEvent, ToolContext } from '../../../src/core/registry/tools'
+import type { Command } from '../../../src/core/session/history.svelte'
+import type { Annotation, Point } from '../../../src/core/session/model'
+
+// Minimal kinds: ink = horizontal line y=y0 from x=0..100; freetext = never erased.
+annotationKinds.register({
+  kind: 'ink',
+  hitTest: (a: Annotation, p: Point, tol: number) => distToSegment(p, [0, (a as never as { y: number }).y], [100, (a as never as { y: number }).y]) <= tol,
+} as never)
+annotationKinds.register({ kind: 'freetext', hitTest: () => true } as never)
+
+const stroke = (id: string, y: number) => ({ id, kind: 'ink', page: 0, y }) as unknown as Annotation
+const text = { id: 't', kind: 'freetext', page: 0 } as Annotation
+
+function setup(scale = 2) {
+  const annos = [stroke('a', 10), stroke('b', 50), text]
+  const executed: Command[] = []
+  let hidden: string[] = []
+  const ctx = {
+    session: { store: { byPage: (p: number) => annos.filter((a) => a.page === p) } },
+    execute: (c: Command) => executed.push(c),
+    hidden: { get ids() { return new Set(hidden) }, set: (ids: Iterable<string>) => (hidden = [...ids]) },
+  } as unknown as ToolContext
+  const ev = (x: number, y: number): PagePointerEvent => ({
+    page: 0, pdf: [x, y], screen: [0, 0], vp: { scale } as never, native: {} as PointerEvent, toPdf: (a, b) => [a, b],
+  })
+  return { handler: createEraserHandler(ctx), executed, ev, hidden: () => hidden, annos }
+}
+
+describe('eraser', () => {
+  it('is a single-instance tool without options', () => {
+    expect(eraserTool).toMatchObject({ shortcut: 'E', allowMultipleInstances: false, Options: null })
+  })
+
+  it('hides strokes during the drag and deletes them in one command on up', () => {
+    const { handler, executed, ev, hidden, annos } = setup()
+    handler.onPointerDown!(ev(50, 10))
+    expect(hidden()).toEqual(['a'])
+    // Fast jump across stroke b: the segment is sampled, not just the end point.
+    handler.onPointerMove!(ev(50, 90))
+    expect(hidden().sort()).toEqual(['a', 'b'])
+    expect(executed).toHaveLength(0)
+    handler.onPointerUp!(ev(50, 90))
+    expect(hidden()).toEqual([])
+    expect(executed).toHaveLength(1)
+    const removed: string[] = []
+    executed[0].do({ remove: (id: string) => removed.push(id), byPage: (p: number) => annos.filter((a) => a.page === p) } as never)
+    expect(removed.sort()).toEqual(['a', 'b'])
+  })
+
+  it('uses a 6 screen px radius (3 pt at scale 2)', () => {
+    const { handler, ev, hidden } = setup(2)
+    handler.onPointerDown!(ev(50, 13.5)) // 3.5 pt away
+    expect(hidden()).toEqual([])
+    handler.onPointerMove!(ev(50, 12.5)) // 2.5 pt away
+    expect(hidden()).toEqual(['a'])
+  })
+
+  it('never erases other kinds, and nothing hit means no command', () => {
+    const { handler, executed, ev } = setup()
+    handler.onPointerDown!(ev(500, 500))
+    handler.onPointerUp!(ev(500, 500))
+    expect(executed).toHaveLength(0)
+  })
+
+  it('cancel and deactivate clear hidden without deleting', () => {
+    for (const end of ['onPointerCancel', 'onDeactivate'] as const) {
+      const { handler, executed, ev, hidden } = setup()
+      handler.onPointerDown!(ev(50, 10))
+      expect(hidden()).toEqual(['a'])
+      handler[end]!(ev(50, 10))
+      expect(hidden()).toEqual([])
+      expect(executed).toHaveLength(0)
+    }
+  })
+})

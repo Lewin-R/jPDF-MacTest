@@ -13,6 +13,7 @@
     scale,
     store,
     preview = null,
+    hidden,
     tool = null,
     cursor,
     viewport,
@@ -25,6 +26,8 @@
     store: AnnotationStore
     /** In-progress annotation drawn on top (tool preview). */
     preview?: Annotation | null
+    /** Annotation ids not drawn (erased during an uncommitted drag). */
+    hidden?: ReadonlySet<string>
     /** Active tool's handler; the overlay takes pointer input only when set. */
     tool?: ToolHandler | null
     /** CSS cursor while a tool is active. */
@@ -175,8 +178,10 @@
 >
   {#if vp}
     {#each annotations as a (a.id)}
-      {@const K = annotationKinds.get(a.kind)}
-      <K.Render {a} {vp} selected={false} />
+      {#if !hidden?.has(a.id)}
+        {@const K = annotationKinds.get(a.kind)}
+        <K.Render {a} {vp} selected={false} />
+      {/if}
     {/each}
     {#if preview}
       {@const K = annotationKinds.get(preview.kind)}

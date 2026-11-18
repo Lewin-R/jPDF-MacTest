@@ -13,6 +13,8 @@ interface ActiveToolLike {
 export class SessionToolState {
   selection = $state<string[]>([])
   preview = $state.raw<Annotation | null>(null)
+  hidden = $state.raw<ReadonlySet<string>>(new Set())
+  cursor = $state<string | null>(null)
 }
 
 /**
@@ -27,7 +29,9 @@ export class ToolRouter {
 
   readonly cursor: string | undefined = $derived.by(() => {
     const a = this.getActive()
-    return a?.def.cursor?.(a.instance.settings)
+    const session = this.getSession()
+    const override = session ? this.stateOf(session).cursor : null
+    return override ?? a?.def.cursor?.(a.instance.settings)
   })
 
   private states = new WeakMap<DocumentSession, SessionToolState>()
@@ -86,7 +90,12 @@ export class ToolRouter {
       }
     }
     // An uncommitted preview must not outlive its tool.
-    if (oldSession) this.stateOf(oldSession).preview = null
+    if (oldSession) {
+      const state = this.stateOf(oldSession)
+      state.preview = null
+      state.hidden = new Set()
+      state.cursor = null
+    }
   }
 
   private settingsGetter(instance: ToolInstance): () => unknown {
@@ -115,6 +124,19 @@ export class ToolRouter {
       preview: {
         set: (a) => {
           state.preview = a
+        },
+      },
+      hidden: {
+        get ids() {
+          return state.hidden
+        },
+        set: (ids) => {
+          state.hidden = new Set(ids)
+        },
+      },
+      cursor: {
+        set: (c) => {
+          state.cursor = c
         },
       },
     }

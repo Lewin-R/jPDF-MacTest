@@ -117,6 +117,15 @@ export class DocumentSession {
     this.viewportH = height
   }
 
+  /**
+   * Scrolls by a delta (pan gestures). The Viewer applies the new position to
+   * its scroll container and echoes the clamped result back through setScroll.
+   */
+  scrollBy(dx: number, dy: number): void {
+    this.scrollTop = Math.max(0, this.scrollTop + dy)
+    this.scrollLeft = Math.max(0, this.scrollLeft + dx)
+  }
+
   /** Records the viewer's scroll position (from scroll events). */
   setScroll(top: number, left: number): void {
     this.scrollTop = top
