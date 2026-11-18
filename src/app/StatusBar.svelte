@@ -1,7 +1,7 @@
 <script lang="ts">
-  import Maximize from 'lucide-svelte/icons/maximize'
-  import Redo2 from 'lucide-svelte/icons/redo-2'
-  import Undo2 from 'lucide-svelte/icons/undo-2'
+  import Maximize from '@lucide/svelte/icons/maximize'
+  import Redo2 from '@lucide/svelte/icons/redo-2'
+  import Undo2 from '@lucide/svelte/icons/undo-2'
 
   let { hasDocument = false }: { hasDocument?: boolean } = $props()
 </script>

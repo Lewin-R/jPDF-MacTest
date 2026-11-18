@@ -1,8 +1,8 @@
 <script lang="ts">
   import { getCurrentWindow } from '@tauri-apps/api/window'
-  import Minus from 'lucide-svelte/icons/minus'
-  import Square from 'lucide-svelte/icons/square'
-  import X from 'lucide-svelte/icons/x'
+  import Minus from '@lucide/svelte/icons/minus'
+  import Square from '@lucide/svelte/icons/square'
+  import X from '@lucide/svelte/icons/x'
 
   const win = getCurrentWindow()
 </script>
