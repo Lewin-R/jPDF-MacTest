@@ -20,7 +20,7 @@
     })
     const disposeCommand = commands.register({
       id: 'file.open',
-      title: 'Open PDF…',
+      title: 'Open PDFâ€¦',
       run: pickAndOpen,
     })
     const disposeKey = keybindings.bind('Ctrl+O', 'file.open')
