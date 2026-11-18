@@ -1,0 +1,239 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+const h = vi.hoisted(() => ({
+  savePdf: vi.fn(),
+  askToSave: vi.fn(),
+  saveDialog: vi.fn(),
+}))
+vi.mock('../../src/core/ipc/api', async (orig) => ({
+  ...(await orig<typeof import('../../src/core/ipc/api')>()),
+  savePdf: h.savePdf,
+}))
+vi.mock('../../src/app/ConfirmClose.svelte', () => ({ askToSave: h.askToSave }))
+vi.mock('@tauri-apps/plugin-dialog', () => ({ save: h.saveDialog }))
+
+import { confirmAndClose, confirmCloseAll, saveSession, saveSessionAs } from '../../src/app/saveFlow'
+import { addAnnotations, deleteAnnotations, updateAnnotation } from '../../src/core/session/commands'
+import { History } from '../../src/core/session/history.svelte'
+import type { InkAnnotation } from '../../src/core/session/model'
+import type { DocumentSession } from '../../src/core/session/session.svelte'
+import { AnnotationStore } from '../../src/core/session/store.svelte'
+import { toasts } from '../../src/ui/toasts.svelte'
+
+function ink(id: string, sourceRef: string | null = null, author = 'JuliePDF'): InkAnnotation {
+  return {
+    kind: 'ink', id, page: 0, sourceRef, modifiedAt: '2026-11-18T10:00:00Z', author,
+    strokes: [[[0, 0], [10, 10]]], color: [1, 0, 0], width: 2, opacity: 1, blend: 'normal', role: 'pen',
+  }
+}
+
+function fakeSession(path = 'C:\\docs\\a.pdf', loaded: InkAnnotation[] = []) {
+  const store = new AnnotationStore()
+  store.load(loaded)
+  const history = new History(store)
+  const s = {
+    path,
+    fileName: path.split('\\').pop()!,
+    store,
+    history,
+    get dirty() {
+      return history.isDirty
+    },
+    setPath: vi.fn((p: string) => {
+      s.path = p
+      s.fileName = p.split('\\').pop()!
+    }),
+    suppress: vi.fn(),
+  }
+  return s as typeof s & DocumentSession
+}
+
+function deferred<T>() {
+  let resolve!: (v: T) => void
+  const promise = new Promise<T>((r) => (resolve = r))
+  return { promise, resolve }
+}
+
+beforeEach(() => {
+  h.savePdf.mockReset()
+  h.askToSave.mockReset()
+  h.saveDialog.mockReset()
+  vi.spyOn(console, 'error').mockImplementation(() => {})
+})
+afterEach(() => {
+  for (const t of [...toasts.items]) toasts.dismiss(t.id)
+  vi.restoreAllMocks()
+})
+
+describe('saveSession', () => {
+  it('sends changedSince as upserts and deletedSourceRefs as deletes', async () => {
+    const s = fakeSession('C:\\docs\\a.pdf', [ink('old1', '10R'), ink('old2', '12R')])
+    s.history.execute(deleteAnnotations([s.store.get('old1')!]))
+    s.history.execute(addAnnotations([ink('new')]))
+    h.savePdf.mockResolvedValue({ refs: { new: '20R' } })
+    expect(await saveSession(s)).toBe(true)
+    expect(h.savePdf).toHaveBeenCalledWith('C:\\docs\\a.pdf', 'C:\\docs\\a.pdf', [ink('new')], ['10R'])
+  })
+
+  it('on success calls markSaved(refs) and markClean', async () => {
+    const s = fakeSession()
+    s.history.execute(addAnnotations([ink('new')]))
+    const markSaved = vi.spyOn(s.store, 'markSaved')
+    const markClean = vi.spyOn(s.history, 'markClean')
+    h.savePdf.mockResolvedValue({ refs: { new: '20R' } })
+    await saveSession(s)
+    expect(markSaved).toHaveBeenCalledWith({ new: '20R' })
+    expect(markClean).toHaveBeenCalled()
+    expect(s.dirty).toBe(false)
+    expect(s.store.get('new')!.sourceRef).toBe('20R')
+    expect(s.suppress).toHaveBeenCalledWith(['20R'])
+  })
+
+  it('on Locked shows error toast with Save As action and keeps dirty', async () => {
+    const s = fakeSession()
+    s.history.execute(addAnnotations([ink('new')]))
+    h.savePdf.mockRejectedValue({ code: 'Locked', message: 'C:\\docs\\a.pdf: denied' })
+    expect(await saveSession(s)).toBe(false)
+    expect(s.dirty).toBe(true)
+    expect(toasts.items).toHaveLength(1)
+    expect(toasts.items[0].kind).toBe('error')
+    expect(toasts.items[0].action?.label).toBe('Save As…')
+    expect(s.store.changedSince().map((a) => a.id)).toEqual(['new'])
+  })
+
+  it('on other errors shows the message without an action and keeps dirty', async () => {
+    const s = fakeSession()
+    s.history.execute(addAnnotations([ink('new')]))
+    h.savePdf.mockRejectedValue({ code: 'InvalidPdf', message: 'unsupported annotation kind' })
+    expect(await saveSession(s)).toBe(false)
+    expect(s.dirty).toBe(true)
+    expect(toasts.items[0].message).toContain('unsupported annotation kind')
+    expect(toasts.items[0].action).toBeUndefined()
+  })
+
+  it('sends author "JuliePDF" when an annotation has none', async () => {
+    const s = fakeSession()
+    s.history.execute(addAnnotations([ink('new', null, '')]))
+    h.savePdf.mockResolvedValue({ refs: {} })
+    await saveSession(s)
+    expect(h.savePdf.mock.calls[0][2][0].author).toBe('JuliePDF')
+  })
+
+  it('to another path writes from the current path and points the session at the target', async () => {
+    const s = fakeSession('C:\\docs\\a.pdf')
+    h.savePdf.mockResolvedValue({ refs: {} })
+    expect(await saveSession(s, 'D:\\out\\b.pdf')).toBe(true)
+    expect(h.savePdf).toHaveBeenCalledWith('C:\\docs\\a.pdf', 'D:\\out\\b.pdf', [], [])
+    expect(s.path).toBe('D:\\out\\b.pdf')
+    expect(s.fileName).toBe('b.pdf')
+  })
+
+  it('keeps edits made while the save is in flight dirty and saves them next time', async () => {
+    const s = fakeSession('C:\\docs\\a.pdf', [ink('old', '10R')])
+    s.history.execute(addAnnotations([ink('a')]))
+    const first = deferred<{ refs: Record<string, string> }>()
+    h.savePdf.mockReturnValueOnce(first.promise)
+    const saving = saveSession(s)
+    s.history.execute(addAnnotations([ink('b')]))
+    s.history.execute(updateAnnotation(s.store.get('a')!, { ...ink('a'), width: 5 }))
+    s.history.execute(deleteAnnotations([s.store.get('old')!]))
+    first.resolve({ refs: { a: '20R' } })
+    expect(await saving).toBe(true)
+    expect(s.dirty).toBe(true)
+
+    h.savePdf.mockResolvedValueOnce({ refs: { b: '21R' } })
+    await saveSession(s)
+    const [, , upserts, deletes] = h.savePdf.mock.calls[1]
+    expect(upserts.map((a: InkAnnotation) => [a.id, a.sourceRef, a.width])).toEqual([
+      ['a', '20R', 5],
+      ['b', null, 2],
+    ])
+    expect(deletes).toEqual(['10R'])
+    expect(s.dirty).toBe(false)
+  })
+
+  it('a second save waits for the one in flight', async () => {
+    const s = fakeSession()
+    s.history.execute(addAnnotations([ink('a')]))
+    const first = deferred<{ refs: Record<string, string> }>()
+    h.savePdf.mockReturnValueOnce(first.promise).mockResolvedValueOnce({ refs: {} })
+    const one = saveSession(s)
+    const two = saveSession(s, 'C:\\docs\\copy.pdf')
+    await Promise.resolve()
+    expect(h.savePdf).toHaveBeenCalledTimes(1)
+    first.resolve({ refs: { a: '20R' } })
+    expect(await Promise.all([one, two])).toEqual([true, true])
+    expect(h.savePdf.mock.calls[1].slice(0, 3)).toEqual(['C:\\docs\\a.pdf', 'C:\\docs\\copy.pdf', []])
+  })
+})
+
+describe('saveSessionAs', () => {
+  it('asks for a .pdf target named like the current file and saves there', async () => {
+    const s = fakeSession('C:\\docs\\a.pdf')
+    h.saveDialog.mockResolvedValue('D:\\out\\b.pdf')
+    h.savePdf.mockResolvedValue({ refs: {} })
+    expect(await saveSessionAs(s)).toBe(true)
+    expect(h.saveDialog).toHaveBeenCalledWith({
+      defaultPath: 'C:\\docs\\a.pdf',
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    })
+    expect(s.path).toBe('D:\\out\\b.pdf')
+  })
+
+  it('does nothing when the dialog is cancelled', async () => {
+    const s = fakeSession()
+    h.saveDialog.mockResolvedValue(null)
+    expect(await saveSessionAs(s)).toBe(false)
+    expect(h.savePdf).not.toHaveBeenCalled()
+  })
+})
+
+describe('confirmAndClose', () => {
+  it('returns true without prompting when not dirty', async () => {
+    const s = fakeSession()
+    expect(await confirmAndClose(s)).toBe(true)
+    expect(h.askToSave).not.toHaveBeenCalled()
+  })
+
+  it('Save saves and closes; a failed save keeps the tab', async () => {
+    const s = fakeSession()
+    s.history.execute(addAnnotations([ink('new')]))
+    h.askToSave.mockResolvedValue('save')
+    h.savePdf.mockRejectedValueOnce({ code: 'Io', message: 'disk full' })
+    expect(await confirmAndClose(s)).toBe(false)
+    h.savePdf.mockResolvedValueOnce({ refs: { new: '20R' } })
+    expect(await confirmAndClose(s)).toBe(true)
+    expect(h.askToSave).toHaveBeenCalledWith('a.pdf')
+    expect(s.dirty).toBe(false)
+  })
+
+  it("Don't save closes without saving; Cancel keeps the tab", async () => {
+    const s = fakeSession()
+    s.history.execute(addAnnotations([ink('new')]))
+    h.askToSave.mockResolvedValueOnce('discard')
+    expect(await confirmAndClose(s)).toBe(true)
+    h.askToSave.mockResolvedValueOnce('cancel')
+    expect(await confirmAndClose(s)).toBe(false)
+    expect(h.savePdf).not.toHaveBeenCalled()
+  })
+})
+
+describe('confirmCloseAll', () => {
+  it('prompts for each dirty session in turn and stops at Cancel', async () => {
+    const a = fakeSession('C:\\a.pdf')
+    const b = fakeSession('C:\\b.pdf')
+    const c = fakeSession('C:\\c.pdf')
+    const d = fakeSession('C:\\d.pdf')
+    for (const s of [a, c, d]) s.history.execute(addAnnotations([ink('x')]))
+    h.askToSave.mockResolvedValueOnce('discard').mockResolvedValueOnce('cancel')
+    expect(await confirmCloseAll([a, b, c, d])).toBe(false)
+    expect(h.askToSave.mock.calls).toEqual([['a.pdf'], ['c.pdf']])
+  })
+
+  it('returns true when every session may close', async () => {
+    const a = fakeSession('C:\\a.pdf')
+    a.history.execute(addAnnotations([ink('x')]))
+    h.askToSave.mockResolvedValue('discard')
+    expect(await confirmCloseAll([a, fakeSession('C:\\b.pdf')])).toBe(true)
+  })
+})

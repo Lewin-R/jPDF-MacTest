@@ -16,6 +16,12 @@ export interface PdfDoc {
   readonly destroyed: boolean
   /** `i` is the 1-based page number. */
   getPage(i: number): Promise<PDFPageProxy>
+  /**
+   * Stops pdf.js from drawing these annotations (pdf.js ids, e.g. "12R"):
+   * JuliePDF draws its own annotations in the overlay. Takes effect for pages
+   * rendered with `annotationMode: AnnotationMode.ENABLE_STORAGE`.
+   */
+  suppressAnnotations(refs: Iterable<string>): void
   destroy(): Promise<void>
 }
 
@@ -33,6 +39,12 @@ class PdfJsDoc implements PdfDoc {
 
   getPage(i: number): Promise<PDFPageProxy> {
     return this.proxy.getPage(i)
+  }
+
+  suppressAnnotations(refs: Iterable<string>): void {
+    // The worker skips annotations whose storage entry says noView
+    // (Annotation.mustBeViewed); see tests/core/viewer/annotationSuppression.test.ts.
+    for (const ref of refs) this.proxy.annotationStorage.setValue(ref, { noView: true })
   }
 
   destroy(): Promise<void> {

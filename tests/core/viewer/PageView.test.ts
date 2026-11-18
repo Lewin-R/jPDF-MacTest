@@ -1,4 +1,5 @@
 import { render } from '@testing-library/svelte'
+import { AnnotationMode } from 'pdfjs-dist'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import PageView from '../../../src/core/viewer/PageView.svelte'
 import { renderCache } from '../../../src/core/viewer/renderCache'
@@ -34,6 +35,13 @@ function mount(doc: ReturnType<typeof fakeRenderDoc>['doc'], scale = 1) {
 }
 
 describe('PageView render lifecycle', () => {
+  it('renders with annotation storage so managed annotations can be suppressed', async () => {
+    const { doc, renders } = fakeRenderDoc(1)
+    mount(doc)
+    await vi.waitFor(() => expect(renders).toHaveLength(1))
+    expect(renders[0].annotationMode).toBe(AnnotationMode.ENABLE_STORAGE)
+  })
+
   it('caches and draws a completed render', async () => {
     const { doc, renders } = fakeRenderDoc(1)
     mount(doc)

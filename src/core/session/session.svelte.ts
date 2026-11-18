@@ -1,10 +1,11 @@
-import { openPdf } from '../ipc/api'
+import { openPdf, readAnnotations } from '../ipc/api'
 import {
   clampScale, computeLayout, fitWidthScale, pageAt, zoomAround, PAGE_GAP, type Layout,
 } from '../viewer/layout'
 import { loadPdf, type PdfDoc } from '../viewer/pdfEngine'
 import { renderCache } from '../viewer/renderCache'
 import { History } from './history.svelte'
+import type { Annotation } from './model'
 import { AnnotationStore } from './store.svelte'
 
 export interface PageSize {
@@ -18,6 +19,19 @@ export function fileNameOf(path: string): string {
 
 const SIZE_CHUNK = 16
 
+/**
+ * JuliePDF-managed annotations of the file. pdf.js opens some damaged files
+ * the annotation reader rejects; those still open, without editable annotations.
+ */
+async function readManaged(path: string): Promise<Annotation[]> {
+  try {
+    return await readAnnotations(path)
+  } catch (e) {
+    console.error(`Failed to read annotations of ${path}`, e)
+    return []
+  }
+}
+
 async function pageSizeOf(doc: PdfDoc, page: number): Promise<PageSize> {
   const { width, height } = (await doc.getPage(page)).getViewport({ scale: 1 })
   return { width, height }
@@ -29,8 +43,9 @@ function sameSize(a: PageSize, b: PageSize): boolean {
 
 export class DocumentSession {
   readonly id: string = crypto.randomUUID()
-  path: string
-  fileName: string
+  /** Where the document is saved; changes on Save As. */
+  path: string = $state('')
+  fileName: string = $state('')
   doc: PdfDoc
   /**
    * Rotated page sizes at scale 1 (points). Starts as page 1's size for every
@@ -62,25 +77,46 @@ export class DocumentSession {
     return this.history.isDirty
   }
 
-  private constructor(path: string, doc: PdfDoc, first: PageSize) {
-    this.path = path
-    this.fileName = fileNameOf(path)
+  private constructor(path: string, doc: PdfDoc, first: PageSize, annotations: Annotation[]) {
+    this.setPath(path)
     this.doc = doc
+    // Before the first render: pdf.js must not draw what the overlay draws.
+    this.suppress(annotations.flatMap((a) => (a.sourceRef ? [a.sourceRef] : [])))
+    this.store.load(annotations)
     this.pageSizes = Array.from({ length: doc.numPages }, () => first)
     this.pageSizesLoaded = this.loadRemainingSizes().catch((e: unknown) => {
       if (!this.disposed) console.error(`Failed to read page sizes of ${path}`, e)
     })
   }
 
-  /** Opens a PDF. Resolves as soon as page 1's size is known (fast first page). */
+  /**
+   * Opens a PDF with its JuliePDF-managed annotations. Resolves as soon as
+   * page 1's size is known (fast first page).
+   */
   static async open(path: string): Promise<DocumentSession> {
-    const doc = await loadPdf(await openPdf(path))
+    const [bytes, annotations] = await Promise.all([openPdf(path), readManaged(path)])
+    // TODO(Task 20): recompute `lines` of freetext annotations here.
+    const doc = await loadPdf(bytes)
     try {
-      return new DocumentSession(path, doc, await pageSizeOf(doc, 1))
+      return new DocumentSession(path, doc, await pageSizeOf(doc, 1), annotations)
     } catch (e) {
       await doc.destroy()
       throw e
     }
+  }
+
+  setPath(path: string): void {
+    this.path = path
+    this.fileName = fileNameOf(path)
+  }
+
+  /**
+   * Hides annotations with these sourceRefs from pdf.js rendering. Refs stay
+   * suppressed for the life of the pdf.js document (it keeps the bytes it was
+   * opened with, so annotations deleted since loading must stay hidden too).
+   */
+  suppress(refs: Iterable<string>): void {
+    this.doc.suppressAnnotations(refs)
   }
 
   private async loadRemainingSizes(): Promise<void> {

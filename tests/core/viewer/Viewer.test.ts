@@ -4,7 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeRenderDoc, stubCanvas } from './fakeDoc'
 
 const mocks = vi.hoisted(() => ({ doc: null as unknown }))
-vi.mock('../../../src/core/ipc/api', () => ({ openPdf: async () => new ArrayBuffer(8) }))
+vi.mock('../../../src/core/ipc/api', () => ({
+  openPdf: async () => new ArrayBuffer(8),
+  readAnnotations: async () => [],
+}))
 vi.mock('../../../src/core/viewer/pdfEngine', () => ({ loadPdf: async () => mocks.doc }))
 
 import { DocumentSession } from '../../../src/core/session/session.svelte'

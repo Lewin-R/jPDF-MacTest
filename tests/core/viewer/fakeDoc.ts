@@ -10,6 +10,7 @@ export function deferred<T>() {
 export interface FakeRender {
   page: number
   scale: number
+  annotationMode: number | undefined
   cancel: ReturnType<typeof vi.fn>
   /** Completes the render (or makes it fail with `fail(err)`). */
   finish: () => void
@@ -27,12 +28,13 @@ export function fakeRenderDoc(numPages: number, size = { width: 600, height: 800
         width: size.width * scale,
         height: size.height * scale,
       }),
-      render: vi.fn(({ viewport }: { viewport: { width: number } }) => {
+      render: vi.fn(({ viewport, annotationMode }: { viewport: { width: number }; annotationMode?: number }) => {
         const d = deferred<void>()
         const cancel = vi.fn(() => d.reject(new Error('Rendering cancelled')))
         renders.push({
           page,
           scale: viewport.width / size.width,
+          annotationMode,
           cancel,
           finish: () => d.resolve(),
           fail: d.reject,
@@ -40,6 +42,7 @@ export function fakeRenderDoc(numPages: number, size = { width: 600, height: 800
         return { promise: d.promise, cancel }
       }),
     })),
+    suppressAnnotations: vi.fn(),
     destroy: vi.fn(async () => {
       doc.destroyed = true
     }),

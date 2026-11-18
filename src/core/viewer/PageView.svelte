@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
-  import type { RenderTask } from 'pdfjs-dist'
+  import { AnnotationMode, type RenderTask } from 'pdfjs-dist'
   import type { PdfDoc } from './pdfEngine'
   import { renderCache } from './renderCache'
   import { renderScale } from './viewerMath'
@@ -57,7 +57,8 @@
       const off = document.createElement('canvas')
       off.width = Math.floor(viewport.width)
       off.height = Math.floor(viewport.height)
-      task = page.render({ canvas: off, viewport })
+      // ENABLE_STORAGE: annotations the session manages are suppressed (noView).
+      task = page.render({ canvas: off, viewport, annotationMode: AnnotationMode.ENABLE_STORAGE })
       await task.promise
       if (cancelled) return
       const bmp = await createImageBitmap(off)

@@ -515,3 +515,19 @@ fn save_with_invalid_input_keeps_original() {
     assert!(matches!(err, AppError::InvalidPdf(_)));
     assert_eq!(std::fs::read(&path).unwrap(), b"not a pdf");
 }
+
+/// Writes `target/sample-annotated.pdf` (a foreign `/Ink` and `/Link` plus two
+/// JuliePDF inks on page 1) for manual viewer checks and the pdf.js suppression
+/// fixture in `tests/fixtures/`. Run: `cargo test -- --ignored write_sample`.
+#[test]
+#[ignore]
+fn write_sample() {
+    let (bytes, _) = write(
+        &fixtures::pdf_with_foreign_annots(),
+        &[ink("sample-a", 0, [0.9, 0.2, 0.2]), ink("sample-b", 0, [0.1, 0.4, 0.9])],
+        &[],
+    );
+    let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/sample-annotated.pdf");
+    std::fs::write(&out, bytes).unwrap();
+    println!("wrote {}", out.display());
+}

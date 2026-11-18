@@ -1,7 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({ doc: null as unknown }))
-vi.mock('../../../src/core/ipc/api', () => ({ openPdf: vi.fn(async () => new ArrayBuffer(8)) }))
+const mocks = vi.hoisted(() => ({ doc: null as unknown, annotations: [] as unknown[] | Error }))
+vi.mock('../../../src/core/ipc/api', () => ({
+  openPdf: vi.fn(async () => new ArrayBuffer(8)),
+  readAnnotations: vi.fn(async () => {
+    if (mocks.annotations instanceof Error) throw mocks.annotations
+    return mocks.annotations
+  }),
+}))
 vi.mock('../../../src/core/viewer/pdfEngine', () => ({ loadPdf: async () => mocks.doc }))
 
 /** Fake doc; getPage(i) resolves with sizes[i-1], or waits on `gate` for pages > 1. */
@@ -13,6 +19,7 @@ function fakeDoc(sizes: { width: number; height: number }[], gate?: Promise<void
       if (i > 1 && gate) await gate
       return { getViewport: () => sizes[i - 1] }
     }),
+    suppressAnnotations: vi.fn(),
     destroy: vi.fn(async () => {}),
   }
 }
@@ -25,6 +32,7 @@ import { PAGE_GAP } from '../../../src/core/viewer/layout'
 // 4 pages of 600x800 pt. At scale 1: tops 16, 832, 1648, 2464; totalHeight 3280.
 let s: DocumentSession
 beforeEach(async () => {
+  mocks.annotations = []
   mocks.doc = fakeDoc(uniform)
   s = await DocumentSession.open('C:/docs/a.pdf')
   await s.pageSizesLoaded
@@ -161,5 +169,45 @@ describe('DocumentSession lazy page sizes', () => {
     release()
     await session.pageSizesLoaded
     expect(session.pageSizes).toEqual(Array.from({ length: 4 }, () => mixed[0]))
+  })
+})
+
+describe('DocumentSession.open annotations', () => {
+  const ink = (id: string, sourceRef: string | null) => ({
+    kind: 'ink', id, page: 0, sourceRef, modifiedAt: '2026-11-18T10:00:00Z', author: 'JuliePDF',
+    strokes: [[[0, 0], [10, 10]]], color: [1, 0, 0], width: 2, opacity: 1, blend: 'normal', role: 'pen',
+  })
+
+  it('loads the file annotations into the store, clean', async () => {
+    mocks.annotations = [ink('a', '10R'), ink('b', '12R')]
+    mocks.doc = fakeDoc(uniform)
+    const session = await DocumentSession.open('C:/docs/e.pdf')
+    expect(session.store.all().map((a) => a.id)).toEqual(['a', 'b'])
+    expect(session.dirty).toBe(false)
+    expect(session.store.changedSince()).toEqual([])
+  })
+
+  it('suppresses the loaded sourceRefs in pdf.js', async () => {
+    mocks.annotations = [ink('a', '10R'), ink('b', '12R3')]
+    const doc = fakeDoc(uniform)
+    mocks.doc = doc
+    await DocumentSession.open('C:/docs/f.pdf')
+    expect(doc.suppressAnnotations.mock.calls.flatMap((c) => [...(c[0] as Iterable<string>)])).toEqual(['10R', '12R3'])
+  })
+
+  it('opens without annotations when they cannot be read', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mocks.annotations = new Error('InvalidPdf')
+    mocks.doc = fakeDoc(uniform)
+    const session = await DocumentSession.open('C:/docs/g.pdf')
+    expect(session.store.all()).toEqual([])
+    expect(error).toHaveBeenCalled()
+    error.mockRestore()
+  })
+
+  it('setPath updates path and fileName', () => {
+    s.setPath('D:\\out\\copy.pdf')
+    expect(s.path).toBe('D:\\out\\copy.pdf')
+    expect(s.fileName).toBe('copy.pdf')
   })
 })

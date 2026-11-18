@@ -82,6 +82,21 @@ describe('TabsStore', () => {
     expect(a.dispose).toHaveBeenCalledOnce()
   })
 
+  it('close asks the close guard and keeps the tab when it refuses', async () => {
+    const guard = vi.fn(async () => false)
+    const t = new TabsStore(guard)
+    const a = fake('a')
+    t.add(a)
+    expect(await t.close(a.id)).toBe(false)
+    expect(guard).toHaveBeenCalledWith(t.sessions[0])
+    expect(t.sessions).toHaveLength(1)
+    expect(t.activeId).toBe(a.id)
+    expect(a.dispose).not.toHaveBeenCalled()
+    guard.mockResolvedValueOnce(true)
+    expect(await t.close(a.id)).toBe(true)
+    expect(t.sessions).toHaveLength(0)
+  })
+
   it('next/prev wrap around', () => {
     const t = new TabsStore()
     const [a, b, c] = [fake('a'), fake('b'), fake('c')]

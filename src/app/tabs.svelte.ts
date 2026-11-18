@@ -1,4 +1,8 @@
 import type { DocumentSession } from '../core/session/session.svelte'
+import { confirmAndClose } from './saveFlow'
+
+/** Decides whether a session may close (e.g. after a Save / Don't save prompt). */
+export type CloseGuard = (s: DocumentSession) => Promise<boolean>
 
 export class TabsStore {
   sessions = $state<DocumentSession[]>([])
@@ -7,6 +11,8 @@ export class TabsStore {
   readonly active: DocumentSession | null = $derived(
     this.sessions.find((s) => s.id === this.activeId) ?? null,
   )
+
+  constructor(private confirmClose: CloseGuard = async () => true) {}
 
   findByPath(path: string): DocumentSession | undefined {
     const key = path.toLowerCase()
@@ -24,15 +30,19 @@ export class TabsStore {
     this.activeId = s.id
   }
 
-  // The dirty prompt is added in Task 17.
-  async close(id: string): Promise<void> {
-    const idx = this.sessions.findIndex((s) => s.id === id)
-    if (idx < 0) return
+  /** Closes a tab once the close guard allows it; false if it stays open. */
+  async close(id: string): Promise<boolean> {
+    const s = this.sessions.find((x) => x.id === id)
+    if (!s || !(await this.confirmClose(s))) return false
+    // The tab may have moved (or gone) while the guard was prompting.
+    const idx = this.sessions.indexOf(s)
+    if (idx < 0) return false
     const [removed] = this.sessions.splice(idx, 1)
     if (this.activeId === id) {
       this.activeId = (this.sessions[idx] ?? this.sessions[idx - 1])?.id ?? null
     }
     await removed.dispose()
+    return true
   }
 
   next(): void {
@@ -51,4 +61,4 @@ export class TabsStore {
   }
 }
 
-export const tabs = new TabsStore()
+export const tabs = new TabsStore(confirmAndClose)

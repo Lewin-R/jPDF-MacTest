@@ -53,6 +53,8 @@ function clone<T>(v: T): T {
 export class SettingsStore {
   data: Settings = $state(defaultSettings())
   private timer: ReturnType<typeof setTimeout> | null = null
+  /** Tail of the save chain: saves run one at a time, in order. */
+  private saving: Promise<void> = Promise.resolve()
 
   constructor(
     private ipc: SettingsIpc = { load: loadSettings, save: saveSettings },
@@ -134,9 +136,9 @@ export class SettingsStore {
     this.scheduleSave()
   }
 
-  /** Saves immediately if a save is pending. */
+  /** Saves immediately if a save is pending; resolves once no save is in flight. */
   async flush(): Promise<void> {
-    if (this.timer === null) return
+    if (this.timer === null) return this.saving
     clearTimeout(this.timer)
     this.timer = null
     await this.save()
@@ -156,12 +158,15 @@ export class SettingsStore {
     }, SAVE_DELAY_MS)
   }
 
-  private async save(): Promise<void> {
-    try {
-      await this.ipc.save($state.snapshot(this.data))
-    } catch (e) {
-      console.error('Failed to save settings', e)
-    }
+  private save(): Promise<void> {
+    this.saving = this.saving.then(async () => {
+      try {
+        await this.ipc.save($state.snapshot(this.data))
+      } catch (e) {
+        console.error('Failed to save settings', e)
+      }
+    })
+    return this.saving
   }
 }
 

@@ -144,4 +144,37 @@ describe('SettingsStore', () => {
     await vi.advanceTimersByTimeAsync(1000)
     expect(save).toHaveBeenCalledTimes(1)
   })
+
+  it('flush waits for a save already in flight', async () => {
+    const { store, save } = make()
+    let release!: () => void
+    save.mockImplementationOnce(() => new Promise<void>((r) => (release = r)))
+    store.addInstance('pen')
+    await vi.advanceTimersByTimeAsync(500)
+    expect(save).toHaveBeenCalledTimes(1)
+    let flushed = false
+    const p = store.flush().then(() => (flushed = true))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(flushed).toBe(false)
+    release()
+    await p
+    expect(flushed).toBe(true)
+    expect(save).toHaveBeenCalledTimes(1)
+  })
+
+  it('flush during an in-flight save saves the newer state after it', async () => {
+    const { store, save } = make()
+    let release!: () => void
+    save.mockImplementationOnce(() => new Promise<void>((r) => (release = r)))
+    const inst = store.addInstance('pen')
+    await vi.advanceTimersByTimeAsync(500)
+    store.updateSettings(inst.instanceId, { width: 9 })
+    const p = store.flush()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(save).toHaveBeenCalledTimes(1)
+    release()
+    await p
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(save.mock.calls[1][0]).toEqual(JSON.parse(JSON.stringify(store.data)))
+  })
 })

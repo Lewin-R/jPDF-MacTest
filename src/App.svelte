@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { initFileOpening, pickAndOpen } from './app/fileOpening'
+  import ConfirmClose from './app/ConfirmClose.svelte'
+  import { confirmCloseAll, registerSaveCommands } from './app/saveFlow'
   import { commands } from './core/registry/commands'
   import { getCurrentWindow } from '@tauri-apps/api/window'
   import { DocumentSession } from './core/session/session.svelte'
@@ -38,8 +40,35 @@
     if (keybindings.handle(e)) e.preventDefault()
   }
 
+  /** Window close: Save / Don't save / Cancel for each dirty tab, then flush settings. */
+  function guardWindowClose(): () => void {
+    const win = getCurrentWindow()
+    let closing = false
+    let disposed = false
+    let unlisten: (() => void) | null = null
+    void win
+      .onCloseRequested(async (e) => {
+        e.preventDefault()
+        if (closing) return
+        closing = true
+        try {
+          if (!(await confirmCloseAll(tabs.sessions))) return
+          await settings.flush()
+          await win.destroy()
+        } finally {
+          closing = false
+        }
+      })
+      .then((un) => (disposed ? un() : (unlisten = un)))
+    return () => {
+      disposed = true
+      unlisten?.()
+    }
+  }
+
   onMount(() => {
     void settings.load().finally(() => (settingsLoaded = true))
+    const disposeCloseGuard = guardWindowClose()
     const stopRouter = router.start()
     // Tool modules register at import time (before App mounts).
     const disposeToolShortcuts = registerToolShortcuts()
@@ -74,7 +103,10 @@
     ])
     const disposeView = registerViewCommands(() => tabs.active)
     const disposeEdit = registerEditCommands(() => tabs.active)
+    const disposeSave = registerSaveCommands(() => tabs.active)
     return () => {
+      disposeSave()
+      disposeCloseGuard()
       disposeToolShortcuts()
       stopRouter()
       disposeEdit()
@@ -111,6 +143,7 @@
   </aside>
   <div class="statusbar-region"><StatusBar session={tabs.active} /></div>
 </div>
+<ConfirmClose />
 <Toast />
 
 <style>

@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import type { Annotation } from '../session/model'
 
 export type AppErrorCode =
   | 'NotFound'
@@ -23,6 +24,20 @@ export function isAppError(e: unknown): e is AppError {
 
 export function openPdf(path: string): Promise<ArrayBuffer> {
   return invoke<ArrayBuffer>('open_pdf', { path })
+}
+
+export function readAnnotations(path: string): Promise<Annotation[]> {
+  return invoke<Annotation[]>('read_annotations', { path })
+}
+
+/** Writes `upserts`/`deletes` as an incremental update of `sourcePath` to `targetPath`; `refs` maps annotation id -> sourceRef. */
+export function savePdf(
+  sourcePath: string,
+  targetPath: string,
+  upserts: Annotation[],
+  deletes: string[],
+): Promise<{ refs: Record<string, string> }> {
+  return invoke<{ refs: Record<string, string> }>('save_pdf', { sourcePath, targetPath, upserts, deletes })
 }
 
 export function getLaunchFiles(): Promise<string[]> {
