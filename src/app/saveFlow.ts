@@ -12,11 +12,6 @@ const PDF_FILTER = [{ name: 'PDF', extensions: ['pdf'] }]
 
 /** Saves of one session run one after another. */
 const inFlight = new WeakMap<DocumentSession, Promise<unknown>>()
-/**
- * sourceRefs of annotations deleted while a save was in flight: the store's
- * tracking is reset by that save, so the next save sends these explicitly.
- */
-const pendingDeletes = new WeakMap<DocumentSession, Set<string>>()
 
 function withAuthor(a: Annotation): Annotation {
   return a.author ? a : { ...a, author: DEFAULT_AUTHOR }
@@ -42,11 +37,10 @@ function showSaveError(s: DocumentSession, e: unknown): void {
 async function writeSession(s: DocumentSession, target: string): Promise<boolean> {
   const { store, history } = s
   const present = new Set(store.all().map((a) => a.sourceRef).filter((r) => r !== null))
-  const deletes = [
-    ...new Set([...store.deletedSourceRefs(), ...(pendingDeletes.get(s) ?? [])]),
-  ].filter((r) => !present.has(r))
+  const deletes = store.deletedSourceRefs().filter((r) => !present.has(r))
   const upserts = store.changedSince().map(withAuthor)
   const before = new Map(store.all().map((a) => [a.id, a]))
+  const savedState = history.stateId
 
   let refs: Record<string, string>
   try {
@@ -57,26 +51,18 @@ async function writeSession(s: DocumentSession, target: string): Promise<boolean
     return false
   }
 
-  // Edits made while the file was being written are not in it: keep them pending.
+  // Edits made while the file was being written are not in it: keep them
+  // pending. Deletions need nothing (the store keeps refs of removed ids).
   const changedDuring = store.all().filter((a) => before.get(a.id) !== a).map((a) => a.id)
-  const deletedDuring = new Set<string>()
-  for (const [id, a] of before) {
-    const ref = a.sourceRef ?? refs[id]
-    if (!store.get(id) && ref) deletedDuring.add(ref)
-  }
 
-  store.markSaved(refs)
+  store.markSaved(refs, deletes)
   // The pdf.js document still holds the old bytes; new refs are not in them,
   // but keep every ref this document has known suppressed.
   s.suppress(Object.values(refs))
   if (!samePath(target, s.path)) s.setPath(target)
-  if (changedDuring.length === 0 && deletedDuring.size === 0) {
-    pendingDeletes.delete(s)
-    history.markClean()
-  } else {
-    for (const id of changedDuring) store.update(id, store.get(id)!)
-    pendingDeletes.set(s, deletedDuring)
-  }
+  for (const id of changedDuring) store.update(id, store.get(id)!)
+  // The file now matches the history position the save started from.
+  history.markClean(savedState)
   return true
 }
 
@@ -90,7 +76,7 @@ export function saveSession(s: DocumentSession, targetPath?: string): Promise<bo
   const prev = inFlight.get(s)
   const write = () => writeSession(s, targetPath ?? s.path)
   // Start right away when idle so the written state is the state at the call.
-  const run = prev ? prev.then(write) : write()
+  const run = prev ? prev.then(write, write) : write()
   inFlight.set(s, run)
   run
     .finally(() => {
@@ -117,7 +103,8 @@ export async function confirmAndClose(s: DocumentSession): Promise<boolean> {
   const choice = await askToSave(s.fileName)
   if (choice === 'cancel') return false
   if (choice === 'discard') return true
-  return saveSession(s)
+  // A save that succeeds may still leave edits made meanwhile unsaved.
+  return (await saveSession(s)) && !s.dirty
 }
 
 /** confirmAndClose for each session in turn; stops at the first one that may not close. */

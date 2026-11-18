@@ -131,4 +131,17 @@ describe('History', () => {
     h.undo()
     expect(h.isDirty).toBe(true)
   })
+
+  it('markClean(stateId) marks an earlier position as the saved one', () => {
+    const { h } = setup()
+    h.execute(addAnnotations([hl('a')]))
+    const saved = h.stateId
+    h.execute(addAnnotations([hl('b')]))
+    h.markClean(saved)
+    expect(h.isDirty).toBe(true)
+    h.undo()
+    expect(h.isDirty).toBe(false)
+    h.undo()
+    expect(h.isDirty).toBe(true)
+  })
 })

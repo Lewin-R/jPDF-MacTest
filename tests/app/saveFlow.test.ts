@@ -82,7 +82,7 @@ describe('saveSession', () => {
     const markClean = vi.spyOn(s.history, 'markClean')
     h.savePdf.mockResolvedValue({ refs: { new: '20R' } })
     await saveSession(s)
-    expect(markSaved).toHaveBeenCalledWith({ new: '20R' })
+    expect(markSaved).toHaveBeenCalledWith({ new: '20R' }, [])
     expect(markClean).toHaveBeenCalled()
     expect(s.dirty).toBe(false)
     expect(s.store.get('new')!.sourceRef).toBe('20R')
@@ -167,6 +167,77 @@ describe('saveSession', () => {
   })
 })
 
+describe('sourceRefs across undo and saves', () => {
+  it('add, edit, save, undo, save: the upsert keeps the saved ref (no duplicate)', async () => {
+    const s = fakeSession()
+    s.history.execute(addAnnotations([ink('a')]))
+    s.history.execute(updateAnnotation(s.store.get('a')!, { ...ink('a'), width: 5 }))
+    h.savePdf.mockResolvedValueOnce({ refs: { a: '20R' } })
+    await saveSession(s)
+    s.history.undo()
+    expect(s.store.get('a')!.sourceRef).toBe('20R')
+    h.savePdf.mockResolvedValueOnce({ refs: { a: '20R' } })
+    await saveSession(s)
+    const [, , upserts, deletes] = h.savePdf.mock.calls[1]
+    expect(upserts.map((a: InkAnnotation) => [a.id, a.sourceRef, a.width])).toEqual([['a', '20R', 2]])
+    expect(deletes).toEqual([])
+  })
+
+  it('load, delete, save, undo, save: re-added as a new object, 10R not deleted again', async () => {
+    const s = fakeSession('C:\docs\a.pdf', [ink('old', '10R')])
+    s.history.execute(deleteAnnotations([s.store.get('old')!]))
+    h.savePdf.mockResolvedValueOnce({ refs: {} })
+    await saveSession(s)
+    expect(h.savePdf.mock.calls[0][3]).toEqual(['10R'])
+    s.history.undo()
+    expect(s.store.get('old')!.sourceRef).toBeNull()
+    h.savePdf.mockResolvedValueOnce({ refs: { old: '30R' } })
+    await saveSession(s)
+    const [, , upserts, deletes] = h.savePdf.mock.calls[1]
+    expect(upserts.map((a: InkAnnotation) => [a.id, a.sourceRef])).toEqual([['old', null]])
+    expect(deletes).toEqual([])
+    expect(s.store.get('old')!.sourceRef).toBe('30R')
+  })
+
+  it('undo during an in-flight save still ends with correct refs', async () => {
+    const s = fakeSession('C:\docs\a.pdf', [ink('old', '10R')])
+    s.history.execute(addAnnotations([ink('a')]))
+    s.history.execute(deleteAnnotations([s.store.get('old')!]))
+    const first = deferred<{ refs: Record<string, string> }>()
+    h.savePdf.mockReturnValueOnce(first.promise)
+    const saving = saveSession(s)
+    expect(h.savePdf.mock.calls[0].slice(2)).toEqual([[ink('a')], ['10R']])
+    s.history.undo() // re-adds old (its file object is being deleted)
+    s.history.undo() // removes a (its file object is being written)
+    first.resolve({ refs: { a: '20R' } })
+    expect(await saving).toBe(true)
+    expect(s.dirty).toBe(true)
+    expect(s.store.get('old')!.sourceRef).toBeNull()
+
+    h.savePdf.mockResolvedValueOnce({ refs: { old: '31R' } })
+    await saveSession(s)
+    const [, , upserts, deletes] = h.savePdf.mock.calls[1]
+    expect(upserts.map((a: InkAnnotation) => [a.id, a.sourceRef])).toEqual([['old', null]])
+    expect(deletes).toEqual(['20R'])
+    expect(s.dirty).toBe(false)
+  })
+
+  it('a failed save does not block the saves queued behind it', async () => {
+    const s = fakeSession()
+    s.history.execute(addAnnotations([ink('a')]))
+    let fail!: (e: unknown) => void
+    h.savePdf
+      .mockReturnValueOnce(new Promise((_, reject) => (fail = reject)))
+      .mockResolvedValueOnce({ refs: { a: '20R' } })
+    const one = saveSession(s)
+    const two = saveSession(s)
+    fail({ code: 'Io', message: 'disk full' })
+    expect(await one).toBe(false)
+    expect(await two).toBe(true)
+    expect(s.dirty).toBe(false)
+  })
+})
+
 describe('saveSessionAs', () => {
   it('asks for a .pdf target named like the current file and saves there', async () => {
     const s = fakeSession('C:\\docs\\a.pdf')
@@ -193,6 +264,19 @@ describe('confirmAndClose', () => {
     const s = fakeSession()
     expect(await confirmAndClose(s)).toBe(true)
     expect(h.askToSave).not.toHaveBeenCalled()
+  })
+
+  it('Save keeps the tab when edits made during the save are still unsaved', async () => {
+    const s = fakeSession()
+    s.history.execute(addAnnotations([ink('a')]))
+    h.askToSave.mockResolvedValue('save')
+    const write = deferred<{ refs: Record<string, string> }>()
+    h.savePdf.mockReturnValueOnce(write.promise)
+    const closing = confirmAndClose(s)
+    await vi.waitFor(() => expect(h.savePdf).toHaveBeenCalled())
+    s.history.execute(addAnnotations([ink('b')]))
+    write.resolve({ refs: { a: '20R' } })
+    expect(await closing).toBe(false)
   })
 
   it('Save saves and closes; a failed save keeps the tab', async () => {

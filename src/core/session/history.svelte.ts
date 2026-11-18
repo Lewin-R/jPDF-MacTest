@@ -26,6 +26,8 @@ export class History {
   /** Increments on every execute/undo/redo. */
   get version(): number { return this._version }
   get isDirty(): boolean { return this.currentId() !== this.cleanId }
+  /** Id of the current history position (for markClean of an earlier position). */
+  get stateId(): number { return this.currentId() }
 
   execute(cmd: Command): void {
     cmd.do(this.store)
@@ -56,8 +58,9 @@ export class History {
     return true
   }
 
-  markClean(): void {
-    this.cleanId = this.currentId()
+  /** Marks the position `stateId` (default: the current one) as the saved state. */
+  markClean(stateId: number = this.currentId()): void {
+    this.cleanId = stateId
   }
 
   private currentId(): number {
