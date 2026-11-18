@@ -18,9 +18,18 @@ export function updateAnnotation(before: Annotation, after: Annotation): Command
 }
 
 export function deleteAnnotations(list: Annotation[]): Command {
+  // Per-page z-index of each annotation at delete time, so undo restores order.
+  let slots: { a: Annotation; index: number }[] = []
   return {
     label: 'Delete annotation',
-    do: (s) => list.forEach((a) => s.remove(a.id)),
-    undo: (s) => list.forEach((a) => s.add(a)),
+    do: (s) => {
+      slots = list.map((a) => ({ a, index: s.byPage(a.page).findIndex((x) => x.id === a.id) }))
+      list.forEach((a) => s.remove(a.id))
+    },
+    undo: (s) => {
+      // Ascending index per page: each insert lands at its original position.
+      const sorted = slots.slice().sort((x, y) => x.a.page - y.a.page || x.index - y.index)
+      for (const { a, index } of sorted) s.add(a, index < 0 ? undefined : index)
+    },
   }
 }

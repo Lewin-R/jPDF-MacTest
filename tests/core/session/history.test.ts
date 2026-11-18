@@ -28,7 +28,7 @@ describe('History', () => {
     expect(ids(store)).toEqual(['a'])
 
     expect(h.undo()).toBe(true)
-    expect(ids(store).sort()).toEqual(['a', 'b'])
+    expect(ids(store)).toEqual(['a', 'b'])
     expect(h.undo()).toBe(true)
     expect(store.get('a')).toBe(a)
     expect(h.undo()).toBe(true)
@@ -39,6 +39,26 @@ describe('History', () => {
     expect(ids(store)).toEqual(['a'])
     expect(store.get('a')).toMatchObject({ opacity: 0.9 })
     expect(h.redo()).toBe(false)
+  })
+
+  it('undo of delete restores exact z-order (middle and non-adjacent)', () => {
+    const { store, h } = setup()
+    const all = ['a', 'b', 'c', 'd', 'e', 'f'].map((id) => hl(id))
+    h.execute(addAnnotations(all))
+    h.execute(deleteAnnotations([all[2]]))
+    expect(ids(store)).toEqual(['a', 'b', 'd', 'e', 'f'])
+    h.undo()
+    expect(store.byPage(0).map((x) => x.id)).toEqual(['a', 'b', 'c', 'd', 'e', 'f'])
+    // Non-adjacent, given out of order.
+    h.execute(deleteAnnotations([all[4], all[0], all[2]]))
+    expect(ids(store)).toEqual(['b', 'd', 'f'])
+    h.undo()
+    expect(store.byPage(0).map((x) => x.id)).toEqual(['a', 'b', 'c', 'd', 'e', 'f'])
+    expect(ids(store)).toEqual(['a', 'b', 'c', 'd', 'e', 'f'])
+    h.redo()
+    expect(ids(store)).toEqual(['b', 'd', 'f'])
+    h.undo()
+    expect(ids(store)).toEqual(['a', 'b', 'c', 'd', 'e', 'f'])
   })
 
   it('canUndo/canRedo/version track position', () => {

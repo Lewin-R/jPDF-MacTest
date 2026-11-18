@@ -36,6 +36,21 @@ describe('AnnotationStore', () => {
     expect(s.byPage(0)[0]).toBe(next)
   })
 
+  it('add with index inserts at that z-position', () => {
+    const s = new AnnotationStore()
+    s.add(hl('a')); s.add(hl('c'))
+    s.add(hl('b'), 1)
+    expect(s.byPage(0).map((x) => x.id)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('all() order matches byPage, also after a cross-page update', () => {
+    const s = new AnnotationStore()
+    s.add(hl('a', 0)); s.add(hl('b', 1)); s.add(hl('c', 0))
+    s.update('a', hl('a', 1))
+    expect(s.all().map((x) => x.id)).toEqual(['c', 'b', 'a'])
+    expect(s.byPage(1).map((x) => x.id)).toEqual(['b', 'a'])
+  })
+
   it('update can move an annotation to another page', () => {
     const s = new AnnotationStore()
     s.add(hl('a', 0))

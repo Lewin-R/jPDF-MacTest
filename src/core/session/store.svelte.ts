@@ -27,14 +27,18 @@ export class AnnotationStore {
     return this.byId.get(id)
   }
 
+  /** Ordered by page, then z-order within the page (same order as byPage). */
   all(): Annotation[] {
-    return [...this.byId.values()]
+    return [...this.pages.keys()].sort((x, y) => x - y).flatMap((p) => this.byPage(p))
   }
 
-  add(a: Annotation): void {
+  /** Adds at the end of the page's z-order, or at `index` (clamped) if given. */
+  add(a: Annotation, index?: number): void {
     if (this.byId.has(a.id)) throw new Error(`Annotation ${a.id} already exists`)
     this.byId.set(a.id, a)
-    this.pages.set(a.page, [...this.byPage(a.page), a])
+    const list = this.byPage(a.page).slice()
+    list.splice(index === undefined ? list.length : Math.max(0, index), 0, a)
+    this.pages.set(a.page, list)
     this.changed.add(a.id)
   }
 
@@ -42,7 +46,7 @@ export class AnnotationStore {
     const old = this.byId.get(id)
     if (!old) throw new Error(`Annotation ${id} not found`)
     if (next.id !== id) throw new Error('update must not change the id')
-    this.byId.set(id, next) // keeps its position in the Map
+    this.byId.set(id, next)
     if (old.page === next.page) {
       this.pages.set(old.page, this.byPage(old.page).map((x) => (x.id === id ? next : x)))
     } else {
