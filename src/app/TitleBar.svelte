@@ -1,13 +1,13 @@
 <script lang="ts">
   import { getCurrentWindow } from '@tauri-apps/api/window'
   import Logo from './Logo.svelte'
-  import Tabs from './Tabs.svelte'
+  import TabBar from './TabBar.svelte'
   import WindowControls from './WindowControls.svelte'
 </script>
 
 <header class="titlebar">
   <div class="logo-slot"><Logo size="sm" /></div>
-  <Tabs />
+  <TabBar />
   <div
     class="drag"
     data-tauri-drag-region
