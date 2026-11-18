@@ -1,4 +1,8 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
+  import { initFileOpening, pickAndOpen } from './app/fileOpening'
+  import { commands } from './core/registry/commands'
+  import { openPdf } from './core/ipc/api'
   import EmptyState from './app/EmptyState.svelte'
   import StatusBar from './app/StatusBar.svelte'
   import TitleBar from './app/TitleBar.svelte'
@@ -8,16 +12,31 @@
     if (keybindings.handle(e)) e.preventDefault()
   }
 
-  function openPdf() {
-    // Wired in a later task.
-  }
+  onMount(() => {
+    // Temporary open handler until the viewer exists.
+    const disposeOpening = initFileOpening(async (path) => {
+      const bytes = await openPdf(path)
+      console.log(path, bytes.byteLength)
+    })
+    const disposeCommand = commands.register({
+      id: 'file.open',
+      title: 'Open PDF…',
+      run: pickAndOpen,
+    })
+    const disposeKey = keybindings.bind('Ctrl+O', 'file.open')
+    return () => {
+      disposeKey()
+      disposeCommand()
+      disposeOpening()
+    }
+  })
 </script>
 
 <svelte:window onkeydown={onKeydown} />
 
 <div class="shell">
   <div class="titlebar-region"><TitleBar /></div>
-  <main class="viewer-region"><EmptyState onOpen={openPdf} /></main>
+  <main class="viewer-region"><EmptyState onOpen={pickAndOpen} /></main>
   <aside class="toolbar-region" aria-label="Tools"></aside>
   <div class="statusbar-region"><StatusBar /></div>
 </div>
