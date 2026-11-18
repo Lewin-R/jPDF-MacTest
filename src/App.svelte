@@ -9,6 +9,8 @@
   import StatusBar from './app/StatusBar.svelte'
   import TitleBar from './app/TitleBar.svelte'
   import { keybindings } from './core/registry/keybindings'
+  import Viewer from './core/viewer/Viewer.svelte'
+  import { registerViewCommands } from './core/viewer/viewCommands'
 
   function closeActive() {
     if (tabs.activeId) return tabs.close(tabs.activeId)
@@ -54,7 +56,9 @@
       }),
       keybindings.bind(c.chord, c.id),
     ])
+    const disposeView = registerViewCommands(() => tabs.active)
     return () => {
+      disposeView()
       disposeTabs.forEach((d) => d())
       disposeKey()
       disposeCommand()
@@ -69,16 +73,15 @@
   <div class="titlebar-region"><TitleBar /></div>
   <main class="viewer-region">
     {#if tabs.active}
-      <div class="placeholder">
-        {tabs.active.fileName} · {tabs.active.doc.numPages}
-        {tabs.active.doc.numPages === 1 ? 'page' : 'pages'}
-      </div>
+      {#key tabs.active.id}
+        <Viewer session={tabs.active} />
+      {/key}
     {:else}
       <EmptyState onOpen={pickAndOpen} />
     {/if}
   </main>
   <aside class="toolbar-region" aria-label="Tools"></aside>
-  <div class="statusbar-region"><StatusBar /></div>
+  <div class="statusbar-region"><StatusBar session={tabs.active} /></div>
 </div>
 
 <style>
@@ -95,14 +98,7 @@
   .viewer-region {
     min-width: 0;
     min-height: 0;
-    overflow: auto;
-  }
-  .placeholder {
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--text);
+    overflow: hidden;
   }
   .toolbar-region {
     background: var(--bg-deep);
