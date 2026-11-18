@@ -171,6 +171,24 @@ describe('Toolbar', () => {
     expect(r.queryByRole('dialog')).toBeNull()
   })
 
+  it('a cancelled drag does not reorder', async () => {
+    const r = mount()
+    const buttons = toolButtons(r)
+    buttons.forEach((b, i) => {
+      b.getBoundingClientRect = () =>
+        ({ top: i * 48, bottom: i * 48 + 40, left: 0, right: 40, width: 40, height: 40, x: 0, y: i * 48 }) as DOMRect
+    })
+    await fireEvent.pointerDown(buttons[0], { button: 0, clientX: 20, clientY: 20, pointerId: 1 })
+    await fireEvent.pointerMove(buttons[0], { clientX: 20, clientY: 90, pointerId: 1 })
+    expect(r.container.querySelector('.drop-indicator')).not.toBeNull()
+    await fireEvent.pointerCancel(buttons[0], { clientX: 20, clientY: 90, pointerId: 1 })
+    await fireEvent.pointerUp(buttons[0], { clientX: 20, clientY: 90, pointerId: 1 })
+    vi.runAllTimers()
+    expect(r.store.data.toolbar.map((i) => i.instanceId)).toEqual(['p1', 'h1'])
+    expect(r.container.querySelector('.drop-indicator')).toBeNull()
+    expect(r.ipc.save).not.toHaveBeenCalled()
+  })
+
   it('a small wobble below the threshold is still a click', async () => {
     const r = mount()
     const [, hand] = toolButtons(r)

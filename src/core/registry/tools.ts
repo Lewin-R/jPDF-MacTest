@@ -17,6 +17,8 @@ export interface ToolHandler {
   onPointerDown?(e: PagePointerEvent): void
   onPointerMove?(e: PagePointerEvent): void
   onPointerUp?(e: PagePointerEvent): void
+  /** The gesture was aborted (pointercancel, lost capture, page unmounted): discard it, do not commit. */
+  onPointerCancel?(e: PagePointerEvent): void
   onKeyDown?(e: KeyboardEvent): boolean
   onDeactivate?(): void
 }

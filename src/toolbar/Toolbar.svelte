@@ -126,6 +126,13 @@
     if (to !== null) store.move(d.id, to)
   }
 
+  /** A cancelled press or drag (system gesture, lost pointer) aborts without reordering. */
+  function onPointerCancel(e: PointerEvent) {
+    if (!drag || drag.pointerId !== e.pointerId) return
+    drag = null
+    indicatorTop = null
+  }
+
   function pick(type: string) {
     const inst = store.addInstance(type)
     store.setActive(inst.instanceId)
@@ -146,6 +153,7 @@
         onpointerdown={(e) => onPointerDown(instance.instanceId, e)}
         onpointermove={onPointerMove}
         onpointerup={onPointerUp}
+        onpointercancel={onPointerCancel}
       />
     {/each}
     {#if indicatorTop !== null}

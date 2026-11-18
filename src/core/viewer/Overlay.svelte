@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte'
   import type { PageViewport } from 'pdfjs-dist'
   import type { PdfDoc } from './pdfEngine'
   import type { AnnotationStore } from '../session/store.svelte'
@@ -57,8 +58,11 @@
   const annotations = $derived(store.byPage(pageNumber - 1))
 
   let el: SVGSVGElement
-  /** Pointer of the gesture in progress and the handler that received its pointerdown. */
-  let gesture: { pointerId: number; tool: ToolHandler } | null = null
+  /**
+   * Gesture in progress: its pointer, the handler that received its pointerdown
+   * and its latest page event (used to cancel when no native event is available).
+   */
+  let gesture: { pointerId: number; tool: ToolHandler; last: PagePointerEvent } | null = null
 
   function toPageEvent(e: PointerEvent, v: PageViewport): PagePointerEvent {
     const r = el.getBoundingClientRect()
@@ -71,35 +75,72 @@
     return { page: pageNumber - 1, pdf: [px, py] as Point, screen: [sx, sy], vp: v, native: e }
   }
 
-  function onPointerDown(e: PointerEvent) {
-    if (!tool || !vp || e.button !== 0 || gesture) return
-    gesture = { pointerId: e.pointerId, tool }
-    el.setPointerCapture?.(e.pointerId)
-    tool.onPointerDown?.(toPageEvent(e, vp))
+  /** Forgets the gesture and releases its pointer capture. */
+  function dropGesture() {
+    if (!gesture) return
+    const id = gesture.pointerId
+    gesture = null
+    try {
+      if (el?.hasPointerCapture?.(id)) el.releasePointerCapture(id)
+    } catch {
+      // Capture may already be gone (element detached).
+    }
   }
 
-  /** The gesture's handler, if `e` belongs to it and that tool is still active. */
-  function gestureTool(e: PointerEvent): ToolHandler | null {
-    if (!gesture || gesture.pointerId !== e.pointerId) return null
-    if (gesture.tool !== tool || !vp) {
-      gesture = null
+  function onPointerDown(e: PointerEvent) {
+    if (!tool || !vp || e.button !== 0 || gesture) return
+    const pe = toPageEvent(e, vp)
+    gesture = { pointerId: e.pointerId, tool, last: pe }
+    el.setPointerCapture?.(e.pointerId)
+    tool.onPointerDown?.(pe)
+  }
+
+  /** The gesture's handler and page event for `e`, if `e` belongs to the gesture. */
+  function forGesture(e: PointerEvent): { t: ToolHandler; pe: PagePointerEvent } | null {
+    if (!gesture || gesture.pointerId !== e.pointerId || !vp) return null
+    if (gesture.tool !== tool) {
+      dropGesture()
       return null
     }
-    return gesture.tool
+    const pe = toPageEvent(e, vp)
+    gesture.last = pe
+    return { t: gesture.tool, pe }
   }
 
   function onPointerMove(e: PointerEvent) {
-    const t = gestureTool(e)
-    if (t && vp) t.onPointerMove?.(toPageEvent(e, vp))
+    const g = forGesture(e)
+    g?.t.onPointerMove?.(g.pe)
   }
 
-  /** pointerup, pointercancel and an unexpected loss of capture all end the gesture. */
-  function onPointerEnd(e: PointerEvent) {
-    const t = gestureTool(e)
-    if (!t || !vp) return
-    gesture = null
-    t.onPointerUp?.(toPageEvent(e, vp))
+  function onPointerUp(e: PointerEvent) {
+    const g = forGesture(e)
+    if (!g) return
+    dropGesture()
+    g.t.onPointerUp?.(g.pe)
   }
+
+  /** pointercancel, or capture lost without a preceding pointerup (up clears the gesture first). */
+  function onPointerCancel(e: PointerEvent) {
+    const g = forGesture(e)
+    if (!g) return
+    dropGesture()
+    g.t.onPointerCancel?.(g.pe)
+  }
+
+  // A tool switch mid-stroke: the old handler is deactivated by the router;
+  // drop the gesture at once so it cannot block the next press.
+  $effect(() => {
+    const current = tool // read first: it is this effect's only dependency
+    if (gesture && gesture.tool !== current) dropGesture()
+  })
+
+  // Unmounted mid-stroke (page virtualised away, tab closed): cancel the stroke.
+  onDestroy(() => {
+    if (!gesture) return
+    const { tool: t, last } = gesture
+    dropGesture()
+    if (t === tool) t.onPointerCancel?.(last)
+  })
 </script>
 
 <!-- Same CSS box as the canvas, so it scales with it during the zoom preview. -->
@@ -112,9 +153,9 @@
   style:cursor={tool ? cursor : undefined}
   onpointerdown={onPointerDown}
   onpointermove={onPointerMove}
-  onpointerup={onPointerEnd}
-  onpointercancel={onPointerEnd}
-  onlostpointercapture={onPointerEnd}
+  onpointerup={onPointerUp}
+  onpointercancel={onPointerCancel}
+  onlostpointercapture={onPointerCancel}
   role="presentation"
   width="100%"
   height="100%"

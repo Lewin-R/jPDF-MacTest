@@ -12,6 +12,7 @@
     onpointerdown,
     onpointermove,
     onpointerup,
+    onpointercancel,
   }: {
     def: ToolDefinition
     instance: ToolInstance
@@ -23,6 +24,7 @@
     onpointerdown(e: PointerEvent): void
     onpointermove(e: PointerEvent): void
     onpointerup(e: PointerEvent): void
+    onpointercancel(e: PointerEvent): void
   } = $props()
 
   const title = $derived(def.shortcut ? `${def.displayName} (${def.shortcut.toUpperCase()})` : def.displayName)
@@ -43,7 +45,7 @@
   {onpointerdown}
   {onpointermove}
   {onpointerup}
-  onpointercancel={onpointerup}
+  {onpointercancel}
 >
   <def.Icon settings={instance.settings} size={20} />
 </button>

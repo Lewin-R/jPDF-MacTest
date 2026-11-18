@@ -31,6 +31,7 @@ function spyTool() {
     onPointerDown: (e) => void events.push(['down', e]),
     onPointerMove: (e) => void events.push(['move', e]),
     onPointerUp: (e) => void events.push(['up', e]),
+    onPointerCancel: (e) => void events.push(['cancel', e]),
   }
   return { tool, events }
 }
@@ -80,12 +81,53 @@ describe('Overlay pointer routing', () => {
     expect(events[0][1].pdf).toEqual([10, 90])
   })
 
-  it('pointercancel ends the gesture', async () => {
+  it('pointercancel cancels the gesture instead of committing it', async () => {
     const { tool, events } = spyTool()
     const { svg } = mount(tool)
     await fireEvent.pointerDown(svg, { button: 0, clientX: 30, clientY: 60, pointerId: 2 })
     await fireEvent.pointerCancel(svg, { clientX: 30, clientY: 60, pointerId: 2 })
     await fireEvent.pointerMove(svg, { clientX: 40, clientY: 60, pointerId: 2 })
-    expect(events.map(([k]) => k)).toEqual(['down', 'up'])
+    expect(events.map(([k]) => k)).toEqual(['down', 'cancel'])
+    expect(events[1][1].page).toBe(2)
+  })
+
+  it('lost capture cancels, but not after pointerup', async () => {
+    const { tool, events } = spyTool()
+    const { svg } = mount(tool)
+    await fireEvent.pointerDown(svg, { button: 0, clientX: 30, clientY: 60, pointerId: 3 })
+    await fireEvent(svg, new PointerEvent('lostpointercapture', { pointerId: 3 }))
+    expect(events.map(([k]) => k)).toEqual(['down', 'cancel'])
+
+    await fireEvent.pointerDown(svg, { button: 0, clientX: 30, clientY: 60, pointerId: 4 })
+    await fireEvent.pointerUp(svg, { clientX: 30, clientY: 60, pointerId: 4 })
+    await fireEvent(svg, new PointerEvent('lostpointercapture', { pointerId: 4 }))
+    expect(events.map(([k]) => k)).toEqual(['down', 'cancel', 'down', 'up'])
+  })
+
+  it('unmounting mid-gesture cancels it with the last position and releases capture', async () => {
+    const { tool, events } = spyTool()
+    const { svg, unmount } = mount(tool)
+    await fireEvent.pointerDown(svg, { button: 0, clientX: 30, clientY: 60, pointerId: 5 })
+    await fireEvent.pointerMove(svg, { clientX: 50, clientY: 60, pointerId: 5 })
+    unmount()
+    expect(events.map(([k]) => k)).toEqual(['down', 'move', 'cancel'])
+    expect(events[2][1].screen).toEqual([40, 40])
+    expect(svg.releasePointerCapture).toHaveBeenCalledWith(5)
+  })
+
+  it('a tool switch mid-gesture drops the gesture so the next press works', async () => {
+    const a = spyTool()
+    const b = spyTool()
+    const { svg, rerender } = mount(a.tool)
+    await fireEvent.pointerDown(svg, { button: 0, clientX: 30, clientY: 60, pointerId: 6 })
+    await rerender({ tool: b.tool })
+    // Dropped right away, not only on the next event.
+    expect(svg.releasePointerCapture).toHaveBeenCalledWith(6)
+    await fireEvent.pointerMove(svg, { clientX: 40, clientY: 60, pointerId: 6 })
+    await fireEvent.pointerUp(svg, { clientX: 40, clientY: 60, pointerId: 6 })
+    expect(a.events.map(([k]) => k)).toEqual(['down'])
+    expect(b.events).toEqual([])
+    await fireEvent.pointerDown(svg, { button: 0, clientX: 30, clientY: 60, pointerId: 7 })
+    expect(b.events.map(([k]) => k)).toEqual(['down'])
   })
 })
