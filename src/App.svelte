@@ -12,6 +12,18 @@
   import Viewer from './core/viewer/Viewer.svelte'
   import { registerEditCommands } from './core/session/editCommands'
   import { registerViewCommands } from './core/viewer/viewCommands'
+  import { ToolRouter } from './core/viewer/toolRouting.svelte'
+  import { settings } from './core/settings/settings.svelte'
+  import { openErrorMessage } from './app/openErrors'
+  import Toolbar from './toolbar/Toolbar.svelte'
+  import { activeTool } from './toolbar/activeTool.svelte'
+  import { registerToolShortcuts } from './toolbar/toolShortcuts'
+  import Toast from './ui/Toast.svelte'
+  import { toasts } from './ui/toasts.svelte'
+
+  const router = new ToolRouter(() => activeTool.current, () => tabs.active)
+  /** The toolbar shows once the persisted layout is loaded (no flash of defaults). */
+  let settingsLoaded = $state(false)
 
   function closeActive() {
     if (tabs.activeId) return tabs.close(tabs.activeId)
@@ -27,14 +39,17 @@
   }
 
   onMount(() => {
+    void settings.load().finally(() => (settingsLoaded = true))
+    const stopRouter = router.start()
+    // Tool modules register at import time (before App mounts).
+    const disposeToolShortcuts = registerToolShortcuts()
     const disposeOpening = initFileOpening(async (path) => {
       try {
         const existing = tabs.findByPath(path)
         if (existing) tabs.activeId = existing.id
         else tabs.add(await DocumentSession.open(path))
       } catch (e) {
-        // Toasts arrive in Task 12.
-        console.error(`Failed to open ${path}`, e)
+        toasts.show(openErrorMessage(e, path), 'error')
       }
     })
     const disposeCommand = commands.register({
@@ -60,6 +75,8 @@
     const disposeView = registerViewCommands(() => tabs.active)
     const disposeEdit = registerEditCommands(() => tabs.active)
     return () => {
+      disposeToolShortcuts()
+      stopRouter()
       disposeEdit()
       disposeView()
       disposeTabs.forEach((d) => d())
@@ -77,15 +94,23 @@
   <main class="viewer-region">
     {#if tabs.active}
       {#key tabs.active.id}
-        <Viewer session={tabs.active} />
+        <Viewer
+          session={tabs.active}
+          tool={router.handler}
+          cursor={router.cursor}
+          toolPreview={router.stateOf(tabs.active).preview}
+        />
       {/key}
     {:else}
       <EmptyState onOpen={pickAndOpen} />
     {/if}
   </main>
-  <aside class="toolbar-region" aria-label="Tools"></aside>
+  <aside class="toolbar-region">
+    {#if settingsLoaded}<Toolbar />{/if}
+  </aside>
   <div class="statusbar-region"><StatusBar session={tabs.active} /></div>
 </div>
+<Toast />
 
 <style>
   .shell {
@@ -104,6 +129,7 @@
     overflow: hidden;
   }
   .toolbar-region {
+    min-height: 0;
     background: var(--bg-deep);
     border-left: 1px solid var(--border);
   }

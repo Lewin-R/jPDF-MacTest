@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import type { ToolHandler } from '../registry/tools'
+  import type { Annotation } from '../session/model'
   import type { DocumentSession } from '../session/session.svelte'
   import { clampScale, contentWidth, pageLeft, visibleRange } from './layout'
   import Overlay from './Overlay.svelte'
@@ -8,7 +10,19 @@
 
   // Mount one Viewer per session ({#key session.id}); scroll and scale live on
   // the session, so switching tabs restores them.
-  let { session }: { session: DocumentSession } = $props()
+  let {
+    session,
+    tool = null,
+    cursor,
+    toolPreview = null,
+  }: {
+    session: DocumentSession
+    /** Active tool's handler (see ToolRouter); page overlays forward pointer input to it. */
+    tool?: ToolHandler | null
+    cursor?: string
+    /** The tool's live, uncommitted annotation, drawn on its page. */
+    toolPreview?: Annotation | null
+  } = $props()
 
   const WHEEL_COMMIT_MS = 150
 
@@ -107,7 +121,15 @@
           left={pageLeft(layout, i, session.viewportW)}
           top={layout.tops[i]}
         >
-          <Overlay doc={session.doc} pageNumber={i + 1} scale={session.scale} store={session.store} />
+          <Overlay
+            doc={session.doc}
+            pageNumber={i + 1}
+            scale={session.scale}
+            store={session.store}
+            preview={toolPreview?.page === i ? toolPreview : null}
+            {tool}
+            {cursor}
+          />
         </PageView>
       {/each}
     </div>
