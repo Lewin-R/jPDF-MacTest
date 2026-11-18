@@ -28,3 +28,11 @@ export function openPdf(path: string): Promise<ArrayBuffer> {
 export function getLaunchFiles(): Promise<string[]> {
   return invoke<string[]>('get_launch_files')
 }
+
+export function loadSettings(): Promise<unknown | null> {
+  return invoke<unknown | null>('load_settings')
+}
+
+export function saveSettings(value: unknown): Promise<void> {
+  return invoke<void>('save_settings', { value })
+}
