@@ -10,7 +10,7 @@
     return [x, y]
   }
   const color = $derived(`rgb(${a.color.map((c) => Math.round(c * 255)).join(',')})`)
-  const multiply = $derived(a.blend === 'multiply' || a.role === 'marker')
+  const multiply = $derived(a.blend === 'multiply')
 </script>
 
 <g style:mix-blend-mode={multiply ? 'multiply' : undefined}>

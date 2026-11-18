@@ -38,7 +38,10 @@
         // getViewport applies the page's own rotation by default.
         if (!cancelled) loaded = page.getViewport({ scale: s })
       })
-      .catch(() => {})
+      .catch((e: unknown) => {
+        // Cancelled loads and loads of a closed tab's doc reject by design.
+        if (!cancelled && !doc.destroyed) console.error(`Failed to load page ${pageNumber}`, e)
+      })
     return () => {
       cancelled = true
     }
@@ -48,7 +51,15 @@
 </script>
 
 <!-- Same CSS box as the canvas, so it scales with it during the zoom preview. -->
-<svg class="overlay" width="100%" height="100%">
+<!-- viewBox = the viewport's own size, so a stale viewport (scale just changed,
+     page not yet reloaded) still scales with the resized box. -->
+<svg
+  class="overlay"
+  width="100%"
+  height="100%"
+  viewBox={vp ? `0 0 ${vp.width} ${vp.height}` : undefined}
+  preserveAspectRatio="none"
+>
   {#if vp}
     {#each annotations as a (a.id)}
       {@const K = annotationKinds.get(a.kind)}

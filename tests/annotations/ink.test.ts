@@ -1,5 +1,5 @@
 import { render } from '@testing-library/svelte'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { PageViewport } from 'pdfjs-dist'
 import '../../src/annotations'
 import { inkKind } from '../../src/annotations/ink'
@@ -17,6 +17,8 @@ const ink = (over: Partial<InkAnnotation> = {}): InkAnnotation => ({
 // Page 100pt tall, scale 2: screen = (2x, 2(100 - y)).
 const vp = {
   scale: 2,
+  width: 200,
+  height: 200,
   convertToViewportPoint: (x: number, y: number) => [x * 2, (100 - y) * 2],
 } as unknown as PageViewport
 
@@ -43,6 +45,30 @@ describe('Overlay + ink', () => {
     store.add(ink({ role: 'marker', blend: 'multiply' }))
     const { container } = mount(1, store)
     expect(container.querySelector('g')!.style.mixBlendMode).toBe('multiply')
+  })
+
+  it('blend is authoritative for multiply', () => {
+    const a = new AnnotationStore()
+    a.add(ink({ role: 'marker', blend: 'normal' }))
+    expect(mount(1, a).container.querySelector('g')!.style.mixBlendMode).toBe('')
+    const b = new AnnotationStore()
+    b.add(ink({ role: 'pen', blend: 'multiply' }))
+    expect(mount(1, b).container.querySelector('g')!.style.mixBlendMode).toBe('multiply')
+  })
+
+  it('sizes the SVG viewBox to the viewport so stale content scales', () => {
+    const { container } = mount(1, new AnnotationStore())
+    const svg = container.querySelector('svg')!
+    expect(svg.getAttribute('viewBox')).toBe('0 0 200 200')
+    expect(svg.getAttribute('preserveAspectRatio')).toBe('none')
+  })
+
+  it('logs getPage failures unless destroyed', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const doc = { destroyed: false, getPage: vi.fn(() => Promise.reject(new Error('boom'))) }
+    render(Overlay, { props: { doc: doc as never, pageNumber: 1, scale: 1, store: new AnnotationStore() } })
+    await vi.waitFor(() => expect(err).toHaveBeenCalledOnce())
+    err.mockRestore()
   })
 
   it('renders the 0-based store page for a 1-based page number', () => {
