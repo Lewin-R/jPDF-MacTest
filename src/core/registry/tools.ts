@@ -11,6 +11,8 @@ export interface PagePointerEvent {
   screen: Point
   vp: PageViewport
   native: PointerEvent
+  /** Maps client coordinates (e.g. of coalesced events) to PDF user space, as `pdf` was. */
+  toPdf(clientX: number, clientY: number): Point
 }
 
 export interface ToolHandler {

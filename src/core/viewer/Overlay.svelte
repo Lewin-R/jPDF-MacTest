@@ -64,15 +64,26 @@
    */
   let gesture: { pointerId: number; tool: ToolHandler; last: PagePointerEvent } | null = null
 
-  function toPageEvent(e: PointerEvent, v: PageViewport): PagePointerEvent {
+  /** Client coordinates → PDF user space. */
+  function clientToPdf(clientX: number, clientY: number, v: PageViewport): Point {
     const r = el.getBoundingClientRect()
-    const sx = e.clientX - r.left
-    const sy = e.clientY - r.top
     // The box can be CSS-scaled (zoom preview) relative to the viewport units.
     const kx = r.width > 0 ? v.width / r.width : 1
     const ky = r.height > 0 ? v.height / r.height : 1
-    const [px, py] = v.convertToPdfPoint(sx * kx, sy * ky)
-    return { page: pageNumber - 1, pdf: [px, py] as Point, screen: [sx, sy], vp: v, native: e }
+    const [px, py] = v.convertToPdfPoint((clientX - r.left) * kx, (clientY - r.top) * ky)
+    return [px, py]
+  }
+
+  function toPageEvent(e: PointerEvent, v: PageViewport): PagePointerEvent {
+    const r = el.getBoundingClientRect()
+    return {
+      page: pageNumber - 1,
+      pdf: clientToPdf(e.clientX, e.clientY, v),
+      screen: [e.clientX - r.left, e.clientY - r.top],
+      vp: v,
+      native: e,
+      toPdf: (clientX, clientY) => clientToPdf(clientX, clientY, v),
+    }
   }
 
   /** Forgets the gesture and releases its pointer capture. */
