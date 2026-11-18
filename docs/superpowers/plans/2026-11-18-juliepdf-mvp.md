@@ -24,7 +24,7 @@
 - Saved annotations: standard `/Highlight`, `/Ink`, `/FreeText` with `/AP /N`, `/NM` (id), `/M`, `/T` (author, default "JuliePDF"), `/F 4`, private `/JuliePDF << /v 1 … >>`. Incremental update only; original bytes stay an unchanged prefix.
 - Zoom range 0.1–8.0; default fit width.
 - Performance budget (spec §8): installer < 15 MB; window < 1 s; first page of 50-page PDF < 300 ms; 60 fps scroll; save < 200 ms typical; idle RAM < 200 MB.
-- Every commit message ends with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+- Commits use the user's git identity only; no Co-Authored-By or other Claude attribution in commit messages.
 
 ## Review Focus
 
