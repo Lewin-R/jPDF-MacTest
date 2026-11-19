@@ -421,3 +421,32 @@ describe('DocumentSession page plan and reload', () => {
     expect(session.currentPage).toBe(3)
   })
 })
+
+describe('DocumentSession current page and page changes', () => {
+  it('deleting the current last page clamps currentPage', async () => {
+    mocks.doc = fakeDoc(uniform)
+    const session = await DocumentSession.open('C:/docs/c1.pdf')
+    await session.pageSizesLoaded
+    session.setViewport(1000, 500)
+    session.goToPage(4)
+    session.deletePage(3)
+    expect(session.currentPage).toBe(3)
+    session.deletePage(2)
+    session.deletePage(1)
+    expect(session.currentPage).toBe(1)
+  })
+
+  it('late page sizes never make the scroll position NaN for an out-of-range current page', async () => {
+    let release!: () => void
+    mocks.doc = fakeDoc(
+      [{ width: 600, height: 800 }, { width: 600, height: 1000 }, { width: 800, height: 600 }, { width: 600, height: 800 }],
+      new Promise<void>((r) => (release = r)),
+    )
+    const session = await DocumentSession.open('C:/docs/c2.pdf')
+    session.setViewport(1000, 500)
+    session.currentPage = 9
+    release()
+    await session.pageSizesLoaded
+    expect(Number.isNaN(session.scrollTop)).toBe(false)
+  })
+})

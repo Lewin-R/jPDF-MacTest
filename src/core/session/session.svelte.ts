@@ -91,7 +91,15 @@ export class DocumentSession {
    * The pages as shown, in order (page operations edit this list; see
    * pageCommands). Annotation.page indexes this list.
    */
-  pages: PageEntry[] = $state.raw([])
+  get pages(): PageEntry[] {
+    return this.#pages
+  }
+  set pages(pages: PageEntry[]) {
+    this.#pages = pages
+    // A deleted current (last) page: the status bar must not show "3 / 2".
+    if (this.currentPage > pages.length) this.currentPage = Math.max(1, pages.length)
+  }
+  #pages: PageEntry[] = $state.raw([])
   /**
    * Set when the session no longer matches its file (a save changed the
    * pages but reloading the saved file failed): it must not be saved again.
@@ -208,9 +216,10 @@ export class DocumentSession {
 
   /** Replaces the file page sizes, keeping the current page's position in the viewport. */
   private applySourceSizes(sizes: PageSize[]): void {
-    const p = this.currentPage - 1
+    const p = Math.min(this.currentPage, this.pages.length) - 1
     const oldTop = this.layout.tops[p]
     this.sourceSizes = sizes
+    if (oldTop === undefined) return
     const delta = this.layout.tops[p] - oldTop
     if (delta === 0) return
     this.scrollTop += delta
