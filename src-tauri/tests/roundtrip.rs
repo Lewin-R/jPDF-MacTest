@@ -1199,3 +1199,82 @@ fn foreign_square_update_drops_stale_rd_and_keeps_foreign_keys() {
     };
     assert_eq!(*rect, [16.0, 17.0, 86.0, 88.0]);
 }
+
+/// `bytes` with the annotation dictionary at `r` changed by `f` (another editor's save).
+fn edited_by_other_app(bytes: &[u8], r: &str, f: impl FnOnce(&mut lopdf::Dictionary)) -> Vec<u8> {
+    let mut doc = Document::load_mem(bytes).unwrap();
+    f(doc.get_dictionary_mut(lopdf_id(r)).unwrap());
+    let mut out = Vec::new();
+    doc.save_to(&mut out).unwrap();
+    out
+}
+
+fn rect_obj(r: [f64; 4]) -> Object {
+    Object::Array(r.iter().map(|&v| Object::Real(v as f32)).collect())
+}
+
+#[test]
+fn shape_moved_by_another_editor_follows_its_rect() {
+    let orig = fixtures::simple_pdf(1);
+    let a = shape("s", 0, ShapeKind::Rect, red_border(), yellow_fill());
+    let (out, refs) = write(&orig, &[a], &[]);
+    // Written /Rect is [98.25, 197.75, 252.25, 302.5]; another app moves it by (+10, -20).
+    let moved = edited_by_other_app(&out, &refs["s"], |d| d.set("Rect", rect_obj([108.25, 177.75, 262.25, 282.5])));
+    let got = read_annotations(&moved).unwrap();
+    let AnnotationDto::Shape { rect, border, fill, .. } = &got[0] else { panic!("{got:?}") };
+    assert_eq!(*rect, [110.5, 180.0, 260.0, 280.25]);
+    assert_eq!(*border, red_border(), "style still comes from /JuliePDF");
+    assert_eq!(*fill, yellow_fill());
+}
+
+#[test]
+fn shape_resized_by_another_editor_uses_geometry_from_its_rect() {
+    let orig = fixtures::simple_pdf(1);
+    let a = shape("s", 0, ShapeKind::Circle, red_border(), None);
+    let (out, refs) = write(&orig, &[a], &[]);
+    let resized = edited_by_other_app(&out, &refs["s"], |d| d.set("Rect", rect_obj([50.0, 50.0, 150.0, 100.0])));
+    let got = read_annotations(&resized).unwrap();
+    let AnnotationDto::Shape { rect, border, .. } = &got[0] else { panic!("{got:?}") };
+    assert_eq!(*rect, [51.25, 51.25, 148.75, 98.75], "/Rect shrunk by /BS /W / 2");
+    assert_eq!(*border, red_border());
+
+    // Unchanged /Rect: the exact private rect wins.
+    let got = read_annotations(&out).unwrap();
+    assert!(matches!(&got[0], AnnotationDto::Shape { rect, .. } if *rect == [100.5, 200.0, 250.0, 300.25]));
+}
+
+#[test]
+fn foreign_shape_with_zero_border_width_has_no_border() {
+    let orig = fixtures::simple_pdf(1);
+    let a = shape("s", 0, ShapeKind::Rect, red_border(), yellow_fill());
+    let (out, refs) = write(&orig, &[a], &[]);
+    let foreign = |f: &dyn Fn(&mut lopdf::Dictionary)| {
+        let bytes = edited_by_other_app(&out, &refs["s"], |d| {
+            d.remove(b"JuliePDF");
+            d.set("Rect", rect_obj([10.0, 10.0, 50.0, 50.0]));
+            f(d);
+        });
+        let got = read_annotations(&bytes).unwrap();
+        let AnnotationDto::Shape { rect, border, fill, .. } = got[0].clone() else { panic!("{got:?}") };
+        (rect, border, fill)
+    };
+
+    let (rect, border, fill) = foreign(&|d| d.set("BS", lopdf::dictionary! { "W" => 0 }));
+    assert_eq!(border, None, "/BS /W 0 draws no border");
+    assert_eq!(rect, [10.0, 10.0, 50.0, 50.0]);
+    assert!(fill.is_some());
+
+    let (rect, border, _) = foreign(&|d| {
+        d.remove(b"BS");
+        d.set("Border", vec![0.into(), 0.into(), 0.into()]);
+    });
+    assert_eq!(border, None, "/Border [0 0 0] without /BS draws no border");
+    assert_eq!(rect, [10.0, 10.0, 50.0, 50.0]);
+
+    let (rect, border, _) = foreign(&|d| {
+        d.remove(b"BS");
+        d.set("Border", vec![0.into(), 0.into(), 4.into()]);
+    });
+    assert_eq!(border.map(|b| b.width), Some(4.0), "/Border width without /BS");
+    assert_eq!(rect, [12.0, 12.0, 48.0, 48.0]);
+}

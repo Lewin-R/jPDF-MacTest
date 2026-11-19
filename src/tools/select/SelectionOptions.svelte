@@ -5,6 +5,7 @@
   import Slider from '../../ui/Slider.svelte'
   import { MARKER_PRESETS } from '../marker/settings'
   import { PEN_PRESETS } from '../pen/settings'
+  import { selectionMemory } from '../shape/settings'
   import StyleControls from '../shape/StyleControls.svelte'
   import { BACKGROUND_PRESETS, DEFAULT_BACKGROUND } from '../text/settings'
 
@@ -127,8 +128,12 @@
   {:else if annotation.kind === 'shape'}
     <StyleControls
       style={shown('style', { border: annotation.border, fill: annotation.fill })}
+      memory={selectionMemory.get(annotation.id)}
       onchange={(s) => preview('style', s)}
-      oncommit={(s) => commit({ border: s.border, fill: s.fill })}
+      oncommit={(s, m) => {
+        selectionMemory.set(annotation.id, m)
+        commit({ border: s.border, fill: s.fill })
+      }}
     />
   {/if}
 </div>

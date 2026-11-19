@@ -155,10 +155,21 @@ fn map_annotation(doc: &Document, d: &Dictionary, common: Common) -> Option<Anno
     }
 }
 
+/// How far (pt) `/Rect` may differ from the bbox JuliePDF wrote and still count as unchanged.
+const RECT_EPSILON: f64 = 0.01;
+
+fn normalized(r: &[f64]) -> [f64; 4] {
+    [r[0].min(r[2]), r[1].min(r[3]), r[0].max(r[2]), r[1].max(r[3])]
+}
+
 /// `/Square` and `/Circle`. JuliePDF's own keep the geometric rect, both
 /// opacities and which of border and fill exist in `/JuliePDF` (`/CA` is 1).
-/// Foreign ones: the geometric rect is `/Rect` inset by `/RD`, then by half
-/// the `/BS /W` border width (default 1); border colour `/C` and fill colour
+/// The private rect is used only while `/Rect` is still the bbox JuliePDF
+/// wrote for it (stroke-expanded + 1); a `/Rect` of the same size elsewhere
+/// (moved by another editor) shifts it; any other `/Rect` (resized elsewhere)
+/// is read like a foreign one. Foreign geometry: `/Rect` inset by `/RD`, then
+/// by half the border width. Border width: `/BS /W`, else the third entry of
+/// `/Border`, else 1; 0 means no border. Foreign colours: border `/C`, fill
 /// `/IC` (none when missing or empty), both with opacity `/CA`. Zero-area
 /// shapes and ones with neither border nor fill are skipped.
 fn map_shape(
@@ -173,54 +184,72 @@ fn map_shape(
         .get_deref(b"BS", doc)
         .and_then(Object::as_dict)
         .ok()
-        .and_then(|bs| number(doc, bs.get(b"W").ok()))
+        .map(|bs| number(doc, bs.get(b"W").ok()).unwrap_or(1.0))
+        .or_else(|| numbers(doc, d.get(b"Border").ok()).get(2).copied())
         .filter(|w| w.is_finite() && *w >= 0.0)
         .unwrap_or(1.0);
     let c = color_of(doc, d.get(b"C").ok());
     let ic = color_of(doc, d.get(b"IC").ok());
+    let r = numbers(doc, d.get(b"Rect").ok());
+    let outer = (r.len() == 4).then(|| normalized(&r));
     let private_num = |key: &[u8]| private.and_then(|p| number(doc, p.get(key).ok()));
     let private_bool =
         |key: &[u8]| private.and_then(|p| p.get_deref(key, doc).and_then(Object::as_bool).ok());
-    let private_rect = private
-        .map(|p| numbers(doc, p.get(b"rect").ok()))
-        .filter(|r| r.len() == 4);
 
-    let (rect, border, fill) = match private_rect {
-        Some(r) => {
-            let border = match private_bool(b"hasBorder") {
+    let (border, fill) = match private {
+        Some(_) => (
+            match private_bool(b"hasBorder") {
                 Some(false) => None,
-                _ => c.map(|color| Stroke {
+                _ => c.filter(|_| width > 0.0).map(|color| Stroke {
                     color: snap_rgb(color),
                     width,
                     opacity: private_num(b"borderOpacity").unwrap_or(1.0),
                 }),
-            };
-            let fill = match private_bool(b"hasFill") {
+            },
+            match private_bool(b"hasFill") {
                 Some(false) => None,
                 _ => ic.map(|color| Fill {
                     color: snap_rgb(color),
                     opacity: private_num(b"fillOpacity").unwrap_or(1.0),
                 }),
-            };
-            ([r[0].min(r[2]), r[1].min(r[3]), r[0].max(r[2]), r[1].max(r[3])], border, fill)
-        }
-        None => {
-            let r = numbers(doc, d.get(b"Rect").ok());
-            if r.len() != 4 {
+            },
+        ),
+        None => (
+            c.filter(|_| width > 0.0).map(|color| Stroke { color, width, opacity }),
+            ic.map(|color| Fill { color, opacity }),
+        ),
+    };
+
+    // The rect JuliePDF saved, shifted along with /Rect if another editor moved it.
+    let private_rect = private
+        .map(|p| numbers(doc, p.get(b"rect").ok()))
+        .filter(|p| p.len() == 4)
+        .map(|p| normalized(&p))
+        .and_then(|p| {
+            let pad = border.as_ref().map_or(0.0, |b| b.width / 2.0) + 1.0;
+            let written = [p[0] - pad, p[1] - pad, p[2] + pad, p[3] + pad];
+            let Some(o) = outer else { return Some(p) };
+            let near = |a: f64, b: f64| (a - b).abs() <= RECT_EPSILON;
+            let same_size = near(o[2] - o[0], written[2] - written[0]) && near(o[3] - o[1], written[3] - written[1]);
+            if !same_size {
                 return None;
             }
+            let (dx, dy) = (o[0] - written[0], o[1] - written[1]);
+            if near(dx, 0.0) && near(dy, 0.0) {
+                Some(p)
+            } else {
+                Some([p[0] + dx, p[1] + dy, p[2] + dx, p[3] + dy])
+            }
+        });
+
+    let rect = match private_rect {
+        Some(p) => p,
+        None => {
+            let o = outer?;
             let rd = numbers(doc, d.get(b"RD").ok());
             let rd = if rd.len() == 4 { [rd[0], rd[1], rd[2], rd[3]] } else { [0.0; 4] };
             let h = width / 2.0;
-            let rect = [
-                r[0].min(r[2]) + rd[0] + h,
-                r[1].min(r[3]) + rd[1] + h,
-                r[0].max(r[2]) - rd[2] - h,
-                r[1].max(r[3]) - rd[3] - h,
-            ];
-            let border = c.map(|color| Stroke { color, width, opacity });
-            let fill = ic.map(|color| Fill { color, opacity });
-            (rect, border, fill)
+            [o[0] + rd[0] + h, o[1] + rd[1] + h, o[2] - rd[2] - h, o[3] - rd[3] - h]
         }
     };
     // An inset larger than the rect leaves nothing to draw.

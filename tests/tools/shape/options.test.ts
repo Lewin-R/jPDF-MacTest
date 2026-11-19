@@ -30,7 +30,28 @@ describe('shape tool options', () => {
     expect(r.getByRole('slider', { name: 'Border width' })).toBeTruthy()
     expect(r.queryByRole('slider', { name: 'Fill opacity' })).toBeNull()
     await fireEvent.click(within(r.getByRole('radiogroup', { name: 'Border' })).getByRole('radio', { name: 'None' }))
-    expect(update).toHaveBeenLastCalledWith({ border: null, fill: DEFAULT_FILL })
+    expect(update).toHaveBeenLastCalledWith({ border: null, fill: DEFAULT_FILL, lastBorder: settings.border })
+  })
+
+  it('turning the border off and on again restores the custom border', async () => {
+    const custom = { color: [0, 0.5, 0] as [number, number, number], width: 7.5, opacity: 0.3 }
+    const fill = { color: [0, 0, 1] as [number, number, number], opacity: 0.5 }
+    const update = vi.fn()
+    const r = render(Options, { props: { settings: { shape: 'rect', border: custom, fill }, update } })
+    await fireEvent.click(within(r.getByRole('radiogroup', { name: 'Border' })).getByRole('radio', { name: 'None' }))
+    const off = update.mock.lastCall![0]
+    expect(off).toEqual({ border: null, fill, lastBorder: custom })
+    await r.rerender({ settings: { shape: 'rect', ...off }, update })
+    await fireEvent.click(within(r.getByRole('radiogroup', { name: 'Border' })).getByRole('radio', { name: 'Border' }))
+    expect(update.mock.lastCall![0]).toMatchObject({ border: custom, fill })
+  })
+
+  it('the fill turned on by the border rule is the last custom fill', async () => {
+    const lastFill = { color: [0, 1, 0] as [number, number, number], opacity: 0.8 }
+    const update = vi.fn()
+    const r = render(Options, { props: { settings: { ...settings, lastFill }, update } })
+    await fireEvent.click(within(r.getByRole('radiogroup', { name: 'Border' })).getByRole('radio', { name: 'None' }))
+    expect(update.mock.lastCall![0]).toMatchObject({ border: null, fill: lastFill })
   })
 
   it('width slider updates the border', async () => {
@@ -58,5 +79,21 @@ describe('shape selection options', () => {
 
     await fireEvent.click(within(r.getByRole('radiogroup', { name: 'Fill' })).getByRole('radio', { name: 'None' }))
     expect(update.mock.calls[1][0]).toMatchObject({ fill: null, border: shape.border })
+  })
+
+  it("turning a selected shape's fill off and on again restores its fill, also after the flyout reopens", async () => {
+    const update = vi.fn()
+    const first = render(SelectionOptions, { props: { annotation: shape, update } })
+    await fireEvent.click(within(first.getByRole('radiogroup', { name: 'Fill' })).getByRole('radio', { name: 'None' }))
+    expect(update.mock.lastCall![0]).toMatchObject({ fill: null })
+    first.unmount()
+    const r = render(SelectionOptions, { props: { annotation: { ...shape, fill: null }, update } })
+    await fireEvent.click(within(r.getByRole('radiogroup', { name: 'Fill' })).getByRole('radio', { name: 'Fill' }))
+    expect(update.mock.lastCall![0]).toMatchObject({ fill: shape.fill, border: shape.border })
+    // Another shape does not get this one's fill.
+    r.unmount()
+    const other = render(SelectionOptions, { props: { annotation: { ...shape, id: 'other', fill: null }, update } })
+    await fireEvent.click(within(other.getByRole('radiogroup', { name: 'Fill' })).getByRole('radio', { name: 'Fill' }))
+    expect(update.mock.lastCall![0]).toMatchObject({ fill: DEFAULT_FILL })
   })
 })

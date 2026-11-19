@@ -9,7 +9,13 @@ export interface ShapeStyle {
   fill: ShapeFill | null
 }
 
-export interface ShapeSettings extends ShapeStyle {
+/** The last border and fill a style had before they were turned off: turning them back on restores them. */
+export interface StyleMemory {
+  lastBorder?: ShapeBorder
+  lastFill?: ShapeFill
+}
+
+export interface ShapeSettings extends ShapeStyle, StyleMemory {
   shape: 'rect' | 'circle'
 }
 
@@ -32,13 +38,33 @@ export function copyStyle(s: ShapeStyle): ShapeStyle {
 /**
  * `s` with the border set to `border`. A shape never ends up with neither
  * border nor fill: turning the border off while there is no fill turns the
- * fill on (DEFAULT_FILL).
+ * fill on (the remembered fill, else DEFAULT_FILL).
  */
-export function withBorder(s: ShapeStyle, border: ShapeBorder | null): ShapeStyle {
-  return { border, fill: border === null && s.fill === null ? DEFAULT_FILL : s.fill }
+export function withBorder(s: ShapeStyle, border: ShapeBorder | null, memory: StyleMemory = {}): ShapeStyle {
+  return { border, fill: border === null && s.fill === null ? (memory.lastFill ?? DEFAULT_FILL) : s.fill }
 }
 
-/** `s` with the fill set to `fill`; turning off the fill without a border turns the border on (DEFAULT_BORDER). */
-export function withFill(s: ShapeStyle, fill: ShapeFill | null): ShapeStyle {
-  return { border: fill === null && s.border === null ? DEFAULT_BORDER : s.border, fill }
+/** `s` with the fill set to `fill`; turning off the fill without a border turns the border on (remembered, else DEFAULT_BORDER). */
+export function withFill(s: ShapeStyle, fill: ShapeFill | null, memory: StyleMemory = {}): ShapeStyle {
+  return { border: fill === null && s.border === null ? (memory.lastBorder ?? DEFAULT_BORDER) : s.border, fill }
 }
+
+/**
+ * Turns the border on (its remembered value, else DEFAULT_BORDER) or off
+ * (remembering the current one), keeping at least one of border and fill.
+ */
+export function toggleBorder(s: ShapeStyle, on: boolean, memory: StyleMemory): { style: ShapeStyle; memory: StyleMemory } {
+  if (on) return { style: withBorder(s, s.border ?? memory.lastBorder ?? DEFAULT_BORDER, memory), memory }
+  const next = s.border ? { ...memory, lastBorder: s.border } : memory
+  return { style: withBorder(s, null, next), memory: next }
+}
+
+/** Like toggleBorder, for the fill. */
+export function toggleFill(s: ShapeStyle, on: boolean, memory: StyleMemory): { style: ShapeStyle; memory: StyleMemory } {
+  if (on) return { style: withFill(s, s.fill ?? memory.lastFill ?? DEFAULT_FILL, memory), memory }
+  const next = s.fill ? { ...memory, lastFill: s.fill } : memory
+  return { style: withFill(s, null, next), memory: next }
+}
+
+/** Style memory of selected shapes by annotation id, for the session (the selection flyout unmounts when closed). */
+export const selectionMemory = new Map<string, StyleMemory>()
