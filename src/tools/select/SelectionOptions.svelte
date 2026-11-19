@@ -5,6 +5,7 @@
   import Slider from '../../ui/Slider.svelte'
   import { MARKER_PRESETS } from '../marker/settings'
   import { PEN_PRESETS } from '../pen/settings'
+  import StyleControls from '../shape/StyleControls.svelte'
   import { BACKGROUND_PRESETS, DEFAULT_BACKGROUND } from '../text/settings'
 
   let { annotation, update }: { annotation: Annotation; update(after: Annotation): void } = $props()
@@ -123,6 +124,12 @@
         oncommit={(v) => commit({ background: { ...bg, opacity: v / 100 } })}
       />
     {/if}
+  {:else if annotation.kind === 'shape'}
+    <StyleControls
+      style={shown('style', { border: annotation.border, fill: annotation.fill })}
+      onchange={(s) => preview('style', s)}
+      oncommit={(s) => commit({ border: s.border, fill: s.fill })}
+    />
   {/if}
 </div>
 

@@ -4,7 +4,8 @@ import '../../../src/annotations'
 import { createSelectHandler, selectTool } from '../../../src/tools/select'
 import type { PagePointerEvent, TextEdit, ToolContext } from '../../../src/core/registry/tools'
 import { History } from '../../../src/core/session/history.svelte'
-import type { Annotation, FreeTextAnnotation, InkAnnotation, Point } from '../../../src/core/session/model'
+import type { Annotation, FreeTextAnnotation, InkAnnotation, Point, ShapeAnnotation } from '../../../src/core/session/model'
+import { ALL_HANDLES, handlesFor } from '../../../src/tools/select/handles'
 import { AnnotationStore } from '../../../src/core/session/store.svelte'
 import { boxHeight, layoutLines, pageBoxRect } from '../../../src/core/geometry/textLayout'
 
@@ -221,6 +222,21 @@ describe('select tool', () => {
     expect(a.strokes[0][0][1]).toBeCloseTo(20)
     expect(a.strokes[0][1][0]).toBeCloseTo(60)
     expect(a.strokes[0][1][1]).toBeCloseTo(40)
+    expect(t.history.canUndo).toBe(true)
+  })
+
+  it('shapes have all 8 handles; the nw handle resizes the geometric rect', () => {
+    const s: ShapeAnnotation = {
+      ...base, id: 's', kind: 'shape', shape: 'circle', rect: [20, 20, 40, 40],
+      border: { color: [1, 0, 0], width: 4, opacity: 1 }, fill: null,
+    }
+    expect(handlesFor(s)).toEqual(ALL_HANDLES)
+    const t = setup([s])
+    t.click([40, 30]) // on the outline
+    expect(t.state.selection).toEqual(['s'])
+    // Bounds [18, 18, 42, 42]; the nw corner (screen top-left) is pdf (18, 42).
+    t.drag([18, 42], [8, 52])
+    expect((t.store.get('s') as ShapeAnnotation).rect).toEqual([10, 20, 40, 50])
     expect(t.history.canUndo).toBe(true)
   })
 

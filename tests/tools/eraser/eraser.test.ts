@@ -12,12 +12,14 @@ annotationKinds.register({
   hitTest: (a: Annotation, p: Point, tol: number) => distToSegment(p, [0, (a as never as { y: number }).y], [100, (a as never as { y: number }).y]) <= tol,
 } as never)
 annotationKinds.register({ kind: 'freetext', hitTest: () => true } as never)
+// shape = hit anywhere with x >= 200.
+annotationKinds.register({ kind: 'shape', hitTest: (_a: Annotation, p: Point) => p[0] >= 200 } as never)
 
 const stroke = (id: string, y: number) => ({ id, kind: 'ink', page: 0, y }) as unknown as Annotation
 const text = { id: 't', kind: 'freetext', page: 0 } as Annotation
 
-function setup(scale = 2) {
-  const annos = [stroke('a', 10), stroke('b', 50), text]
+function setup(scale = 2, extra: Annotation[] = []) {
+  const annos = [stroke('a', 10), stroke('b', 50), text, ...extra]
   const executed: Command[] = []
   let hidden: string[] = []
   let publishes = 0
@@ -66,6 +68,15 @@ describe('eraser', () => {
     handler.onPointerDown!(ev(500, 500))
     handler.onPointerUp!(ev(500, 500))
     expect(executed).toHaveLength(0)
+  })
+
+  it('erases shapes', () => {
+    const shape = { id: 's', kind: 'shape', page: 0 } as Annotation
+    const { handler, executed, ev, hidden } = setup(2, [shape])
+    handler.onPointerDown!(ev(250, 500))
+    expect(hidden()).toEqual(['s'])
+    handler.onPointerUp!(ev(250, 500))
+    expect(executed).toHaveLength(1)
   })
 
   it('cancel and deactivate clear hidden without deleting', () => {

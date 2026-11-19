@@ -20,7 +20,7 @@ const DRAG_THRESHOLD_PX = 3
 const DOUBLE_CLICK_MS = 500
 /** Narrowest a text box can be resized to (pt). */
 export const FREETEXT_MIN_WIDTH = 24
-/** Smallest stroke extent (pt, without the stroke width) ink can be resized to. */
+/** Smallest extent (pt, without the stroke width) ink and shapes can be resized to. */
 const INK_MIN_SIZE = 4
 
 interface Press {
@@ -72,7 +72,7 @@ const inset = (r: Rect, d: number): Rect => [r[0] + d, r[1] + d, r[2] - d, r[3] 
 /**
  * The default tool. A press selects the topmost annotation under the pointer
  * (empty space deselects) and dragging moves it; the selected annotation's
- * handles resize it (text boxes in width, ink in any direction). A drag is
+ * handles resize it (text boxes in width, ink and shapes in any direction). A drag is
  * previewed live and committed as one update on release. Elsewhere pointer
  * input passes through to the text layer (native selection, Ctrl+C copies).
  * Double-clicking a text box opens its editor.
@@ -137,8 +137,8 @@ export function createSelectHandler(ctx: ToolContext): ToolHandler {
     }
     const kind = annotationKinds.get(a.kind)
     if (!kind.scale) return a
-    // Ink bounds include half the stroke width, which does not scale.
-    const pad = a.kind === 'ink' ? a.width / 2 : 0
+    // Ink and shape bounds include half the stroke width, which does not scale.
+    const pad = a.kind === 'ink' ? a.width / 2 : a.kind === 'shape' && a.border ? a.border.width / 2 : 0
     const min = (INK_MIN_SIZE + 2 * pad) * vp.scale
     const to = toPdfRect(resizeRect(box, handle, dx, dy, min), vp)
     return { ...kind.scale(a, inset(kind.bounds(a), pad), inset(to, pad)), modifiedAt: now() }

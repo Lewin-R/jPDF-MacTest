@@ -2,6 +2,7 @@ import type { InkAnnotation, Point } from '../../core/session/model'
 import { addAnnotations } from '../../core/session/commands'
 import { dedupe, simplify } from '../../core/geometry/stroke'
 import type { PagePointerEvent, ToolContext, ToolHandler } from '../../core/registry/tools'
+import { createPreviewFrame } from './previewFrame'
 
 export interface StrokeCaptureOptions {
   ctx: ToolContext
@@ -18,7 +19,6 @@ export interface StrokeCaptureOptions {
 export function createStrokeCapture({ ctx, build, straight }: StrokeCaptureOptions): ToolHandler {
   let points: Point[] | null = null
   let page = 0
-  let frame = 0
   let shifted = false
 
   function current(): Point[] {
@@ -26,21 +26,15 @@ export function createStrokeCapture({ ctx, build, straight }: StrokeCaptureOptio
     return shifted && straight ? straight(pts[0], pts[pts.length - 1]) : pts.slice()
   }
 
+  const preview = createPreviewFrame(ctx, () => (points ? build(current(), page) : null))
+
   function reset() {
-    if (frame) cancelAnimationFrame(frame)
-    frame = 0
     points = null
     shifted = false
-    ctx.preview.set(null)
+    preview.clear()
   }
 
-  function schedulePreview() {
-    if (frame) return
-    frame = requestAnimationFrame(() => {
-      frame = 0
-      if (points) ctx.preview.set(build(current(), page))
-    })
-  }
+  const schedulePreview = preview.schedule
 
   return {
     onPointerDown(e: PagePointerEvent) {
