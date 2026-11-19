@@ -3,12 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ToolContext, ToolHandler } from '../../../src/core/registry/tools'
 import type { Annotation } from '../../../src/core/session/model'
 import type { DocumentSession } from '../../../src/core/session/session.svelte'
+import { AnnotationStore } from '../../../src/core/session/store.svelte'
 import { ToolRouter } from '../../../src/core/viewer/toolRouting.svelte'
 import { ActiveTool } from '../../../src/toolbar/activeTool.svelte'
 import { fakeSetup, fakeTool } from '../../toolbar/fakeTools'
 
 function fakeSession(id: string) {
-  return { id, history: { execute: vi.fn() } } as unknown as DocumentSession
+  return { id, history: { execute: vi.fn() }, store: new AnnotationStore() } as unknown as DocumentSession
 }
 
 const anno = (page: number) => ({ id: 'x', page, kind: 'ink' }) as Annotation
@@ -123,6 +124,23 @@ describe('ToolRouter', () => {
     stop()
     expect(created[1].handler.onDeactivate).toHaveBeenCalledOnce()
     expect(router.handler).toBeNull()
+  })
+
+  it('start() prunes selected ids whose annotation no longer exists', () => {
+    const { router, setSession } = setup()
+    const session = fakeSession('s1')
+    setSession(session)
+    const a = { id: 'a', page: 0, kind: 'ink' } as Annotation
+    session.store.add(a)
+    const stop = router.start()
+    const state = router.stateOf(session)
+    state.selection = ['a']
+    flushSync()
+    expect(state.selection).toEqual(['a'])
+    session.store.remove('a') // undo, eraser, delete elsewhere
+    flushSync()
+    expect(state.selection).toEqual([])
+    stop()
   })
 
   it('hidden ids and the cursor override are per-session and cleared when the tool changes', () => {

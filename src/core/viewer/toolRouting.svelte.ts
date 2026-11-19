@@ -71,11 +71,21 @@ export class ToolRouter {
     this.sync()
     const stop = $effect.root(() => {
       $effect(() => this.sync())
+      $effect(() => this.pruneSelection())
     })
     return () => {
       stop()
       untrack(() => this.deactivate())
     }
+  }
+
+  /** Drops selected ids whose annotation is gone (undo, redo, eraser, delete). */
+  private pruneSelection(): void {
+    const session = this.getSession()
+    if (!session) return
+    const state = this.stateOf(session)
+    const alive = state.selection.filter((id) => session.store.get(id) !== undefined)
+    if (alive.length !== state.selection.length) state.selection = alive
   }
 
   private deactivate(): void {

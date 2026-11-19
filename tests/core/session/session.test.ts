@@ -26,6 +26,7 @@ function fakeDoc(sizes: { width: number; height: number }[], gate?: Promise<void
 const uniform = Array.from({ length: 4 }, () => ({ width: 600, height: 800 }))
 
 import { DocumentSession } from '../../../src/core/session/session.svelte'
+import { toasts } from '../../../src/ui/toasts.svelte'
 import { renderCache } from '../../../src/core/viewer/renderCache'
 import { PAGE_GAP } from '../../../src/core/viewer/layout'
 
@@ -202,7 +203,22 @@ describe('DocumentSession.open annotations', () => {
     const session = await DocumentSession.open('C:/docs/g.pdf')
     expect(session.store.all()).toEqual([])
     expect(error).toHaveBeenCalled()
+    expect(toasts.items.at(-1)).toMatchObject({
+      message: 'Annotations in this file could not be loaded',
+      kind: 'warning',
+    })
     error.mockRestore()
+  })
+
+  it('anchorView restores the page and the offset within it after the scroll was disturbed', () => {
+    s.goToPage(3)
+    s.scrollBy(0, 100)
+    const restore = s.anchorView()
+    const top = s.scrollTop
+    s.setScroll(5, 0) // e.g. the browser clamped the scroll while the viewport resized
+    restore()
+    expect(s.scrollTop).toBe(top)
+    expect(s.currentPage).toBe(3)
   })
 
   it('wraps freetext lines on load to the box width on screen (page rotation aware)', async () => {

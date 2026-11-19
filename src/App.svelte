@@ -16,14 +16,13 @@
   import { registerViewCommands } from './core/viewer/viewCommands'
   import { ToolRouter } from './core/viewer/toolRouting.svelte'
   import { settings } from './core/settings/settings.svelte'
-  import { openErrorMessage } from './app/openErrors'
+  import { fullscreen, registerFullscreenCommands } from './app/fullscreen.svelte'
   import Toolbar from './toolbar/Toolbar.svelte'
   import { activeTool } from './toolbar/activeTool.svelte'
   import { registerToolShortcuts } from './toolbar/toolShortcuts'
   import { editSelected, registerSelectionCommands } from './tools/select/commands'
   import type { Annotation } from './core/session/model'
   import Toast from './ui/Toast.svelte'
-  import { toasts } from './ui/toasts.svelte'
 
   const router = new ToolRouter(() => activeTool.current, () => tabs.active)
   /** The toolbar shows once the persisted layout is loaded (no flash of defaults). */
@@ -86,13 +85,9 @@
     // Tool modules register at import time (before App mounts).
     const disposeToolShortcuts = registerToolShortcuts()
     const disposeOpening = initFileOpening(async (path) => {
-      try {
-        const existing = tabs.findByPath(path)
-        if (existing) tabs.activeId = existing.id
-        else tabs.add(await DocumentSession.open(path))
-      } catch (e) {
-        toasts.show(openErrorMessage(e, path), 'error')
-      }
+      const existing = tabs.findByPath(path)
+      if (existing) tabs.activeId = existing.id
+      else tabs.add(await DocumentSession.open(path))
     })
     const disposeCommand = commands.register({
       id: 'file.open',
@@ -120,7 +115,14 @@
     const disposeSelection = registerSelectionCommands(() =>
       tabs.active ? { session: tabs.active, state: router.stateOf(tabs.active) } : null,
     )
+    // After the selection commands: Escape deselects before it leaves fullscreen.
+    const disposeFullscreen = registerFullscreenCommands()
+    fullscreen.anchor = () => tabs.active?.anchorView() ?? null
+    const stopFullscreenSync = fullscreen.start()
     return () => {
+      stopFullscreenSync()
+      fullscreen.anchor = null
+      disposeFullscreen()
       disposeSelection()
       disposeSave()
       disposeCloseGuard()
@@ -138,7 +140,7 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<div class="shell">
+<div class="shell" class:fullscreen={fullscreen.active}>
   <div class="titlebar-region"><TitleBar /></div>
   <main class="viewer-region">
     {#if tabs.active}
@@ -172,6 +174,16 @@
     grid-template-columns: 1fr var(--toolstrip-w);
     height: 100vh;
     background: var(--bg);
+  }
+  /* Fullscreen: only the viewer remains (the chrome stays mounted, just hidden). */
+  .shell.fullscreen {
+    grid-template-rows: 1fr;
+    grid-template-columns: 1fr;
+  }
+  .shell.fullscreen .titlebar-region,
+  .shell.fullscreen .toolbar-region,
+  .shell.fullscreen .statusbar-region {
+    display: none;
   }
   .titlebar-region {
     grid-column: 1 / -1;

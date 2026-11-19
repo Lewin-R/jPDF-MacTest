@@ -4,6 +4,7 @@ import { deleteAnnotations, updateAnnotation } from '../../core/session/commands
 import type { Annotation } from '../../core/session/model'
 import type { DocumentSession } from '../../core/session/session.svelte'
 import type { SessionToolState } from '../../core/viewer/toolRouting.svelte'
+import { toasts } from '../../ui/toasts.svelte'
 import { layoutFreeText } from '../text/editing'
 
 export interface SelectionTarget {
@@ -64,19 +65,35 @@ const withoutTime = (a: Annotation) => JSON.stringify({ ...a, modifiedAt: '' })
 
 /**
  * Commits an edit of a selected annotation (selection options) as one undo
- * step; no step when nothing changed. A text box whose font size changed is
- * laid out again (lines re-wrapped, height fitted), which needs its page's
- * rotation.
+ * step; no step when nothing changed. `after` is the annotation with the user's
+ * changes: those fields (relative to the annotation as it is now) are applied
+ * to the annotation as it is when the edit commits, so a change made meanwhile
+ * is not overwritten. A text box whose font size changed is laid out again
+ * (lines re-wrapped, height fitted), which needs its page's rotation. Failures
+ * are reported to the user, never thrown.
  */
 export async function editSelected(session: DocumentSession, after: Annotation): Promise<void> {
-  let next = after
-  const before = session.store.get(after.id)
-  if (before?.kind === 'freetext' && next.kind === 'freetext' && next.fontSize !== before.fontSize) {
-    const page = await session.doc.getPage(next.page + 1)
-    next = layoutFreeText(next, next.text, page.rotate)
+  try {
+    const before = session.store.get(after.id)
+    if (!before) return
+    const patch = Object.fromEntries(
+      Object.entries(after).filter(
+        ([k, v]) => JSON.stringify(v) !== JSON.stringify((before as unknown as Record<string, unknown>)[k]),
+      ),
+    )
+    const relayout = before.kind === 'freetext' && 'fontSize' in patch
+    const rotate = relayout ? (await session.doc.getPage(before.page + 1)).rotate : 0
+    // The current version: the annotation may have changed (or gone) while waiting.
+    const current = session.store.get(after.id)
+    if (!current) return
+    let next = { ...current, ...patch } as Annotation
+    if (relayout && current.kind === 'freetext' && next.kind === 'freetext') {
+      next = layoutFreeText(next, next.text, rotate)
+    }
+    if (withoutTime(current) === withoutTime(next)) return
+    session.history.execute(updateAnnotation(current, { ...next, modifiedAt: new Date().toISOString() }))
+  } catch (e) {
+    console.error('Could not edit the selected annotation', e)
+    toasts.show('Could not apply the change', 'error')
   }
-  // The current version: the annotation may have changed (or gone) meanwhile.
-  const current = session.store.get(after.id)
-  if (!current || withoutTime(current) === withoutTime(next)) return
-  session.history.execute(updateAnnotation(current, { ...next, modifiedAt: new Date().toISOString() }))
 }

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { CommandRegistry } from '../../../src/core/registry/commands'
 import { KeybindingRegistry } from '../../../src/core/registry/keybindings'
 import type { TextEdit } from '../../../src/core/registry/tools'
@@ -6,6 +6,7 @@ import { History } from '../../../src/core/session/history.svelte'
 import type { FreeTextAnnotation, HighlightAnnotation } from '../../../src/core/session/model'
 import type { DocumentSession } from '../../../src/core/session/session.svelte'
 import { AnnotationStore } from '../../../src/core/session/store.svelte'
+import { toasts } from '../../../src/ui/toasts.svelte'
 import { editSelected, registerSelectionCommands } from '../../../src/tools/select/commands'
 import { boxHeight, layoutLines } from '../../../src/core/geometry/textLayout'
 
@@ -110,5 +111,50 @@ describe('editSelected', () => {
     const lines = layoutLines(text, 20, 100)
     expect(a.lines).toEqual(lines)
     expect(a.rect).toEqual([10, 90 - boxHeight(lines.length, 20), 110, 90])
+  })
+
+  it('applies only the edited fields to the annotation as it is after the await', async () => {
+    const text = 'the quick brown fox jumps over'
+    const box: FreeTextAnnotation = {
+      id: 'b', page: 0, sourceRef: null, modifiedAt: '', author: '', kind: 'freetext',
+      rect: [10, 70, 110, 90], text, lines: layoutLines(text, 10, 100), fontSize: 10,
+      textColor: [0, 0, 0], background: null,
+    }
+    const s = session(box)
+    let release!: () => void
+    s.doc.getPage = (() => new Promise((r) => (release = () => r({ rotate: 0 })))) as never
+    const pending = editSelected(s, { ...box, fontSize: 20 })
+    // Meanwhile the text colour changes (e.g. an undo/redo or another edit).
+    s.store.update('b', { ...box, textColor: [1, 0, 0] })
+    release()
+    await pending
+    const a = s.store.get('b') as FreeTextAnnotation
+    expect(a.fontSize).toBe(20)
+    expect(a.textColor).toEqual([1, 0, 0])
+  })
+
+  it('does nothing when the annotation vanished meanwhile', async () => {
+    const s = session(hl)
+    s.store.remove('h')
+    await editSelected(s, { ...hl, color: [1, 0, 0] })
+    expect(s.store.get('h')).toBeUndefined()
+  })
+
+  it('reports a failure with a toast instead of throwing', async () => {
+    const text = 'abc'
+    const box: FreeTextAnnotation = {
+      id: 'b', page: 0, sourceRef: null, modifiedAt: '', author: '', kind: 'freetext',
+      rect: [10, 70, 110, 90], text, lines: layoutLines(text, 10, 100), fontSize: 10,
+      textColor: [0, 0, 0], background: null,
+    }
+    const s = session(box)
+    s.doc.getPage = (async () => { throw new Error('boom') }) as never
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const show = vi.spyOn(toasts, 'show')
+    await expect(editSelected(s, { ...box, fontSize: 20 })).resolves.toBeUndefined()
+    expect(err).toHaveBeenCalled()
+    expect(show).toHaveBeenCalledWith('Could not apply the change', 'error')
+    err.mockRestore()
+    show.mockRestore()
   })
 })

@@ -1,3 +1,4 @@
+import { toasts } from '../../ui/toasts.svelte'
 import { commands, type CommandRegistry } from './commands'
 
 export function chordFromEvent(e: KeyboardEvent): string {
@@ -20,27 +21,52 @@ function isEditableTarget(t: EventTarget | null): boolean {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable
 }
 
-export class KeybindingRegistry {
-  private bindings = new Map<string, string>()
+/** Default handler for a command that threw: log it and tell the user. */
+function reportCommandError(id: string, e: unknown): void {
+  console.error(`Command ${id} failed`, e)
+  toasts.show('Something went wrong', 'error')
+}
 
-  constructor(private cmds: CommandRegistry) {}
+/** Bare keys typed while focus is inside a popup (flyout, modal, menu) belong to it. */
+const POPUP_SELECTOR = '[role="dialog"], [role="menu"], [data-flyout]'
+
+function isInsidePopup(t: EventTarget | null): boolean {
+  return t instanceof Element && t.closest(POPUP_SELECTOR) !== null
+}
+
+export class KeybindingRegistry {
+  /** Several commands may share a chord: they are tried in registration order, the first enabled one runs. */
+  private bindings = new Map<string, string[]>()
+
+  constructor(
+    private cmds: CommandRegistry,
+    private onError: (id: string, e: unknown) => void = reportCommandError,
+  ) {}
 
   bind(chord: string, commandId: string): () => void {
-    this.bindings.set(chord, commandId)
+    const ids = this.bindings.get(chord) ?? []
+    if (!ids.includes(commandId)) ids.push(commandId)
+    this.bindings.set(chord, ids)
     return () => {
-      if (this.bindings.get(chord) === commandId) this.bindings.delete(chord)
+      const cur = this.bindings.get(chord)
+      if (!cur) return
+      const rest = cur.filter((id) => id !== commandId)
+      if (rest.length > 0) this.bindings.set(chord, rest)
+      else this.bindings.delete(chord)
     }
   }
 
   handle(e: KeyboardEvent): boolean {
-    // Bare keys (no Ctrl/Alt) are typing in an editable field; F-keys and Escape still pass.
-    if (!e.ctrlKey && !e.altKey && isEditableTarget(e.target) && e.key !== 'Escape' && !/^F\d+$/.test(e.key)) {
+    const bare = !e.ctrlKey && !e.altKey
+    // Bare keys (no Ctrl/Alt) are typing in an editable field or acting inside a
+    // popup (a focused swatch must not delete the selection); F-keys and Escape still pass.
+    if (bare && e.key !== 'Escape' && !/^F\d+$/.test(e.key) && (isEditableTarget(e.target) || isInsidePopup(e.target))) {
       return false
     }
-    const id = this.bindings.get(chordFromEvent(e))
-    if (id === undefined || !this.cmds.canExecute(id)) return false
+    const id = this.bindings.get(chordFromEvent(e))?.find((c) => this.cmds.canExecute(c))
+    if (id === undefined) return false
     // Fire and forget: the caller needs a synchronous answer for preventDefault.
-    void this.cmds.execute(id)
+    this.cmds.execute(id).catch((err) => this.onError(id, err))
     return true
   }
 }

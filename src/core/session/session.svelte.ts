@@ -5,6 +5,7 @@ import {
 import { loadPdf, type PdfDoc } from '../viewer/pdfEngine'
 import { renderCache } from '../viewer/renderCache'
 import { frameSize, layoutLines } from '../geometry/textLayout'
+import { toasts } from '../../ui/toasts.svelte'
 import { History } from './history.svelte'
 import type { Annotation } from './model'
 import { AnnotationStore } from './store.svelte'
@@ -29,6 +30,7 @@ async function readManaged(path: string): Promise<Annotation[]> {
     return await readAnnotations(path)
   } catch (e) {
     console.error(`Failed to read annotations of ${path}`, e)
+    toasts.show('Annotations in this file could not be loaded', 'warning')
     return []
   }
 }
@@ -233,6 +235,21 @@ export class DocumentSession {
     this.viewInitialized = true
     this.fitWidth()
     this.setScroll(0, 0)
+  }
+
+  /**
+   * Remembers the current page and the scroll offset within it; the returned
+   * function restores that position (after a viewport resize such as entering
+   * or leaving fullscreen).
+   */
+  anchorView(): () => void {
+    const p = this.currentPage - 1
+    const offset = this.scrollTop - (this.layout.tops[p] ?? 0)
+    const left = this.scrollLeft
+    return () => {
+      if (this.disposed) return
+      this.setScroll(Math.max(0, (this.layout.tops[p] ?? 0) + offset), left)
+    }
   }
 
   /** Scrolls so 1-based page `page` (clamped to the document) is at the top. */

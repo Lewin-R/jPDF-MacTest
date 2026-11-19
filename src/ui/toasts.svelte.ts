@@ -1,4 +1,4 @@
-export type ToastKind = 'info' | 'error'
+export type ToastKind = 'info' | 'warning' | 'error'
 
 export interface ToastAction {
   label: string
@@ -13,7 +13,7 @@ export interface ToastItem {
 }
 
 const MAX = 3
-const DURATION_MS: Record<ToastKind, number> = { info: 4000, error: 8000 }
+const DURATION_MS: Record<ToastKind, number> = { info: 4000, warning: 6000, error: 8000 }
 
 export class ToastStore {
   items = $state<ToastItem[]>([])

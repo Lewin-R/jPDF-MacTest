@@ -22,8 +22,12 @@ vi.mock('@tauri-apps/api/event', () => ({
   },
 }))
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: async () => h.picked }))
-vi.mock('../../src/core/ipc/api', () => ({ getLaunchFiles: async () => h.launch }))
+vi.mock('../../src/core/ipc/api', async (orig) => ({
+  ...(await orig<typeof import('../../src/core/ipc/api')>()),
+  getLaunchFiles: async () => h.launch,
+}))
 
+import { toasts } from '../../src/ui/toasts.svelte'
 import { initFileOpening, pdfPaths, pickAndOpen } from '../../src/app/fileOpening'
 
 const flush = () => new Promise((r) => setTimeout(r, 0))
@@ -66,5 +70,39 @@ describe('fileOpening', () => {
     await pickAndOpen()
     expect(open).toHaveBeenCalledTimes(2)
     dispose()
+  })
+
+  it('one failing file does not stop the others and is reported with a toast', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const show = vi.spyOn(toasts, 'show')
+    const open = vi.fn(async (p: string) => {
+      if (p.endsWith('bad.pdf')) throw { code: 'InvalidPdf', message: 'x' }
+      if (p.endsWith('odd.pdf')) throw new Error('weird')
+    })
+    const dispose = initFileOpening(open)
+    h.picked = ['C:/docs/bad.pdf', 'C:/docs/odd.pdf', 'good.pdf']
+    await pickAndOpen()
+    expect(open.mock.calls.map((c) => c[0])).toEqual(h.picked)
+    expect(show).toHaveBeenCalledWith('This file could not be opened as a PDF', 'error')
+    expect(show).toHaveBeenCalledWith('Could not open odd.pdf', 'error')
+    dispose()
+    err.mockRestore()
+    show.mockRestore()
+  })
+
+  it('a missing launch file shows the not-found toast and the other launch files still open', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const show = vi.spyOn(toasts, 'show')
+    h.launch = ['gone.pdf', 'here.pdf']
+    const open = vi.fn(async (p: string) => {
+      if (p === 'gone.pdf') throw { code: 'NotFound', message: 'gone.pdf: not found' }
+    })
+    const dispose = initFileOpening(open)
+    await flush()
+    expect(open.mock.calls.map((c) => c[0])).toEqual(['gone.pdf', 'here.pdf'])
+    expect(show).toHaveBeenCalledWith('File not found', 'error')
+    dispose()
+    err.mockRestore()
+    show.mockRestore()
   })
 })

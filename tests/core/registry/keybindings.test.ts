@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest'
 import { CommandRegistry } from '../../../src/core/registry/commands'
+import { toasts } from '../../../src/ui/toasts.svelte'
 import { KeybindingRegistry, chordFromEvent } from '../../../src/core/registry/keybindings'
 
 function ev(init: KeyboardEventInit, target?: EventTarget): KeyboardEvent {
@@ -102,5 +103,80 @@ describe('KeybindingRegistry', () => {
     kb.bind('V', 'x')
     expect(kb.handle(ev({ key: 'v' }, document.body))).toBe(true)
     expect(run).toHaveBeenCalledOnce()
+  })
+
+  it('several commands may share a chord: the first enabled one runs', () => {
+    const cmds = new CommandRegistry()
+    const first = vi.fn()
+    const second = vi.fn()
+    let firstOn = false
+    cmds.register({ id: 'first', title: 'First', run: first, enabled: () => firstOn })
+    cmds.register({ id: 'second', title: 'Second', run: second })
+    const kb = new KeybindingRegistry(cmds)
+    const d1 = kb.bind('Escape', 'first')
+    kb.bind('Escape', 'second')
+    expect(kb.handle(ev({ key: 'Escape' }))).toBe(true)
+    expect(second).toHaveBeenCalledOnce()
+    firstOn = true
+    expect(kb.handle(ev({ key: 'Escape' }))).toBe(true)
+    expect(first).toHaveBeenCalledOnce()
+    expect(second).toHaveBeenCalledOnce()
+    // Disposing one binding leaves the other.
+    d1()
+    expect(kb.handle(ev({ key: 'Escape' }))).toBe(true)
+    expect(second).toHaveBeenCalledTimes(2)
+  })
+
+  it('a rejected or throwing command is reported, not left unhandled', async () => {
+    const cmds = new CommandRegistry()
+    cmds.register({ id: 'bad', title: 'Bad', run: async () => { throw new Error('boom') } })
+    cmds.register({ id: 'worse', title: 'Worse', run: () => { throw new Error('sync boom') } })
+    const onError = vi.fn()
+    const kb = new KeybindingRegistry(cmds, onError)
+    kb.bind('F1', 'bad')
+    kb.bind('F2', 'worse')
+    expect(kb.handle(ev({ key: 'F1' }))).toBe(true)
+    expect(kb.handle(ev({ key: 'F2' }))).toBe(true)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(onError).toHaveBeenCalledTimes(2)
+    expect(onError.mock.calls.map((c) => c[0]).sort()).toEqual(['bad', 'worse'])
+  })
+
+  it('the default error handler logs and shows an error toast', async () => {
+    const cmds = new CommandRegistry()
+    cmds.register({ id: 'bad', title: 'Bad', run: async () => { throw new Error('boom') } })
+    const kb = new KeybindingRegistry(cmds)
+    kb.bind('F1', 'bad')
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const show = vi.spyOn(toasts, 'show')
+    kb.handle(ev({ key: 'F1' }))
+    await new Promise((r) => setTimeout(r, 0))
+    expect(err).toHaveBeenCalled()
+    expect(show).toHaveBeenCalledWith('Something went wrong', 'error')
+    err.mockRestore()
+    show.mockRestore()
+  })
+
+  it('bare keys inside a popup (flyout, dialog, menu) do not fire; Ctrl chords, F-keys and Escape do', () => {
+    const { kb, run } = setup()
+    kb.bind('Delete', 'x')
+    kb.bind('Backspace', 'x')
+    kb.bind('Ctrl+S', 'x')
+    kb.bind('Escape', 'x')
+    for (const role of ['dialog', 'menu']) {
+      const popup = document.createElement('div')
+      popup.setAttribute('role', role)
+      const swatch = document.createElement('button')
+      popup.append(swatch)
+      document.body.append(popup)
+      expect(kb.handle(ev({ key: 'Delete' }, swatch))).toBe(false)
+      expect(kb.handle(ev({ key: 'Backspace' }, swatch))).toBe(false)
+      expect(run).not.toHaveBeenCalled()
+      expect(kb.handle(ev({ ctrlKey: true, key: 's' }, swatch))).toBe(true)
+      expect(kb.handle(ev({ key: 'Escape' }, swatch))).toBe(true)
+      run.mockClear()
+      popup.remove()
+    }
+    expect(kb.handle(ev({ key: 'Delete' }, document.body))).toBe(true)
   })
 })

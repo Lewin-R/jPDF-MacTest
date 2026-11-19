@@ -54,9 +54,18 @@ export function highlightsFromSelection(
  * it lets input through to the text layer). Returns the detach function.
  */
 export function listenForTextSelection(ctx: ToolContext, settings: () => MarkerSettings): () => void {
+  // Only a selection dragged out inside a text layer counts: Ctrl+A followed by a
+  // click on the toolbar must not highlight the whole document.
+  let startedInText = false
+  function onPointerDown(e: PointerEvent) {
+    const t = e.target
+    startedInText = t instanceof Node && [...textLayers()].some(([el]) => el.contains(t))
+  }
   function onPointerUp() {
+    const fromText = startedInText
+    startedInText = false
     const s = settings()
-    if (s.mode !== 'text') return
+    if (s.mode !== 'text' || !fromText) return
     const sel = window.getSelection()
     if (!sel || sel.isCollapsed || sel.rangeCount === 0) return
     const modifiedAt = new Date().toISOString()
@@ -75,8 +84,12 @@ export function listenForTextSelection(ctx: ToolContext, settings: () => MarkerS
     ctx.execute(addAnnotations(highlights))
     sel.removeAllRanges()
   }
+  window.addEventListener('pointerdown', onPointerDown, true)
   window.addEventListener('pointerup', onPointerUp)
-  return () => window.removeEventListener('pointerup', onPointerUp)
+  return () => {
+    window.removeEventListener('pointerdown', onPointerDown, true)
+    window.removeEventListener('pointerup', onPointerUp)
+  }
 }
 
 /** Text mode on a page without text: tells the user once ever that freehand is used instead. */

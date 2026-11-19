@@ -146,7 +146,7 @@
         <Plus size={16} />
       </button>
     </div>
-    <button type="button" aria-label="Fullscreen" disabled={!session}>
+    <button type="button" aria-label="Fullscreen" onclick={() => commands.execute('view.fullscreen')}>
       <Maximize size={16} />
     </button>
   </div>

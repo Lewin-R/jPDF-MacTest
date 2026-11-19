@@ -1,5 +1,6 @@
 <script lang="ts">
   import CircleAlert from '@lucide/svelte/icons/circle-alert'
+  import TriangleAlert from '@lucide/svelte/icons/triangle-alert'
   import Info from '@lucide/svelte/icons/info'
   import X from '@lucide/svelte/icons/x'
   import { toasts, type ToastItem, type ToastStore } from './toasts.svelte'
@@ -20,7 +21,7 @@
       role={t.kind === 'error' ? 'alert' : 'status'}
     >
       <span class="icon">
-        {#if t.kind === 'error'}<CircleAlert size={16} />{:else}<Info size={16} />{/if}
+        {#if t.kind === 'error'}<CircleAlert size={16} />{:else if t.kind === 'warning'}<TriangleAlert size={16} />{:else}<Info size={16} />{/if}
       </span>
       <span class="msg">{t.message}</span>
       {#if t.action}

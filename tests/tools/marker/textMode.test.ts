@@ -55,6 +55,9 @@ function select(start: Node, startOffset: number, end: Node, endOffset: number) 
   return sel
 }
 
+/** The pointerdown that starts a gesture, on `target`. */
+const pointerDown = (target: Element) =>
+  target.dispatchEvent(new MouseEvent('pointerdown', { button: 0, bubbles: true }))
 const pointerUp = () => window.dispatchEvent(new MouseEvent('pointerup', { button: 0 }))
 
 let cleanup: (() => void)[] = []
@@ -90,6 +93,7 @@ describe('marker text mode', () => {
     const { executed, handler, committed } = setup()
     cleanup.push(() => handler.onDeactivate!())
 
+    pointerDown(a.el.firstChild as Element)
     const sel = select(a.el.firstChild!.firstChild!, 0, b.el.firstChild!.firstChild!, 4)
     pointerUp()
 
@@ -129,10 +133,29 @@ describe('marker text mode', () => {
     expect(executed).toHaveLength(0)
   })
 
+  it('ignores a selection whose gesture did not start in a text layer (Ctrl+A, then a toolbar click)', () => {
+    const a = layer(0, [{ text: 'Hello', rect: [10, 100, 50, 110] }])
+    cleanup.push(a.unregister)
+    const toolbar = document.createElement('button')
+    document.body.append(toolbar)
+    const { executed, handler } = setup()
+    cleanup.push(() => handler.onDeactivate!())
+
+    select(a.el.firstChild!.firstChild!, 0, a.el.firstChild!.firstChild!, 5)
+    pointerDown(toolbar)
+    pointerUp()
+    expect(executed).toHaveLength(0)
+
+    // The flag is per gesture: a later pointerup without a text pointerdown still commits nothing.
+    pointerUp()
+    expect(executed).toHaveLength(0)
+  })
+
   it('does nothing in freehand mode or after deactivation', () => {
     const a = layer(0, [{ text: 'Hello', rect: [10, 100, 50, 110] }])
     cleanup.push(a.unregister)
     const free = setup({ ...textSettings, mode: 'freehand' })
+    pointerDown(a.el.firstChild as Element)
     select(a.el.firstChild!.firstChild!, 0, a.el.firstChild!.firstChild!, 5)
     pointerUp()
     expect(free.executed).toHaveLength(0)

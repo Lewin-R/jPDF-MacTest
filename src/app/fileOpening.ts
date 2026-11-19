@@ -2,6 +2,8 @@ import { listen } from '@tauri-apps/api/event'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import { getLaunchFiles } from '../core/ipc/api'
+import { toasts } from '../ui/toasts.svelte'
+import { openErrorMessage } from './openErrors'
 
 type OpenHandler = (path: string) => Promise<void>
 
@@ -14,7 +16,15 @@ export function pdfPaths(paths: readonly string[]): string[] {
 async function openAll(paths: readonly string[]): Promise<void> {
   const open = openHandler
   if (!open) return
-  for (const p of pdfPaths(paths)) await open(p)
+  // One failing file must not stop the others.
+  for (const p of pdfPaths(paths)) {
+    try {
+      await open(p)
+    } catch (e) {
+      console.error(`Failed to open ${p}`, e)
+      toasts.show(openErrorMessage(e, p), 'error')
+    }
+  }
 }
 
 export async function pickAndOpen(): Promise<void> {

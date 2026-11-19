@@ -30,6 +30,14 @@ describe('StatusBar', () => {
     expect(run).toHaveBeenCalledOnce()
   })
 
+  it('the fullscreen button runs view.fullscreen', async () => {
+    const run = vi.fn()
+    disposers.push(commands.register({ id: 'view.fullscreen', title: 'Fullscreen', run }))
+    const { getByRole } = render(StatusBar, { props: { session: fakeSession() } })
+    await fireEvent.click(getByRole('button', { name: 'Fullscreen' }))
+    expect(run).toHaveBeenCalledOnce()
+  })
+
   it('disables navigation and zoom without a document', () => {
     const { getByRole } = render(StatusBar, { props: { session: null } })
     expect(getByRole('button', { name: 'Previous page' })).toHaveProperty('disabled', true)
