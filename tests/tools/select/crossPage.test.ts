@@ -85,6 +85,9 @@ describe('dragAcrossPages', () => {
     const r = drag(image([20, 10, 40, 30]), [60, 160], [60, -40])
     expect(r.annotation.page).toBe(0)
     expect(rectOf(r.annotation)).toEqual([20, 90, 40, 110])
+    // A lookup that answers for page -1 is never asked.
+    const any = dragAcrossPages({ base: image([20, 10, 40, 30]), anchor: [60, 160] }, [60, -40], (p) => frames[Math.max(p, 0)])
+    expect(any.annotation.page).toBe(0)
     const unmounted = drag(image([20, 10, 40, 30]), [60, 160], [60, 300], [frames[0], null])
     expect(unmounted.annotation.page).toBe(0)
     expect(rectOf(unmounted.annotation)).toEqual([20, -10, 40, 10])

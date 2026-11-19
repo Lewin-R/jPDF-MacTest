@@ -9,7 +9,7 @@ import { createTextEditing, resizeFreeText } from '../text/editing'
 import { HANDLE_CURSORS, handleAt, handlesFor, inRect, keepAspect, resizeRect, toPdfRect, toScreenRect, type Handle } from './handles'
 import Icon from './Icon.svelte'
 import SelectionOptions from './SelectionOptions.svelte'
-import { clampShift } from './crossPage'
+import { clampShift, dragAcrossPages, type CrossPageDrag, type PageFrame } from './crossPage'
 
 /** Screen pixels around an annotation that still count as clicking it. */
 const HIT_TOLERANCE_PX = 4
@@ -35,9 +35,13 @@ interface Press {
   box: Rect
   moved: boolean
   result: Annotation | null
+  /** A move that may carry the target to other pages (all kinds but highlights). */
+  cross: CrossPageDrag | null
 }
 
 const now = () => new Date().toISOString()
+
+const clientOf = (e: PagePointerEvent): Point => [e.native.clientX, e.native.clientY]
 
 function screenOf(e: PagePointerEvent): Point {
   const [x, y] = e.vp.convertToViewportPoint(e.pdf[0], e.pdf[1])
@@ -102,6 +106,7 @@ export function createSelectHandler(ctx: ToolContext): ToolHandler {
   }
 
   function end(): void {
+    if (press?.cross) ctx.crossDrag?.set(null)
     press = null
     ctx.preview.set(null)
     ctx.hidden.set([])
@@ -116,6 +121,19 @@ export function createSelectHandler(ctx: ToolContext): ToolHandler {
     const dx = clampShift(e.pdf[0] - pr.startPdf[0], page[0] - b[0], page[2] - b[2])
     const dy = clampShift(e.pdf[1] - pr.startPdf[1], page[1] - b[1], page[3] - b[3])
     return { ...kind.translate(a, dx, dy), modifiedAt: now() }
+  }
+
+  /** The frame of `page`: the event's own page from the event, others from the mounted pages. */
+  function frameOf(e: PagePointerEvent, page: number): PageFrame | null {
+    if (page !== e.page) return ctx.pages?.frame(page) ?? null
+    const [cx, cy] = clientOf(e)
+    return { vp: e.vp, origin: [cx - e.screen[0], cy - e.screen[1]] }
+  }
+
+  function movedAcross(pr: Press & { cross: CrossPageDrag }, e: PagePointerEvent): Annotation {
+    const r = dragAcrossPages(pr.cross, clientOf(e), (page) => frameOf(e, page))
+    pr.cross = r.drag
+    return { ...r.annotation, modifiedAt: now() }
   }
 
   function resized(pr: Press, handle: Handle, e: PagePointerEvent): Annotation {
@@ -181,6 +199,7 @@ export function createSelectHandler(ctx: ToolContext): ToolHandler {
         box: toScreenRect(annotationKinds.get(t.a.kind).bounds(t.a), e.vp),
         moved: false,
         result: null,
+        cross: null,
       }
       if (t.handle) ctx.cursor.set(HANDLE_CURSORS[t.handle])
     },
@@ -194,8 +213,15 @@ export function createSelectHandler(ctx: ToolContext): ToolHandler {
         pr.moved = true
         ctx.hidden.set([pr.target.id])
         if (!pr.handle) ctx.cursor.set('move')
+        if (!pr.handle && pr.target.kind !== 'highlight') {
+          // Anchored at the press, so the threshold travel is not lost.
+          const [cx, cy] = clientOf(e)
+          const [sx, sy] = screenOf(e)
+          pr.cross = { base: pr.target, anchor: [cx - (sx - pr.startScreen[0]), cy - (sy - pr.startScreen[1])] }
+          ctx.crossDrag?.set({ page: e.page })
+        }
       }
-      pr.result = pr.handle ? resized(pr, pr.handle, e) : moved(pr, e)
+      pr.result = pr.handle ? resized(pr, pr.handle, e) : pr.cross ? movedAcross(pr as Press & { cross: CrossPageDrag }, e) : moved(pr, e)
       ctx.preview.set(pr.result)
     },
 

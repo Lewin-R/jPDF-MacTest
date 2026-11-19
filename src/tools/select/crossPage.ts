@@ -58,7 +58,7 @@ export function dragAcrossPages(
     const H = frame.vp.height
     const top = naturalTop - frame.origin[1]
     const next = top + h - H > h / 2 ? page + 1 : -top > h / 2 ? page - 1 : null
-    const to = next === null ? null : frameOf(next)
+    const to = next === null || next < 0 ? null : frameOf(next)
     if (next === null || !to) {
       const a = placeOn(drag.base, page, frame.vp, left, Math.min(Math.max(top, -h / 2), H - h / 2))
       return { annotation: a, drag: snapped ? { base: a, anchor: client } : drag }

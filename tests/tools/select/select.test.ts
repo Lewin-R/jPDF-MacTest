@@ -31,8 +31,12 @@ const vp90 = {
 
 let clock = 0
 let currentVp = vp
+/** Client y of each page's top: pages are 200px tall and 16px apart (page left at client x 0). */
+const pageTop = (page: number) => page * 216
 function ev(pdf: Point, page = 0): PagePointerEvent {
-  return { page, pdf, screen: [0, 0], vp: currentVp, native: { timeStamp: clock } as PointerEvent, toPdf: () => pdf }
+  const [x, y] = currentVp.convertToViewportPoint(pdf[0], pdf[1])
+  const native = { timeStamp: clock, clientX: x, clientY: y + pageTop(page) } as PointerEvent
+  return { page, pdf, screen: [x, y], vp: currentVp, native, toPdf: () => pdf }
 }
 
 const base = { page: 0, sourceRef: null, modifiedAt: '2026-01-01T00:00:00Z', author: 'A' }
@@ -50,7 +54,7 @@ function ink(id: string, strokes: Point[][], width = 2): InkAnnotation {
 
 const rectOf = (store: AnnotationStore, id: string) => (store.get(id) as FreeTextAnnotation).rect
 
-function setup(loaded: Annotation[]) {
+function setup(loaded: Annotation[], pageCount = 1) {
   const store = new AnnotationStore()
   store.load(loaded)
   const history = new History(store)
@@ -61,6 +65,7 @@ function setup(loaded: Annotation[]) {
     hidden: [] as string[],
     cursor: null as string | null,
     edit: null as TextEdit | null,
+    crossDrag: null as { page: number } | null,
   }
   const ctx = {
     session,
@@ -80,6 +85,8 @@ function setup(loaded: Annotation[]) {
     },
     cursor: { set: (c: string | null) => void (state.cursor = c) },
     textEdit: { set: (e: TextEdit | null) => void (state.edit = e) },
+    pages: { frame: (page: number) => (page >= 0 && page < pageCount ? { vp: currentVp, origin: [0, pageTop(page)] } : null) },
+    crossDrag: { set: (d: { page: number } | null) => void (state.crossDrag = d) },
   } as unknown as ToolContext
   const h = createSelectHandler(ctx)
   const drag = (from: Point, ...to: Point[]) => {
@@ -143,12 +150,64 @@ describe('select tool', () => {
     expect(t.history.canUndo).toBe(false)
   })
 
-  it('moves ink and keeps it on the page', () => {
+  it('moves ink: kept on the page sideways, at most half out at the top of the first page', () => {
     const t = setup([ink('i', [[[20, 20], [40, 30]]])])
     t.drag([30, 25], [-100, 500])
     const a = t.store.get('i') as InkAnnotation
-    // Bounds [19, 19, 41, 31] clamped to the page [0, 0, 200, 100].
-    expect(a.strokes[0]).toEqual([[1, 89], [21, 99]])
+    // Bounds [19, 19, 41, 31]: left edge on x 0, top 6pt (half its height) above the page.
+    expect(a.strokes[0]).toEqual([[1, 95], [21, 105]])
+  })
+
+  it('drags an image over the bottom edge onto the next page as one undo step', () => {
+    const im = { ...base, id: 'im', kind: 'image', rect: [20, 10, 40, 30], image: { width: 1, height: 1, png: '' } } as ImageAnnotation
+    const t = setup([im], 2)
+    t.h.onPointerDown!(ev([30, 20]))
+    t.h.onPointerMove!(ev([30, 15]))
+    expect(t.state.crossDrag).toEqual({ page: 0 })
+    // Screen 140..180; 10px down is cut off but stays.
+    expect(t.state.preview!.page).toBe(0)
+    // Pointer at client y 201 + 20: more than half (21px) out.
+    t.h.onPointerMove!(ev([30, -0.5]))
+    expect(t.state.preview!.page).toBe(1)
+    expect((t.state.preview as ImageAnnotation).rect).toEqual([20, 80, 40, 100])
+    t.h.onPointerUp!(ev([30, -0.5]))
+    expect(t.state.crossDrag).toBeNull()
+    const moved = t.store.get('im') as ImageAnnotation
+    expect(moved.page).toBe(1)
+    expect(t.store.byPage(1).map((a) => a.id)).toEqual(['im'])
+    t.history.undo()
+    expect(t.store.get('im')).toMatchObject({ page: 0, rect: [20, 10, 40, 30] })
+    expect(t.history.canUndo).toBe(false)
+  })
+
+  it('a dropped element stays cut off by the page edge', () => {
+    const im = { ...base, id: 'im', kind: 'image', rect: [20, 10, 40, 30], image: { width: 1, height: 1, png: '' } } as ImageAnnotation
+    const t = setup([im], 2)
+    t.drag([30, 20], [30, 15], [30, 5])
+    expect(t.store.get('im')).toMatchObject({ page: 0, rect: [20, -5, 40, 15] })
+  })
+
+  it('cancel after a snap restores the original page and position', () => {
+    const im = { ...base, id: 'im', kind: 'image', rect: [20, 10, 40, 30], image: { width: 1, height: 1, png: '' } } as ImageAnnotation
+    const t = setup([im], 2)
+    t.h.onPointerDown!(ev([30, 20]))
+    t.h.onPointerMove!(ev([30, -5]))
+    expect(t.state.preview!.page).toBe(1)
+    t.h.onPointerCancel!(ev([30, -5]))
+    expect(t.store.get('im')).toMatchObject({ page: 0, rect: [20, 10, 40, 30] })
+    expect(t.state.preview).toBeNull()
+    expect(t.state.crossDrag).toBeNull()
+    expect(t.history.canUndo).toBe(false)
+  })
+
+  it('highlights stay fully on their page', () => {
+    const hl = { ...base, id: 'h', kind: 'highlight', quads: [[20, 30, 60, 30, 20, 10, 60, 10]], color: [1, 1, 0], opacity: 0.4 } as Annotation
+    const t = setup([hl], 2)
+    t.drag([30, 20], [30, 15], [30, -50])
+    const a = t.store.get('h')!
+    expect(a.page).toBe(0)
+    expect((a as { quads: number[][] }).quads[0]).toEqual([20, 20, 60, 20, 20, 0, 60, 0])
+    expect(t.state.crossDrag).toBeNull()
   })
 
   it('cancel restores the original', () => {
