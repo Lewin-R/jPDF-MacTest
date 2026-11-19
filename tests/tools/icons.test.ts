@@ -5,6 +5,8 @@ import PenIcon from '../../src/tools/pen/Icon.svelte'
 import ShapeIcon from '../../src/tools/shape/Icon.svelte'
 import type { ShapeSettings } from '../../src/tools/shape/settings'
 import TextIcon from '../../src/tools/text/Icon.svelte'
+import type { TextSettings } from '../../src/tools/text/settings'
+import { layoutDigits } from '../../src/tools/shared/iconDigits'
 import { iconOpacity, iconStrokeWidth } from '../../src/tools/shared/iconStyle'
 import { isDark, prefersDarkInk } from '../../src/ui/color'
 
@@ -117,43 +119,61 @@ describe('pen icon', () => {
   })
 })
 
+describe('icon digits', () => {
+  it('centres the run on the given point at the given height', () => {
+    const run = layoutDigits('12', { cx: 12, cy: 12, height: 8, strokeWidth: 2 })
+    expect(run.digits).toHaveLength(2)
+    // Scale 1: two 5-wide glyphs and a 1.6 gap make 11.6, so the run starts at 6.2.
+    expect(run.digits[0].transform).toBe('translate(6.2 8) scale(1)')
+    expect(run.digits[1].transform).toBe('translate(12.8 8) scale(1)')
+    expect(run.strokeWidth).toBe(2)
+  })
+
+  it('keeps the stroke width constant when scaling', () => {
+    const run = layoutDigits('7', { cx: 12, cy: 12, height: 4, strokeWidth: 1 })
+    expect(run.digits[0].transform).toContain('scale(0.5)')
+    expect(run.strokeWidth).toBe(2)
+  })
+
+  it('shrinks a run wider than maxWidth and skips non-digits', () => {
+    const run = layoutDigits('1x00', { cx: 12, cy: 12, height: 8, strokeWidth: 1, maxWidth: 9 })
+    expect(run.digits).toHaveLength(3)
+    // (9 - 1) / (3 * 5 + 2 * 1.6) = 0.44
+    expect(run.digits[0].transform).toContain('scale(0.44)')
+  })
+})
+
 describe('text icon', () => {
-  it('shows the font size (rounded, no unit) and a plus in the text colour', () => {
-    const { container } = render(TextIcon, {
-      props: { settings: { textColor: [1, 0, 0], fontSize: 14.4, background: null }, size: 20 },
-    })
-    const label = container.querySelector('.size')!
-    expect(label.textContent).toBe('14')
-    expect(label.getAttribute('fill')).toBe('#ff0000')
-    expect(container.querySelector('.plus')!.getAttribute('stroke')).toBe('#ff0000')
+  const icon = (settings: Partial<TextSettings>) =>
+    render(TextIcon, {
+      props: { settings: { textColor: [1, 0, 0], fontSize: 12, background: null, ...settings }, size: 20 },
+    }).container
+
+  it('draws a text box with four handles', () => {
+    const c = icon({})
+    expect(c.querySelector('.box')!.getAttribute('fill')).toBe('none')
+    expect(c.querySelectorAll('.handle')).toHaveLength(4)
   })
 
-  it('narrows two-digit sizes to fit, leaves one digit alone', () => {
-    const at = (fontSize: number) =>
-      render(TextIcon, { props: { settings: { textColor: [1, 0, 0], fontSize, background: null }, size: 20 } })
-        .container.querySelector('.size')!
-    expect(at(72).getAttribute('textLength')).toBe('16')
-    expect(at(8).hasAttribute('textLength')).toBe(false)
+  it('shows the font size (rounded, no unit) as digit paths in the text colour', () => {
+    const size = icon({ fontSize: 14.4 }).querySelector('.size')!
+    expect(size.getAttribute('data-label')).toBe('14')
+    expect(size.getAttribute('stroke')).toBe('#ff0000')
+    expect(size.querySelectorAll('path')).toHaveLength(2)
+    expect(icon({ fontSize: 8 }).querySelectorAll('.size path')).toHaveLength(1)
   })
 
-  it('shows the background box only when there is one', () => {
-    const plain = render(TextIcon, { props: { settings: { textColor: [1, 0, 0], fontSize: 12, background: null }, size: 20 } })
-    expect(plain.container.querySelector('.background')).toBeNull()
-
-    const boxed = render(TextIcon, {
-      props: { settings: { textColor: [0, 0, 0], fontSize: 12, background: { color: [1, 1, 0], opacity: 0.5 } }, size: 20 },
-    })
-    const bg = boxed.container.querySelector('.background')!
-    expect(bg.getAttribute('fill')).toBe('#ffff00')
-    expect(bg.getAttribute('fill-opacity')).toBe('0.5')
-    // Dark text on a light background needs no halo.
-    expect(boxed.container.querySelector('.glyph')!.classList).not.toContain('dark')
+  it('fills the box with the background colour and opacity', () => {
+    const box = icon({ textColor: [0, 0, 0], background: { color: [1, 1, 0], opacity: 0.5 } }).querySelector('.box')!
+    expect(box.getAttribute('fill')).toBe('#ffff00')
+    expect(box.getAttribute('fill-opacity')).toBe('0.5')
   })
 
-  it('dark text without a light background gets a halo', () => {
-    const r = render(TextIcon, {
-      props: { settings: { textColor: [0, 0, 0], fontSize: 12, background: { color: [1, 1, 0], opacity: 0.2 } }, size: 20 },
-    })
-    expect(r.container.querySelector('.glyph')!.classList).toContain('dark')
+  it('dark text gets a halo unless it sits on a light, mostly opaque background', () => {
+    const halo = (background: TextSettings['background']) =>
+      icon({ textColor: [0, 0, 0], background }).querySelector('.size')!.classList.contains('dark')
+    expect(halo(null)).toBe(true)
+    expect(halo({ color: [1, 1, 0], opacity: 0.2 })).toBe(true)
+    expect(halo({ color: [1, 1, 0], opacity: 0.5 })).toBe(false)
   })
 })
