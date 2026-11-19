@@ -123,11 +123,14 @@ async function reloadSaved(
   const removed = [...before.keys()].filter((id) => !store.get(id))
   const pagesChanged = s.pages !== pages
   s.applyReload(loaded)
-  if (changed.length === 0 && removed.length === 0) return
+  // A page operation since the save started is not in the file: the edits
+  // made then cannot be placed on the reloaded pages (the page change itself
+  // is gone too), so they are dropped, and the user is told.
   if (pagesChanged) {
     toasts.show('Changes made while saving were not kept', 'warning')
     return
   }
+  if (changed.length === 0 && removed.length === 0) return
   const parts: Command[] = []
   const gone = removed.flatMap((id) => store.get(id) ?? [])
   if (gone.length) parts.push(deleteAnnotations(gone))

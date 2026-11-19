@@ -292,6 +292,20 @@ describe('saving page changes', () => {
     expect(toasts.items.at(-1)?.message).toBe('Changes made while saving were not kept')
   })
 
+  it('warns when a page operation alone was made while loading', async () => {
+    const s = fakeSession('C:\docs\a.pdf', [ink('old', '10R')])
+    s.plan = plan
+    const load = deferred<{ annotations: InkAnnotation[] }>()
+    s.loadSaved.mockReturnValueOnce(load.promise)
+    h.savePdf.mockResolvedValue({ refs: {} })
+    const saving = saveSession(s)
+    await vi.waitFor(() => expect(s.loadSaved).toHaveBeenCalled())
+    s.pages = []
+    load.resolve({ annotations: [ink('old', '30R')] })
+    expect(await saving).toBe(true)
+    expect(toasts.items.at(-1)?.message).toBe('Changes made while saving were not kept')
+  })
+
   it('retries a failed reload once', async () => {
     const s = fakeSession('C:\\docs\\a.pdf', [ink('old', '10R')])
     s.plan = plan
