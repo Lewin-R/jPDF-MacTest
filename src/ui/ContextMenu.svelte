@@ -11,6 +11,20 @@
     separatorBefore?: boolean
     run(): void
   }
+
+  const MARGIN = 8
+
+  /**
+   * Where a `w` x `h` menu opened at (`x`, `y`) goes in a `vw` x `vh` window:
+   * at the pointer, kept inside the window.
+   */
+  export function menuPosition(x: number, y: number, w: number, h: number, vw: number, vh: number): { left: number; top: number } {
+    // Open leftwards when there is no room on the right (the tool strip sits at the right edge).
+    return {
+      left: Math.max(MARGIN, x + w + MARGIN > vw ? x - w : x),
+      top: Math.max(MARGIN, Math.min(y, vh - h - MARGIN)),
+    }
+  }
 </script>
 
 <script lang="ts">
@@ -20,18 +34,19 @@
   // or a pointer-down outside closes it. Arrow keys move between items.
   let { x, y, items, onclose }: { x: number; y: number; items: MenuItem[]; onclose(): void } = $props()
 
-  const MARGIN = 8
   const ENABLED = '[role="menuitem"]:not(:disabled)'
 
   let el: HTMLDivElement
-  let left = $state(0)
-  let top = $state(0)
 
+  // The menu's size is only known once it is in the DOM. It is placed here,
+  // directly on the element, and shown only then (`data-placed`): placing it
+  // through state would take another render, and the WebView could paint the
+  // menu in between at a provisional spot (it flashed in the top-left corner).
   $effect(() => {
-    // Open leftwards when there is no room on the right (the tool strip sits at the right edge).
-    const w = el.offsetWidth
-    left = Math.max(MARGIN, x + w + MARGIN > window.innerWidth ? x - w : x)
-    top = Math.max(MARGIN, Math.min(y, window.innerHeight - el.offsetHeight - MARGIN))
+    const { left, top } = menuPosition(x, y, el.offsetWidth, el.offsetHeight, window.innerWidth, window.innerHeight)
+    el.style.left = `${left}px`
+    el.style.top = `${top}px`
+    el.dataset.placed = ''
     el.querySelector<HTMLElement>(ENABLED)?.focus()
   })
 
@@ -56,8 +71,8 @@
   role="menu"
   tabindex="-1"
   bind:this={el}
-  style:left="{left}px"
-  style:top="{top}px"
+  style:left="{x}px"
+  style:top="{y}px"
   onkeydown={onKeydown}
   oncontextmenu={(e) => e.preventDefault()}
   use:dismissable={{ onclose }}
@@ -84,6 +99,10 @@
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-soft);
     animation: in 120ms ease-out;
+  }
+  /* Not shown before it is placed (see the effect). */
+  .menu:not([data-placed]) {
+    visibility: hidden;
   }
   .menu:focus {
     outline: none;

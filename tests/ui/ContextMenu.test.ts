@@ -1,6 +1,6 @@
 import { fireEvent, render } from '@testing-library/svelte'
 import { describe, expect, it, vi } from 'vitest'
-import ContextMenu, { type MenuItem } from '../../src/ui/ContextMenu.svelte'
+import ContextMenu, { menuPosition, type MenuItem } from '../../src/ui/ContextMenu.svelte'
 
 function mount(items: MenuItem[]) {
   const onclose = vi.fn()
@@ -37,5 +37,26 @@ describe('ContextMenu disabled items', () => {
   it('focuses the first enabled item on open', () => {
     const { buttons } = mount([{ label: 'A', disabled: true, run: vi.fn() }, { label: 'B', run: vi.fn() }])
     expect(document.activeElement).toBe(buttons[1])
+  })
+})
+
+describe('ContextMenu placement', () => {
+  it('is placed at the pointer and only then marked shown (no flash at the top-left)', () => {
+    const r = render(ContextMenu, { props: { x: 120, y: 80, items: [{ label: 'A', run: vi.fn() }], onclose: vi.fn() } })
+    const menu = r.container.querySelector<HTMLElement>('[role="menu"]')!
+    expect(menu.style.left).toBe('120px')
+    expect(menu.style.top).toBe('80px')
+    expect(menu.hasAttribute('data-placed')).toBe(true)
+  })
+
+  it('menuPosition keeps the menu inside the window, opening leftwards at the right edge', () => {
+    // Room on the right and below: at the pointer.
+    expect(menuPosition(100, 100, 200, 150, 1000, 800)).toEqual({ left: 100, top: 100 })
+    // Too close to the right edge: to the left of the pointer.
+    expect(menuPosition(900, 100, 200, 150, 1000, 800)).toEqual({ left: 700, top: 100 })
+    // Too close to the bottom: moved up, 8px from the edge.
+    expect(menuPosition(100, 750, 200, 150, 1000, 800)).toEqual({ left: 100, top: 642 })
+    // Never past the top-left margin.
+    expect(menuPosition(2, 2, 200, 150, 150, 100)).toEqual({ left: 8, top: 8 })
   })
 })
