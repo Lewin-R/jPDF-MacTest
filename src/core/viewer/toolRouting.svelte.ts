@@ -4,7 +4,7 @@ import type { DocumentSession } from '../session/session.svelte'
 import { SessionToolState } from '../session/toolState.svelte'
 import type { ToolInstance } from '../settings/settings.svelte'
 
-interface ActiveToolLike {
+export interface ActiveToolLike {
   def: ToolDefinition
   instance: ToolInstance
 }
@@ -13,12 +13,13 @@ export { SessionToolState }
 
 /**
  * Temporary eraser (hold the right mouse button): a handler created next to
- * the active tool's, for every tool type except `disabledFor`, and also when
- * no tool is active.
+ * the active tool's while `enabledFor(active tool)` is true (`null` = no tool).
+ * It may depend on the tool's settings (the marker erases only in freehand
+ * mode); the eraser follows settings changes without recreating the tool.
  */
 export interface TemporaryEraserOptions {
   create(ctx: ToolContext): ToolHandler
-  disabledFor: readonly string[]
+  enabledFor(active: ActiveToolLike | null): boolean
 }
 
 /**
@@ -42,7 +43,7 @@ export class ToolRouter {
   })
 
   private states = new WeakMap<DocumentSession, SessionToolState>()
-  private key: { instanceId: string | undefined; session: DocumentSession } | null = null
+  private key: { instanceId: string | undefined; session: DocumentSession; erasing: boolean } | null = null
 
   constructor(
     private getActive: () => ActiveToolLike | null,
@@ -65,22 +66,41 @@ export class ToolRouter {
     return s
   }
 
-  /** Brings `handler` in line with the active tool and session. */
+  /** Brings `handler` (and the temporary eraser) in line with the active tool and session. */
   sync(): void {
     const active = this.getActive()
     const session = this.getSession()
     const instanceId = active?.instance.instanceId
-    if (this.key && this.key.instanceId === instanceId && this.key.session === session) return
+    // Read reactively: may depend on the tool's settings.
+    const erasing = !!session && !!this.temporaryEraser?.enabledFor(active)
+    if (this.key && this.key.instanceId === instanceId && this.key.session === session) {
+      if (this.key.erasing !== erasing) untrack(() => this.setEraser(session, erasing))
+      return
+    }
     untrack(() => {
       this.deactivate()
       if (!session) return
-      this.key = { instanceId, session }
+      this.key = { instanceId, session, erasing: false }
       if (active && instanceId) {
         this.handler = active.def.createHandler(this.contextFor(session), this.settingsGetter(active.instance))
       }
-      const te = this.temporaryEraser
-      if (te && !(active && te.disabledFor.includes(active.def.type))) this.eraser = te.create(this.contextFor(session))
+      this.setEraser(session, erasing)
     })
+  }
+
+  /** Creates or drops the temporary eraser without touching the tool's handler. */
+  private setEraser(session: DocumentSession | null, on: boolean): void {
+    if (!this.key) return
+    this.key.erasing = on
+    const old = this.eraser
+    this.eraser = on && session && this.temporaryEraser ? this.temporaryEraser.create(this.contextFor(session)) : null
+    if (old) {
+      try {
+        old.onDeactivate?.()
+      } catch (e) {
+        console.error('Tool deactivation failed', e)
+      }
+    }
   }
 
   /** Keeps `handler` in sync reactively until the returned stop function is called. */

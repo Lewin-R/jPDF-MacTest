@@ -25,12 +25,22 @@
   import { createEraserHandler } from './tools/eraser'
   import type { Annotation } from './core/session/model'
   import Toast from './ui/Toast.svelte'
+  import ContextMenu from './ui/ContextMenu.svelte'
+  import { rightClickErases } from './tools/rightClick'
+  import { pageMenuItems } from './app/pageMenu'
 
-  // Hold the right mouse button to erase, in every tool but Hand.
+  // Hold the right mouse button to erase with the drawing tools; the others
+  // (select, hand, text-selection marker) open the page menu on right-click.
   const router = new ToolRouter(() => activeTool.current, () => tabs.active, {
     create: createEraserHandler,
-    disabledFor: ['hand'],
+    enabledFor: (a) => rightClickErases(a?.def.type, a?.instance.settings),
   })
+
+  /** Open page context menu: position (client) and 1-based page number. */
+  let pageMenu = $state<{ x: number; y: number; page: number } | null>(null)
+  function openPageMenu(page: number, x: number, y: number) {
+    pageMenu = { x, y, page: page + 1 }
+  }
   /** The toolbar shows once the persisted layout is loaded (no flash of defaults). */
   let settingsLoaded = $state(false)
 
@@ -162,6 +172,7 @@
           toolHidden={router.stateOf(tabs.active).hidden}
           toolTextEdit={router.stateOf(tabs.active).textEdit}
           toolSelection={router.stateOf(tabs.active).selection}
+          onpagemenu={openPageMenu}
         />
       {/key}
     {:else}
@@ -175,6 +186,9 @@
 </div>
 <ConfirmClose />
 <Toast />
+{#if pageMenu}
+  <ContextMenu x={pageMenu.x} y={pageMenu.y} items={pageMenuItems(pageMenu.page)} onclose={() => (pageMenu = null)} />
+{/if}
 
 <style>
   .shell {

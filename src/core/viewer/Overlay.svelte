@@ -57,6 +57,7 @@
     textEdit = null,
     selection = [],
     viewport,
+    onpagemenu,
   }: {
     doc?: PdfDoc
     /** 1-based (PdfDoc.getPage); Annotation.page is 0-based. */
@@ -86,6 +87,11 @@
     selection?: readonly string[]
     /** Overrides the viewport derived from doc (tests). */
     viewport?: PageViewport
+    /**
+     * Right-click without the temporary eraser (select, hand, text marker):
+     * open the page menu for this page (0-based) at client coordinates.
+     */
+    onpagemenu?: (page: number, clientX: number, clientY: number) => void
   } = $props()
 
   let loaded = $state<PageViewport | null>(null)
@@ -228,11 +234,15 @@
     if (t === eraser) t.onPointerCancel?.(last)
   }
 
-  /** No browser context menu over the page (right-drag erases), except in the text box editor. */
+  /**
+   * No browser context menu over the page, except in the text box editor:
+   * a right drag erases, or (tools without the temporary eraser) the page menu opens.
+   */
   function onContextMenu(e: MouseEvent) {
     const t = e.target
     if (t instanceof Element && t.closest(EDITABLE)) return
     e.preventDefault()
+    if (!eraser) onpagemenu?.(pageNumber - 1, e.clientX, e.clientY)
   }
 
   /** The gesture's handler and page event for `e`, if `e` belongs to the gesture. */

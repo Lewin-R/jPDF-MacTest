@@ -140,6 +140,30 @@ describe('Overlay: hold right button = temporary eraser', () => {
     expect(editorMenu.defaultPrevented).toBe(false)
   })
 
+  it('without an eraser, a right-click opens the page menu at the cursor for this page', async () => {
+    const onpagemenu = vi.fn()
+    const { page } = mount({ tool: null, eraser: null, pageNumber: 4, onpagemenu })
+    const menu = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 33, clientY: 44 })
+    page.dispatchEvent(menu)
+    expect(menu.defaultPrevented).toBe(true)
+    expect(onpagemenu).toHaveBeenCalledWith(3, 33, 44)
+
+    // Not in the text box editor: the native menu stays there.
+    const textarea = document.createElement('textarea')
+    page.append(textarea)
+    const editorMenu = new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
+    textarea.dispatchEvent(editorMenu)
+    expect(editorMenu.defaultPrevented).toBe(false)
+    expect(onpagemenu).toHaveBeenCalledOnce()
+  })
+
+  it('with the eraser enabled, a right-click never opens the page menu', async () => {
+    const onpagemenu = vi.fn()
+    const { page } = mount({ tool: null, eraser: spy().handler, onpagemenu })
+    page.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
+    expect(onpagemenu).not.toHaveBeenCalled()
+  })
+
   it('without an eraser (hand tool) a right press does nothing', async () => {
     const tool = spy()
     const { svg } = mount({ tool: tool.handler, eraser: null })

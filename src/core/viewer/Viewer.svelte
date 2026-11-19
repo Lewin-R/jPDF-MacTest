@@ -15,6 +15,7 @@
     session,
     tool = null,
     eraser = null,
+    onpagemenu,
     cursor,
     toolPreview = null,
     toolHidden,
@@ -26,6 +27,8 @@
     tool?: ToolHandler | null
     /** Temporary right-button eraser (see ToolRouter.eraser). */
     eraser?: ToolHandler | null
+    /** Right-click without the temporary eraser: open the page menu (page 0-based, client coordinates). */
+    onpagemenu?: (page: number, clientX: number, clientY: number) => void
     cursor?: string
     /** The tool's live, uncommitted annotation, drawn on its page. */
     toolPreview?: Annotation | null
@@ -234,6 +237,7 @@
             selection={toolSelection}
             {tool}
             {eraser}
+            {onpagemenu}
             cursor={panning ? 'grabbing' : spaceHeld ? 'grab' : cursor}
           />
         </PageView>

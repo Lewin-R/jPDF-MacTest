@@ -171,7 +171,7 @@ describe('ToolRouter', () => {
     expect(router.cursor).toBeUndefined()
   })
 
-  it('keeps a temporary eraser handler for any tool but hand, recreated with the tool', () => {
+  it('keeps a temporary eraser handler for the tools enabledFor allows, recreated with the tool', () => {
     const s = fakeSetup([
       { instanceId: 'p1', type: 'pen', settings: { width: 2 } },
       { instanceId: 'h1', type: 'hand', settings: {} },
@@ -186,7 +186,7 @@ describe('ToolRouter', () => {
         erasers.push({ ctx, handler })
         return handler
       },
-      disabledFor: ['hand'],
+      enabledFor: (a) => a?.def.type !== 'hand',
     })
     router.sync()
     expect(router.eraser).toBe(erasers[0].handler)
@@ -200,11 +200,36 @@ describe('ToolRouter', () => {
     expect(erasers[0].handler.onDeactivate).toHaveBeenCalledOnce()
     expect(router.eraser).toBeNull()
 
-    // No tool at all (unregistered): right-drag still erases.
+    // No tool at all (unregistered): enabledFor decides (here: erase).
     s.store.setActive('x1')
     router.sync()
     expect(router.handler).toBeNull()
     expect(router.eraser).toBe(erasers[1].handler)
+  })
+
+  it('turns the temporary eraser on and off when the active tool\'s settings change (marker mode)', () => {
+    const s = fakeSetup([{ instanceId: 'p1', type: 'pen', settings: { width: 2 } }])
+    const active = new ActiveTool(s.store, s.registry)
+    const session = fakeSession('s1')
+    const tool = vi.fn()
+    s.registry.get('pen').createHandler = () => {
+      tool()
+      return {}
+    }
+    const router = new ToolRouter(() => active.current, () => session, {
+      create: () => ({ onDeactivate: vi.fn() }),
+      enabledFor: (a) => ((a?.instance.settings as { width?: number }).width ?? 0) > 3,
+    })
+    router.sync()
+    expect(router.eraser).toBeNull()
+    s.store.updateSettings('p1', { width: 5 })
+    router.sync()
+    expect(router.eraser).not.toBeNull()
+    s.store.updateSettings('p1', { width: 1 })
+    router.sync()
+    expect(router.eraser).toBeNull()
+    // The tool's own handler is not recreated by these settings changes.
+    expect(tool).toHaveBeenCalledOnce()
   })
 
   it('has no temporary eraser without the option or without a session', () => {
