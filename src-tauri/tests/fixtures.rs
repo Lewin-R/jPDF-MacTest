@@ -278,6 +278,16 @@ pub fn nested_pages_pdf() -> Vec<u8> {
     }))
 }
 
+/// Two pages whose root `/Pages` node has an inheritable `/CropBox [20 20 400 600]`.
+pub fn inherited_cropbox_pdf() -> Vec<u8> {
+    save(build(2, |doc, _| {
+        let root = doc.catalog().unwrap().get(b"Pages").unwrap().as_reference().unwrap();
+        doc.get_dictionary_mut(root)
+            .unwrap()
+            .set("CropBox", vec![20.into(), 20.into(), 400.into(), 600.into()]);
+    }))
+}
+
 /// Page 0's `/Annots` is an indirect array holding one `/Link`.
 pub fn pdf_with_indirect_annots() -> Vec<u8> {
     save(build(1, |doc, pages| {
@@ -393,6 +403,7 @@ fn fixtures_load() {
         offset_box_pdf(true),
         xref_stream_pdf(),
         nested_pages_pdf(),
+        inherited_cropbox_pdf(),
     ] {
         Document::load_mem(&bytes).unwrap();
     }

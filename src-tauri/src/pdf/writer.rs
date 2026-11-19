@@ -220,10 +220,13 @@ impl Writer {
     fn blank_page(&mut self, width: f64, height: f64, root: ObjectId, rotate: i32) -> ObjectId {
         let doc = &mut self.inc.new_document;
         let contents = doc.add_object(Stream::new(Dictionary::new(), Vec::new()));
+        let bbox = nums(&[0.0, 0.0, width, height]);
+        // An explicit /CropBox: one inherited from the root /Pages node would crop the page.
         doc.add_object(dictionary! {
             "Type" => "Page",
             "Parent" => root,
-            "MediaBox" => nums(&[0.0, 0.0, width, height]),
+            "MediaBox" => bbox.clone(),
+            "CropBox" => bbox,
             "Rotate" => rotate,
             "Resources" => Dictionary::new(),
             "Contents" => contents,

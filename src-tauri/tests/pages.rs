@@ -216,3 +216,13 @@ fn invalid_plans_are_rejected() {
         assert!(matches!(with_pages(&orig, &[], &plan), Err(AppError::InvalidPdf(_))), "{plan:?}");
     }
 }
+
+#[test]
+fn blank_page_does_not_inherit_a_crop_box() {
+    let orig = fixtures::inherited_cropbox_pdf();
+    let plan = [source(0, 0), PageSpec::Blank { width: 300.0, height: 500.0, rotate: 0 }];
+    let (out, _) = with_pages(&orig, &[], &plan).unwrap();
+    let doc = Document::load_mem(&out).unwrap();
+    let pages: Vec<ObjectId> = doc.page_iter().collect();
+    assert_eq!(nums(page(&doc, pages[1]).get(b"CropBox").unwrap()), [0.0, 0.0, 300.0, 500.0]);
+}
