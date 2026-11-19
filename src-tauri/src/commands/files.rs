@@ -7,8 +7,8 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::error::AppError;
-use crate::pdf::dto::{AnnotationDto, DeleteRef};
-use crate::pdf::writer::write_incremental;
+use crate::pdf::dto::{AnnotationDto, DeleteRef, PageSpec};
+use crate::pdf::writer::write_incremental_with_pages;
 
 /// Windows ERROR_SHARING_VIOLATION: file is open in another process.
 const SHARING_VIOLATION: i32 = 32;
@@ -66,8 +66,19 @@ pub fn save_to_path(
     upserts: &[AnnotationDto],
     deletes: &[DeleteRef],
 ) -> Result<SaveResult, AppError> {
+    save_to_path_with_pages(source, target, upserts, deletes, None)
+}
+
+/// `save_to_path` that also writes a page plan (see `write_incremental_with_pages`).
+pub fn save_to_path_with_pages(
+    source: &Path,
+    target: &Path,
+    upserts: &[AnnotationDto],
+    deletes: &[DeleteRef],
+    pages: Option<&[PageSpec]>,
+) -> Result<SaveResult, AppError> {
     let original = read_file(&source.to_string_lossy())?;
-    let (bytes, refs) = write_incremental(&original, upserts, deletes)?;
+    let (bytes, refs) = write_incremental_with_pages(&original, upserts, deletes, pages)?;
     let dir = match target.parent() {
         Some(d) if !d.as_os_str().is_empty() => d,
         _ => Path::new("."),
@@ -98,8 +109,18 @@ pub async fn save_pdf(
     target_path: String,
     upserts: Vec<AnnotationDto>,
     deletes: Vec<DeleteRef>,
+    pages: Option<Vec<PageSpec>>,
 ) -> Result<SaveResult, AppError> {
-    blocking(move || save_to_path(Path::new(&source_path), Path::new(&target_path), &upserts, &deletes)).await
+    blocking(move || {
+        save_to_path_with_pages(
+            Path::new(&source_path),
+            Path::new(&target_path),
+            &upserts,
+            &deletes,
+            pages.as_deref(),
+        )
+    })
+    .await
 }
 
 #[tauri::command]

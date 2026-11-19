@@ -1,7 +1,7 @@
 //! Incremental-update writer: the original bytes stay an exact prefix; changed and
 //! new objects, a new cross-reference section (table or stream, matching the
 //! original) and a trailer with `/Prev` are appended.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use lopdf::{
     Dictionary, Document, IncrementalDocument, Object, ObjectId, Stream, StringFormat, dictionary,
@@ -12,7 +12,9 @@ use super::appearance::{
     Appearance, freetext_appearance, highlight_appearance, ink_appearance, shape_appearance,
 };
 use super::date::pdf_date;
-use super::dto::{AnnotationDto, Background, Blend, Common, DeleteRef, Fill, InkRole, ShapeKind, Stroke};
+use super::dto::{
+    AnnotationDto, Background, Blend, Common, DeleteRef, Fill, InkRole, PageSpec, ShapeKind, Stroke,
+};
 use super::fmt::fmt_num;
 use super::{annotation_nm, format_source_ref, load_document, nm_owners, parse_source_ref};
 use crate::error::AppError;
@@ -33,7 +35,11 @@ struct PageAnnots {
 
 struct Writer {
     inc: IncrementalDocument,
+    /// The saved document's pages in order (annotation `page` indexes this).
     pages: Vec<ObjectId>,
+    /// Final `/Rotate` of each page when a page plan was applied; without one
+    /// each page's rotation is read from the file when needed.
+    rotations: Option<Vec<i32>>,
     annots: HashMap<ObjectId, PageAnnots>,
     /// `nm_owners` of the original document, computed on first use.
     owners: Option<HashMap<String, ObjectId>>,
@@ -45,8 +51,23 @@ pub fn write_incremental(
     upserts: &[AnnotationDto],
     deletes: &[DeleteRef],
 ) -> Result<(Vec<u8>, HashMap<String, String>), AppError> {
+    write_incremental_with_pages(original, upserts, deletes, None)
+}
+
+/// Like `write_incremental`; with a page plan the saved document has exactly
+/// those pages, in that order (see `Writer::apply_page_plan`), and the
+/// annotations' `page` indexes the plan. `None` leaves the pages as they are.
+pub fn write_incremental_with_pages(
+    original: &[u8],
+    upserts: &[AnnotationDto],
+    deletes: &[DeleteRef],
+    pages: Option<&[PageSpec]>,
+) -> Result<(Vec<u8>, HashMap<String, String>), AppError> {
     let doc = load_document(original)?;
     let mut w = Writer::new(original, doc);
+    if let Some(plan) = pages {
+        w.apply_page_plan(plan)?;
+    }
     let mut refs = HashMap::new();
     for dto in upserts {
         if let Some((id, source_ref)) = w.upsert(dto)? {
@@ -94,6 +115,7 @@ impl Writer {
         Writer {
             inc,
             pages,
+            rotations: None,
             annots: HashMap::new(),
             owners: None,
         }
@@ -101,6 +123,111 @@ impl Writer {
 
     fn prev(&self) -> &Document {
         self.inc.get_prev_documents()
+    }
+
+    /// Makes the root `/Pages` node list exactly the planned pages (a flat
+    /// tree). The first occurrence of a file page keeps its object (revised
+    /// when its `/Rotate` or `/Parent` changes); later occurrences are new
+    /// copies without annotations; blank pages are new. Pages left out stay
+    /// in the file as unreachable objects.
+    fn apply_page_plan(&mut self, plan: &[PageSpec]) -> Result<(), AppError> {
+        if plan.is_empty() {
+            return Err(AppError::InvalidPdf("the page plan has no pages".into()));
+        }
+        let root = self
+            .prev()
+            .catalog()
+            .and_then(|c| c.get(b"Pages"))
+            .and_then(Object::as_reference)
+            .map_err(invalid)?;
+        let source = std::mem::take(&mut self.pages);
+        let mut used = HashSet::new();
+        let mut pages = Vec::with_capacity(plan.len());
+        let mut rotations = Vec::with_capacity(plan.len());
+        for spec in plan {
+            let (id, rotate) = match *spec {
+                PageSpec::Source { index, rotate } => {
+                    let rotate = plan_rotation(rotate)?;
+                    let src = *source.get(index as usize).ok_or_else(|| {
+                        AppError::InvalidPdf(format!("page {index} out of range"))
+                    })?;
+                    let id = if used.insert(src) {
+                        self.reuse_page(src, root, rotate)?;
+                        src
+                    } else {
+                        self.copy_page(src, root, rotate)?
+                    };
+                    (id, rotate)
+                }
+                PageSpec::Blank { width, height, rotate } => {
+                    let rotate = plan_rotation(rotate)?;
+                    if !(width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0) {
+                        return Err(AppError::InvalidPdf("invalid empty page size".into()));
+                    }
+                    (self.blank_page(width, height, root, rotate), rotate)
+                }
+            };
+            pages.push(id);
+            rotations.push(rotate);
+        }
+        self.inc
+            .opt_clone_object_to_new_document(root)
+            .map_err(invalid)?;
+        let node = self
+            .inc
+            .new_document
+            .get_dictionary_mut(root)
+            .map_err(invalid)?;
+        node.set(
+            "Kids",
+            pages.iter().map(|&id| Object::Reference(id)).collect::<Vec<_>>(),
+        );
+        node.set("Count", pages.len() as i64);
+        self.pages = pages;
+        self.rotations = Some(rotations);
+        Ok(())
+    }
+
+    /// Keeps file page `id` as a direct kid of `root` with `/Rotate rotate`:
+    /// revised only if either differs.
+    fn reuse_page(&mut self, id: ObjectId, root: ObjectId, rotate: i32) -> Result<(), AppError> {
+        let prev = self.prev();
+        let parent = prev
+            .get_dictionary(id)
+            .map_err(invalid)?
+            .get(b"Parent")
+            .and_then(Object::as_reference)
+            .ok();
+        if parent == Some(root) && page_rotation(prev, id) == rotate {
+            return Ok(());
+        }
+        let dict = flattened_page(prev, id, root, rotate)?;
+        self.inc.new_document.set_object(id, dict);
+        Ok(())
+    }
+
+    /// A new page drawing the same content as file page `id`, without its
+    /// annotations (and structure or article references, which belong to the
+    /// original).
+    fn copy_page(&mut self, id: ObjectId, root: ObjectId, rotate: i32) -> Result<ObjectId, AppError> {
+        let mut dict = flattened_page(self.prev(), id, root, rotate)?;
+        for key in [b"Annots".as_slice(), b"StructParents", b"B"] {
+            dict.remove(key);
+        }
+        Ok(self.inc.new_document.add_object(dict))
+    }
+
+    fn blank_page(&mut self, width: f64, height: f64, root: ObjectId, rotate: i32) -> ObjectId {
+        let doc = &mut self.inc.new_document;
+        let contents = doc.add_object(Stream::new(Dictionary::new(), Vec::new()));
+        doc.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => root,
+            "MediaBox" => nums(&[0.0, 0.0, width, height]),
+            "Rotate" => rotate,
+            "Resources" => Dictionary::new(),
+            "Contents" => contents,
+        })
     }
 
     /// Current `/Annots` of a page, loaded once and then edited in memory.
@@ -193,7 +320,10 @@ impl Writer {
             .existing(common.source_ref.as_deref())
             .filter(|&id| self.is_same_annotation(id, &common.id));
 
-        let rotation = page_rotation(self.prev(), page_id);
+        let rotation = match &self.rotations {
+            Some(r) => r[common.page as usize],
+            None => page_rotation(self.prev(), page_id),
+        };
         let Some((mut annot, ap)) = build_annotation(dto, rotation)? else {
             // Nothing to draw (e.g. every stroke erased): drop any saved version.
             if let Some(id) = existing {
@@ -477,6 +607,47 @@ fn freetext_dict(text: &str, font_size: f64, color: [f64; 3], bg: Option<&Backgr
             "bgOpacity" => num(bg.map_or(1.0, |b| b.opacity)),
         },
     }
+}
+
+/// A plan's `/Rotate`, normalised to 0..360; it must be a multiple of 90.
+fn plan_rotation(rotate: i32) -> Result<i32, AppError> {
+    let r = rotate.rem_euclid(360);
+    if r % 90 == 0 {
+        Ok(r)
+    } else {
+        Err(AppError::InvalidPdf(format!("invalid page rotation {rotate}")))
+    }
+}
+
+/// The value of an inheritable page attribute from the nearest ancestor `/Pages` node.
+fn inherited<'a>(doc: &'a Document, page: &'a Dictionary, key: &[u8]) -> Option<&'a Object> {
+    let mut node = page.get_deref(b"Parent", doc).and_then(Object::as_dict).ok();
+    // Bounded walk: a malformed /Parent cycle must not hang the save.
+    for _ in 0..64 {
+        let d = node?;
+        if let Ok(v) = d.get(key) {
+            return Some(v);
+        }
+        node = d.get_deref(b"Parent", doc).and_then(Object::as_dict).ok();
+    }
+    None
+}
+
+/// Page `id`'s dictionary as a direct kid of `root` with `/Rotate rotate`:
+/// the attributes it inherited from its old ancestors are copied into it.
+fn flattened_page(doc: &Document, id: ObjectId, root: ObjectId, rotate: i32) -> Result<Dictionary, AppError> {
+    let page = doc.get_dictionary(id).map_err(invalid)?;
+    let mut dict = page.clone();
+    for key in [b"MediaBox".as_slice(), b"CropBox", b"Resources"] {
+        if !dict.has(key)
+            && let Some(v) = inherited(doc, page, key)
+        {
+            dict.set(key, v.clone());
+        }
+    }
+    dict.set("Parent", root);
+    dict.set("Rotate", rotate);
+    Ok(dict)
 }
 
 /// The page's `/Rotate` (inherited through `/Parent`), normalised to 0..360;

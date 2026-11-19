@@ -252,6 +252,32 @@ pub fn offset_box_pdf(rotate: bool) -> Vec<u8> {
     }))
 }
 
+/// Three pages under an intermediate `/Pages` node that holds the inheritable
+/// attributes: `/Rotate 90`, `/MediaBox [0 0 400 600]` and `/Resources` (the
+/// root `/Pages` node has none of them).
+pub fn nested_pages_pdf() -> Vec<u8> {
+    save(build(3, |doc, pages| {
+        let root = doc.catalog().unwrap().get(b"Pages").unwrap().as_reference().unwrap();
+        let resources = doc.get_dictionary(root).unwrap().get(b"Resources").unwrap().clone();
+        let mid = doc.add_object(dictionary! {
+            "Type" => "Pages",
+            "Parent" => root,
+            "Kids" => pages.iter().map(|&id| Object::Reference(id)).collect::<Vec<_>>(),
+            "Count" => pages.len() as i64,
+            "Rotate" => 90,
+            "MediaBox" => vec![0.into(), 0.into(), 400.into(), 600.into()],
+            "Resources" => resources,
+        });
+        for &p in pages {
+            doc.get_dictionary_mut(p).unwrap().set("Parent", mid);
+        }
+        let r = doc.get_dictionary_mut(root).unwrap();
+        r.remove(b"Resources");
+        r.remove(b"MediaBox");
+        r.set("Kids", vec![Object::Reference(mid)]);
+    }))
+}
+
 /// Page 0's `/Annots` is an indirect array holding one `/Link`.
 pub fn pdf_with_indirect_annots() -> Vec<u8> {
     save(build(1, |doc, pages| {
@@ -366,6 +392,7 @@ fn fixtures_load() {
         offset_box_pdf(false),
         offset_box_pdf(true),
         xref_stream_pdf(),
+        nested_pages_pdf(),
     ] {
         Document::load_mem(&bytes).unwrap();
     }

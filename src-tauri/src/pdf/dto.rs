@@ -20,6 +20,17 @@ pub struct DeleteRef {
     pub source_ref: String,
 }
 
+/// One page of a save plan (the page list as the user arranged it), in the
+/// new order. Same JSON shape as `PageSpec` in `src/core/session/pages.ts`.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(tag = "kind", rename_all = "lowercase", rename_all_fields = "camelCase")]
+pub enum PageSpec {
+    /// Page `index` (0-based) of the source file with the absolute final `/Rotate`.
+    Source { index: u32, rotate: i32 },
+    /// An empty page of `width` x `height` points (unrotated) with this `/Rotate`.
+    Blank { width: f64, height: f64, rotate: i32 },
+}
+
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum Blend {
@@ -135,6 +146,20 @@ mod tests {
         let (dto, out, orig) = roundtrip(src);
         assert!(matches!(dto, AnnotationDto::Freetext { font_size, .. } if font_size == 12.0));
         assert_eq!(out, orig);
+    }
+
+    #[test]
+    fn page_spec_json_matches_ts_shape() {
+        let src = r#"[{"kind":"source","index":2,"rotate":90},{"kind":"blank","width":595.5,"height":842,"rotate":0}]"#;
+        let specs: Vec<PageSpec> = serde_json::from_str(src).unwrap();
+        assert_eq!(
+            specs,
+            vec![
+                PageSpec::Source { index: 2, rotate: 90 },
+                PageSpec::Blank { width: 595.5, height: 842.0, rotate: 0 },
+            ]
+        );
+        assert_eq!(norm(serde_json::to_value(&specs).unwrap()), norm(serde_json::from_str(src).unwrap()));
     }
 
     #[test]
