@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import '../../../src/annotations'
 import { createTextHandler, textTool, type TextSettings } from '../../../src/tools/text'
 import { fittedWidth } from '../../../src/tools/text/editing'
@@ -50,6 +50,7 @@ function setup(loaded: FreeTextAnnotation[] = []) {
   const ctx = {
     session,
     execute: (c: Parameters<History['execute']>[0]) => history.execute(c),
+    exit: vi.fn(),
     textEdit: { set: (e: TextEdit | null) => void (edit = e) },
     hidden: { set: (ids: Iterable<string>) => void (hidden = [...ids]) },
   } as unknown as ToolContext
@@ -64,7 +65,7 @@ function setup(loaded: FreeTextAnnotation[] = []) {
     for (const p of path) handler.onPointerMove!(ev(p))
     handler.onPointerUp!(ev(path.at(-1) ?? from))
   }
-  return { store, history, session, handler, click, drag, edit: () => edit, hidden: () => hidden }
+  return { store, history, session, ctx, handler, click, drag, edit: () => edit, hidden: () => hidden }
 }
 
 const texts = (store: AnnotationStore) => store.all().map((a) => (a as FreeTextAnnotation).text)
@@ -109,6 +110,24 @@ describe('text tool', () => {
     expect(t.store.all()).toHaveLength(1)
     t.history.undo()
     expect(t.store.all()).toEqual([])
+  })
+
+  it('Escape commits the box, then hands over to the select tool', () => {
+    const t = setup()
+    t.click([100, 500])
+    const e = t.edit()!
+    e.setText('Hi')
+    e.escape!()
+    expect(texts(t.store)).toEqual(['Hi'])
+    expect(t.edit()).toBeNull()
+    expect(t.ctx.exit).toHaveBeenCalledOnce()
+    // A stale editor (already closed) does nothing.
+    e.escape!()
+    expect(t.ctx.exit).toHaveBeenCalledOnce()
+  })
+
+  it('is unlocked by default: it hands over to the select tool after each box', () => {
+    expect(textTool.defaultLocked).toBe(false)
   })
 
   it('blank text discards a new box', () => {

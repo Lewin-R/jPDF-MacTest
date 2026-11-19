@@ -275,6 +275,7 @@ export const shapeTool: ToolDefinition<ShapeSettings> = {
   defaultSettings: { shape: 'rect', border: { color: [0.898, 0.224, 0.208], width: 2, opacity: 1 }, fill: null },
   Options,
   cursor: () => 'crosshair',
+  defaultLocked: true,
   allowMultipleInstances: true,
   createHandler: createShapeHandler,
 }

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Lock from '@lucide/svelte/icons/lock'
+  import LockOpen from '@lucide/svelte/icons/lock-open'
   import Plus from '@lucide/svelte/icons/plus'
   import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal'
   import { actionIcons } from '../ui/actionIcons'
@@ -9,6 +11,7 @@
   import Flyout from '../ui/Flyout.svelte'
   import { findTool } from './activeTool.svelte'
   import { DRAG_THRESHOLD, insertionIndex, reorderTarget } from './reorder'
+  import { isLockable, isLocked } from './toolLock'
   import ToolButton from './ToolButton.svelte'
   import ToolPicker from './ToolPicker.svelte'
 
@@ -180,7 +183,25 @@
 
 {#if flyout && flyoutEntry}
   {@const { def, instance } = flyoutEntry}
+  {@const locked = isLocked(def, instance)}
   <Flyout anchor={flyout.anchor} label="{def.displayName} options" title={def.displayName} onclose={() => (flyout = null)}>
+    {#snippet actions()}
+      {#if isLockable(def)}
+        <button
+          type="button"
+          class="lock"
+          class:locked
+          aria-label="Lock tool"
+          aria-pressed={locked}
+          title={locked
+            ? 'Locked: the tool stays active after each use. Click to unlock.'
+            : 'Unlocked: switches back to Select after each use. Click to lock.'}
+          onclick={() => store.setLocked(instance.instanceId, !locked)}
+        >
+          {#if locked}<Lock size={14} />{:else}<LockOpen size={14} />{/if}
+        </button>
+      {/if}
+    {/snippet}
     {#if def.SelectionOptions && selected}
       <def.SelectionOptions annotation={selected} update={onEditSelected} />
     {:else if def.Options}
@@ -268,6 +289,26 @@
   }
   .add:hover {
     background: var(--surface-hover);
+    color: var(--accent);
+  }
+  .lock {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: background var(--transition), color var(--transition);
+  }
+  .lock:hover {
+    background: var(--surface-hover);
+    color: var(--text-strong);
+  }
+  .lock.locked {
     color: var(--accent);
   }
   .empty {

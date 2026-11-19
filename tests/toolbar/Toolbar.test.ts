@@ -50,6 +50,27 @@ describe('Toolbar', () => {
     expect(r.queryByRole('dialog')).toBeNull()
   })
 
+  it('the options flyout toggles the tool lock, with a tooltip explaining it', async () => {
+    const setup = fakeSetup()
+    setup.registry.get('pen').defaultLocked = true
+    const r = mount(setup)
+    await fireEvent.click(toolButtons(r)[0])
+    const flyout = r.getByRole('dialog', { name: 'Pen options' })
+    const lock = within(flyout).getByRole('button', { name: 'Lock tool' })
+    expect(lock.getAttribute('aria-pressed')).toBe('true')
+    expect(lock.getAttribute('title')).toMatch(/stays active/)
+    await fireEvent.click(lock)
+    expect(r.store.data.toolbar[0].locked).toBe(false)
+    expect(lock.getAttribute('aria-pressed')).toBe('false')
+    expect(lock.getAttribute('title')).toMatch(/back to Select/)
+  })
+
+  it('tools without a lock show no lock button', async () => {
+    const r = mount()
+    await fireEvent.click(toolButtons(r)[0])
+    expect(within(r.getByRole('dialog')).queryByRole('button', { name: 'Lock tool' })).toBeNull()
+  })
+
   it('clicking active instance opens options flyout', async () => {
     const r = mount()
     await fireEvent.click(toolButtons(r)[0])

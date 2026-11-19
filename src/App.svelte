@@ -21,6 +21,7 @@
   import Toolbar from './toolbar/Toolbar.svelte'
   import { activeTool } from './toolbar/activeTool.svelte'
   import { registerToolShortcuts } from './toolbar/toolShortcuts'
+  import { activateSelectTool, afterToolUse } from './toolbar/toolLock'
   import { editSelected, registerSelectionCommands } from './tools/select/commands'
   import { createEraserHandler } from './tools/eraser'
   import type { Annotation } from './core/session/model'
@@ -35,10 +36,19 @@
 
   // Hold the right mouse button to erase with the drawing tools; the others
   // (select, lasso, text-selection marker) open the page menu on right-click.
-  const router = new ToolRouter(() => activeTool.current, () => tabs.active, {
-    create: createEraserHandler,
-    enabledFor: (a) => rightClickErases(a?.def.type, a?.instance.settings),
-  })
+  // Unlocked tools hand over to the select tool after each use.
+  const router = new ToolRouter(
+    () => activeTool.current,
+    () => tabs.active,
+    {
+      create: createEraserHandler,
+      enabledFor: (a) => rightClickErases(a?.def.type, a?.instance.settings),
+    },
+    {
+      afterUse: () => afterToolUse(activeTool.current, settings),
+      exit: () => activateSelectTool(settings),
+    },
+  )
 
   /** Open page context menu: position (client), 1-based page number and the point clicked on the page. */
   let pageMenu = $state<{ x: number; y: number; page: number; at: PageMenuPoint | null } | null>(null)
@@ -133,6 +143,17 @@
   })
 
   function onKeydown(e: KeyboardEvent) {
+    handleKey(e)
+    // Escape always ends in the select tool, after the active tool and the
+    // Escape commands had their turn (a polyline is dropped, the selection
+    // cleared). Popups and the text editor consume their Escape before it
+    // gets here (as do the builder's); the editor hands over itself (TextEdit.escape).
+    if (e.key === 'Escape') {
+      activateSelectTool(settings)
+    }
+  }
+
+  function handleKey(e: KeyboardEvent) {
     const t = e.target
     const editable = t instanceof HTMLElement && t.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')
     // The active tool first (e.g. Enter finishes a polyline, Escape drops it).

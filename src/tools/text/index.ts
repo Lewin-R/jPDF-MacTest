@@ -144,6 +144,7 @@ export const textTool: ToolDefinition<TextSettings> = {
   defaultSettings: { textColor: [0.1, 0.1, 0.1], fontSize: 12, background: null },
   Options,
   cursor: () => 'text',
+  defaultLocked: false,
   allowMultipleInstances: true,
   createHandler: createTextHandler,
 }

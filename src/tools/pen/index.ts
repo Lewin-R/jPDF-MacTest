@@ -41,6 +41,7 @@ export const penTool: ToolDefinition<PenSettings> = {
   defaultSettings: { color: [0.898, 0.224, 0.208], width: 2, opacity: 1 },
   Options,
   cursor: () => 'crosshair',
+  defaultLocked: true,
   allowMultipleInstances: true,
   createHandler: createPenHandler,
 }

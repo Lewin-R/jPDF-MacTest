@@ -98,6 +98,11 @@ export function createTextEditing(ctx: ToolContext): TextEditing {
       commit: () => {
         if (open === o) commit()
       },
+      escape: () => {
+        if (open !== o) return
+        commit()
+        ctx.exit?.()
+      },
     }
     ctx.textEdit.set(edit)
   }

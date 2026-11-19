@@ -88,6 +88,7 @@ export const eraserTool: ToolDefinition<Record<string, never>> = {
   defaultSettings: {},
   Options: null,
   cursor: () => 'crosshair',
+  defaultLocked: true,
   allowMultipleInstances: false,
   createHandler: createEraserHandler,
 }

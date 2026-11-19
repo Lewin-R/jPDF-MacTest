@@ -223,6 +223,51 @@ describe('ToolRouter', () => {
     expect(router.eraser).toBe(erasers[1].handler)
   })
 
+  it('hands over after each command of the active tool, but not for the eraser or a deactivated handler', () => {
+    const s = fakeSetup([
+      { instanceId: 'p1', type: 'pen', settings: { width: 2 } },
+      { instanceId: 'h1', type: 'hand', settings: {} },
+    ])
+    const active = new ActiveTool(s.store, s.registry)
+    const session = fakeSession('s1')
+    const contexts: ToolContext[] = []
+    s.registry.get('pen').createHandler = (ctx) => {
+      contexts.push(ctx)
+      return {}
+    }
+    let eraserCtx: ToolContext | null = null
+    const handover = { afterUse: vi.fn(), exit: vi.fn() }
+    const router = new ToolRouter(() => active.current, () => session, {
+      create: (ctx) => {
+        eraserCtx = ctx
+        return {}
+      },
+      enabledFor: () => true,
+    }, handover)
+    router.sync()
+    const cmd = { label: 'x', do: () => {}, undo: () => {} }
+    contexts[0].execute(cmd)
+    expect(session.history.execute).toHaveBeenCalledWith(cmd)
+    expect(handover.afterUse).toHaveBeenCalledOnce()
+    contexts[0].exit!()
+    expect(handover.exit).toHaveBeenCalledOnce()
+
+    // Right-button erasing is not a use of the active tool.
+    eraserCtx!.execute(cmd)
+    eraserCtx!.exit!()
+    expect(handover.afterUse).toHaveBeenCalledOnce()
+    expect(handover.exit).toHaveBeenCalledOnce()
+
+    // A commit after the tool changed (e.g. a text box committed on deactivation) hands over nothing.
+    s.store.setActive('h1')
+    router.sync()
+    contexts[0].execute(cmd)
+    contexts[0].exit!()
+    expect(session.history.execute).toHaveBeenCalledTimes(3)
+    expect(handover.afterUse).toHaveBeenCalledOnce()
+    expect(handover.exit).toHaveBeenCalledOnce()
+  })
+
   it('turns the temporary eraser on and off when the active tool\'s settings change (marker mode)', () => {
     const s = fakeSetup([{ instanceId: 'p1', type: 'pen', settings: { width: 2 } }])
     const active = new ActiveTool(s.store, s.registry)

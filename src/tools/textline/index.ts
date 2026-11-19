@@ -78,6 +78,7 @@ function textLineTool(
     defaultSettings: { color },
     Options,
     cursor: () => 'text',
+    defaultLocked: true,
     allowMultipleInstances: true,
     createHandler: (ctx, settings) => createTextLineHandler(kind, ctx, settings),
   }

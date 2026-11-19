@@ -9,6 +9,7 @@
     anchor,
     label,
     title,
+    actions,
     onclose,
     children,
   }: {
@@ -17,6 +18,8 @@
     label: string
     /** Visible heading. */
     title?: string
+    /** Controls at the top right, next to the heading (e.g. the tool lock). */
+    actions?: Snippet
     onclose(): void
     children: Snippet
   } = $props()
@@ -56,7 +59,12 @@
   style:right="{right}px"
   use:dismissable={{ onclose, ignore: [anchor] }}
 >
-  {#if title}<h2>{title}</h2>{/if}
+  {#if title || actions}
+    <header>
+      {#if title}<h2>{title}</h2>{/if}
+      {#if actions}<div class="actions">{@render actions()}</div>{/if}
+    </header>
+  {/if}
   {@render children()}
 </div>
 
@@ -74,6 +82,19 @@
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-soft);
     animation: in 140ms ease-out;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    /* Room for the actions without growing the header past the heading's line. */
+    min-height: 16px;
+    margin: -4px 0;
+  }
+  .actions {
+    display: flex;
+    gap: 2px;
+    margin-left: auto;
   }
   h2 {
     margin: 0;

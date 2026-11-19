@@ -68,6 +68,7 @@ export const markerTool: ToolDefinition<MarkerSettings> = {
   defaultSettings: { mode: 'text', color: [1, 0.922, 0.231], opacity: 0.4, width: 14 },
   Options,
   cursor: () => 'crosshair',
+  defaultLocked: true,
   allowMultipleInstances: true,
   createHandler: createMarkerHandler,
 }

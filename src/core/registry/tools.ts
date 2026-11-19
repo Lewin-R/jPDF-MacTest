@@ -93,11 +93,20 @@ export interface TextEdit {
   sizing?: boolean
   setText(text: string): void
   commit(): void
+  /** Escape in the editor: commits, then hands over to the select tool (see ToolContext.exit). */
+  escape?(): void
 }
 
 export interface ToolContext {
   session: DocumentSession
+  /**
+   * Runs `c` as one undo step. Each call counts as one use of the tool: an
+   * unlocked tool then hands over to the select tool (see
+   * ToolDefinition.defaultLocked).
+   */
   execute(c: Command): void
+  /** Hands over to the select tool (e.g. Escape in the text editor); a no-op once the tool is no longer active. */
+  exit?(): void
   selection: { ids: string[]; set(ids: string[]): void }
   /** Live, uncommitted annotation drawn by Overlay. */
   preview: { set(a: Annotation | null): void }
@@ -140,6 +149,13 @@ export interface ToolDefinition<S = any> {
    */
   SelectionOptions?: Component<{ annotation: Annotation; update(after: Annotation): void }>
   cursor?(settings: S): string
+  /**
+   * Whether a new instance is locked: a locked tool stays active after each
+   * use, an unlocked one hands over to the select tool. The user toggles it
+   * per instance (ToolInstance.locked). Undefined: the tool has no lock and
+   * always stays active (select, lasso).
+   */
+  defaultLocked?: boolean
   allowMultipleInstances: boolean
   createHandler(ctx: ToolContext, settings: () => S): ToolHandler
 }

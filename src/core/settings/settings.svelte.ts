@@ -1,7 +1,13 @@
 import { loadSettings, saveSettings } from '../ipc/api'
 import { toolRegistry, type ToolRegistry } from '../registry/tools'
 
-export interface ToolInstance { instanceId: string; type: string; settings: unknown }
+export interface ToolInstance {
+  instanceId: string
+  type: string
+  settings: unknown
+  /** Set once the user toggles the lock; absent: the tool's defaultLocked. */
+  locked?: boolean
+}
 export interface Settings {
   version: 1
   author: string
@@ -130,7 +136,9 @@ export class SettingsStore {
     const src = this.data.toolbar[idx]
     const def = this.registry.get(src.type)
     if (!def.allowMultipleInstances) return src
-    this.data.toolbar.splice(idx + 1, 0, inst(src.type, clone($state.snapshot(src.settings))))
+    const copy = inst(src.type, clone($state.snapshot(src.settings)))
+    if (src.locked !== undefined) copy.locked = src.locked
+    this.data.toolbar.splice(idx + 1, 0, copy)
     this.scheduleSave()
     return this.data.toolbar[idx + 1]
   }
@@ -155,6 +163,12 @@ export class SettingsStore {
   updateSettings(instanceId: string, patch: object): void {
     const i = this.data.toolbar[this.indexOf(instanceId)]
     i.settings = { ...(i.settings as object), ...patch }
+    this.scheduleSave()
+  }
+
+  /** Locks (stays active after use) or unlocks (hands over to the select tool) an instance. */
+  setLocked(instanceId: string, locked: boolean): void {
+    this.data.toolbar[this.indexOf(instanceId)].locked = locked
     this.scheduleSave()
   }
 

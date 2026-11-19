@@ -13,6 +13,18 @@ export interface ActiveToolLike {
 export { SessionToolState }
 
 /**
+ * Where the active tool hands over (see ToolDefinition.defaultLocked):
+ * `afterUse` runs after each command the tool's handler executes (an unlocked
+ * tool then switches to the select tool), `exit` when it asks to leave
+ * (ToolContext.exit). Neither runs for the temporary eraser or for a handler
+ * that is no longer the active one (e.g. a text box committed on deactivation).
+ */
+export interface ToolHandover {
+  afterUse(): void
+  exit(): void
+}
+
+/**
  * Temporary eraser (hold the right mouse button): a handler created next to
  * the active tool's while `enabledFor(active tool)` is true (`null` = no tool).
  * It may depend on the tool's settings (the marker erases only in freehand
@@ -50,6 +62,7 @@ export class ToolRouter {
     private getActive: () => ActiveToolLike | null,
     private getSession: () => DocumentSession | null,
     private temporaryEraser?: TemporaryEraserOptions,
+    private handover?: ToolHandover,
   ) {}
 
   /**
@@ -83,7 +96,7 @@ export class ToolRouter {
       if (!session) return
       this.key = { instanceId, session, erasing: false }
       if (active && instanceId) {
-        this.handler = active.def.createHandler(this.contextFor(session), this.settingsGetter(active.instance))
+        this.handler = active.def.createHandler(this.contextFor(session, true), this.settingsGetter(active.instance))
       }
       this.setEraser(session, erasing)
     })
@@ -166,11 +179,21 @@ export class ToolRouter {
     }
   }
 
-  private contextFor(session: DocumentSession): ToolContext {
+  /** `primary`: the context of the active tool's own handler, whose commands count as uses (see ToolHandover). */
+  private contextFor(session: DocumentSession, primary = false): ToolContext {
     const state = this.stateOf(session)
+    const key = this.key
+    // Deactivation clears the key before onDeactivate runs, so a handler's last commit hands over nothing.
+    const current = () => primary && key !== null && this.key === key
     return {
       session,
-      execute: (c) => session.history.execute(c),
+      execute: (c) => {
+        session.history.execute(c)
+        if (current()) this.handover?.afterUse()
+      },
+      exit: () => {
+        if (current()) this.handover?.exit()
+      },
       selection: {
         get ids() {
           return state.selection

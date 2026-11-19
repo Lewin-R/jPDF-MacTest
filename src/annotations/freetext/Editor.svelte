@@ -35,7 +35,9 @@
     if (e.key === 'Escape') {
       e.preventDefault()
       e.stopPropagation()
-      edit.commit()
+      // Escape also ends in the select tool, as it does outside the editor.
+      if (edit.escape) edit.escape()
+      else edit.commit()
       return
     }
     // Text editing chords stay in the textarea (native undo, select all);

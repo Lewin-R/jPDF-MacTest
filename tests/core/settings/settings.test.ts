@@ -97,6 +97,27 @@ describe('SettingsStore', () => {
     expect(store.data.toolbar.indexOf(b)).toBe(store.data.toolbar.indexOf(a) + 1)
   })
 
+  it('setLocked records the lock on the instance, saves it, and load keeps it', async () => {
+    const { store, save } = make()
+    const a = store.addInstance('pen')
+    expect(a.locked).toBeUndefined()
+    store.setLocked(a.instanceId, false)
+    expect(store.data.toolbar.at(-1)!.locked).toBe(false)
+    await vi.runAllTimersAsync()
+    const saved = save.mock.calls.at(-1)![0]
+    const reloaded = make(saved).store
+    await reloaded.load()
+    expect(reloaded.data.toolbar.at(-1)!.locked).toBe(false)
+  })
+
+  it('duplicate keeps the lock the user set', () => {
+    const { store } = make()
+    const a = store.addInstance('pen')
+    expect(store.duplicate(a.instanceId).locked).toBeUndefined()
+    store.setLocked(a.instanceId, true)
+    expect(store.duplicate(a.instanceId).locked).toBe(true)
+  })
+
   it('addInstance of tool with allowMultipleInstances=false when one exists returns existing', () => {
     const { store } = make()
     const existing = store.data.toolbar.find((i) => i.type === 'select')!
