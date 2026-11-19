@@ -199,6 +199,47 @@ pub fn pdf_with_undrawable_annots() -> Vec<u8> {
     }))
 }
 
+/// Page 0 has foreign `/Square` and `/Circle` annotations without `/JuliePDF`:
+/// a blue-bordered square (`/BS /W 4`, `/CA 0.5`), a red-filled circle without
+/// `/BS` and with an empty `/C`, a square with `/RD`, plus a zero-area square
+/// and one with neither `/C` nor `/IC` (both undrawable).
+pub fn pdf_with_foreign_shapes() -> Vec<u8> {
+    save(build(1, |doc, pages| {
+        let sq = doc.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Square", "NM" => Object::string_literal("sq"),
+            "Rect" => vec![100.into(), 200.into(), 300.into(), 400.into()],
+            "C" => vec![0.into(), 0.into(), 1.into()],
+            "CA" => Object::Real(0.5),
+            "BS" => dictionary! { "W" => 4, "S" => "S" },
+        });
+        let circ = doc.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Circle", "NM" => Object::string_literal("circ"),
+            "Rect" => vec![100.into(), 100.into(), 200.into(), 150.into()],
+            "C" => Vec::<Object>::new(),
+            "IC" => vec![1.into(), 0.into(), 0.into()],
+        });
+        let rd = doc.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Square", "NM" => Object::string_literal("rd"),
+            "Rect" => vec![10.into(), 10.into(), 100.into(), 100.into()],
+            "RD" => vec![5.into(), 6.into(), 13.into(), 11.into()],
+            "C" => vec![0.into()],
+            "BS" => dictionary! { "W" => 2 },
+            "CreationDate" => Object::string_literal("D:20260101000000Z"),
+        });
+        let zero = doc.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Square", "NM" => Object::string_literal("zero"),
+            "Rect" => vec![10.into(), 10.into(), 11.into(), 50.into()],
+            "C" => vec![0.into()],
+        });
+        let invisible = doc.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Square", "NM" => Object::string_literal("invisible"),
+            "Rect" => vec![10.into(), 10.into(), 50.into(), 50.into()],
+        });
+        let annots = [sq, circ, rd, zero, invisible].map(Object::Reference).to_vec();
+        doc.get_dictionary_mut(pages[0]).unwrap().set("Annots", annots);
+    }))
+}
+
 /// One page whose `/MediaBox` does not start at the origin
 /// (`[50 100 645 942]`), optionally with `/Rotate 90`.
 pub fn offset_box_pdf(rotate: bool) -> Vec<u8> {

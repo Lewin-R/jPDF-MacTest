@@ -40,6 +40,24 @@ pub struct Background {
     pub opacity: f64,
 }
 
+/// A shape's fill: same JSON shape as a text box background.
+pub type Fill = Background;
+
+/// A shape's border (stroke).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Stroke {
+    pub color: [f64; 3],
+    pub width: f64,
+    pub opacity: f64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ShapeKind {
+    Rect,
+    Circle,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(tag = "kind", rename_all = "lowercase", rename_all_fields = "camelCase")]
 pub enum AnnotationDto {
@@ -69,6 +87,16 @@ pub enum AnnotationDto {
         font_size: f64,
         text_color: [f64; 3],
         background: Option<Background>,
+    },
+    /// `rect` is the geometric outline (centre of the border stroke); for
+    /// circles the bounding box of the circle (an ellipse after resizing).
+    Shape {
+        #[serde(flatten)]
+        common: Common,
+        shape: ShapeKind,
+        rect: [f64; 4],
+        border: Option<Stroke>,
+        fill: Option<Fill>,
     },
 }
 
@@ -114,6 +142,17 @@ mod tests {
         let src = r#"{"kind":"highlight","id":"h","page":1,"sourceRef":null,"modifiedAt":"t","author":"J","quads":[[0,10,10,10,0,0,10,0]],"color":[1,1,0],"opacity":0.4}"#;
         let (dto, out, orig) = roundtrip(src);
         assert!(matches!(dto, AnnotationDto::Highlight { .. }));
+        assert_eq!(out, orig);
+    }
+
+    #[test]
+    fn dto_shape_roundtrip() {
+        let src = r#"{"kind":"shape","id":"s","page":0,"sourceRef":null,"modifiedAt":"t","author":"J","shape":"circle","rect":[1,2,3,4],"border":{"color":[1,0,0],"width":2,"opacity":0.5},"fill":null}"#;
+        let (dto, out, orig) = roundtrip(src);
+        assert!(matches!(dto, AnnotationDto::Shape { shape: ShapeKind::Circle, fill: None, .. }));
+        assert_eq!(out, orig);
+        let src = r#"{"kind":"shape","id":"s","page":0,"sourceRef":"3R","modifiedAt":"t","author":"J","shape":"rect","rect":[1,2,3,4],"border":null,"fill":{"color":[0,1,0],"opacity":0.4}}"#;
+        let (_, out, orig) = roundtrip(src);
         assert_eq!(out, orig);
     }
 

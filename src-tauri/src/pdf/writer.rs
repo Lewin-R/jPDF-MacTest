@@ -8,9 +8,11 @@ use lopdf::{
     text_string,
 };
 
-use super::appearance::{Appearance, freetext_appearance, highlight_appearance, ink_appearance};
+use super::appearance::{
+    Appearance, freetext_appearance, highlight_appearance, ink_appearance, shape_appearance,
+};
 use super::date::pdf_date;
-use super::dto::{AnnotationDto, Background, Blend, Common, DeleteRef, InkRole};
+use super::dto::{AnnotationDto, Background, Blend, Common, DeleteRef, Fill, InkRole, ShapeKind, Stroke};
 use super::fmt::fmt_num;
 use super::{annotation_nm, format_source_ref, load_document, nm_owners, parse_source_ref};
 use crate::error::AppError;
@@ -213,12 +215,17 @@ impl Writer {
                 // Keep keys JuliePDF does not own (/Contents, /Popup, /RC,
                 // /CreationDate, /StructParent, …): overwrite only ours.
                 let mut merged = self.prev().get_dictionary(id).cloned().unwrap_or_default();
-                if matches!(dto, AnnotationDto::Freetext { .. }) {
+                let stale: &[&[u8]] = match dto {
                     // Rich text, callout and intent of the old version would
                     // make other viewers show stale text or a callout line.
-                    for key in [b"RC".as_slice(), b"RD", b"CL", b"IT"] {
-                        merged.remove(key);
-                    }
+                    AnnotationDto::Freetext { .. } => &[b"RC", b"RD", b"CL", b"IT"],
+                    // An old inset or cloudy border effect would no longer
+                    // match the new /Rect and appearance.
+                    AnnotationDto::Shape { .. } => &[b"RD", b"BE"],
+                    _ => &[],
+                };
+                for key in stale {
+                    merged.remove(key);
                 }
                 for (k, v) in annot {
                     merged.set(k, v);
@@ -271,7 +278,8 @@ fn common_of(dto: &AnnotationDto) -> &Common {
     match dto {
         AnnotationDto::Ink { common, .. }
         | AnnotationDto::Highlight { common, .. }
-        | AnnotationDto::Freetext { common, .. } => common,
+        | AnnotationDto::Freetext { common, .. }
+        | AnnotationDto::Shape { common, .. } => common,
     }
 }
 
@@ -381,6 +389,53 @@ fn build_annotation(
             );
             Ok(Some((freetext_dict(text, *font_size, *text_color, background.as_ref()), ap)))
         }
+        AnnotationDto::Shape {
+            shape,
+            rect,
+            border,
+            fill,
+            ..
+        } => {
+            check_finite(
+                rect.iter()
+                    .chain(border.iter().flat_map(|b| b.color.iter().chain([&b.width, &b.opacity])))
+                    .chain(fill.iter().flat_map(|f| f.color.iter().chain([&f.opacity]))),
+            )?;
+            let r = [rect[0].min(rect[2]), rect[1].min(rect[3]), rect[0].max(rect[2]), rect[1].max(rect[3])];
+            if (border.is_none() && fill.is_none()) || r[2] <= r[0] || r[3] <= r[1] {
+                return Ok(None);
+            }
+            let ap = shape_appearance(*shape, r, border.as_ref(), fill.as_ref());
+            Ok(Some((shape_dict(*shape, r, border.as_ref(), fill.as_ref()), ap)))
+        }
+    }
+}
+
+/// `/C` is the border colour and `/IC` the fill colour, each an empty array
+/// when absent (so an update also clears a previously saved colour); `/BS /W`
+/// is 0 without a border. `/CA` stays 1: fill and border opacity differ and
+/// live in the appearance's `GSf`/`GSs`. `/JuliePDF` keeps both opacities, the
+/// presence of border and fill and the geometric rect (`/Rect` is the
+/// stroke-expanded bounding box) for the reader.
+fn shape_dict(shape: ShapeKind, rect: [f64; 4], border: Option<&Stroke>, fill: Option<&Fill>) -> Dictionary {
+    let subtype = match shape {
+        ShapeKind::Rect => "Square",
+        ShapeKind::Circle => "Circle",
+    };
+    dictionary! {
+        "Subtype" => subtype,
+        "C" => border.map_or(Object::Array(Vec::new()), |b| nums(&b.color)),
+        "IC" => fill.map_or(Object::Array(Vec::new()), |f| nums(&f.color)),
+        "BS" => dictionary! { "W" => num(border.map_or(0.0, |b| b.width)), "S" => "S" },
+        "CA" => 1,
+        "JuliePDF" => dictionary! {
+            "v" => 1,
+            "borderOpacity" => num(border.map_or(1.0, |b| b.opacity)),
+            "fillOpacity" => num(fill.map_or(1.0, |f| f.opacity)),
+            "hasBorder" => border.is_some(),
+            "hasFill" => fill.is_some(),
+            "rect" => nums(&rect),
+        },
     }
 }
 
@@ -488,7 +543,18 @@ fn appearance_stream(ap: &Appearance) -> Result<Stream, AppError> {
     if ap.multiply {
         gs.set("BM", "Multiply");
     }
-    let mut resources = dictionary! { "ExtGState" => dictionary! { "GS0" => gs } };
+    let mut gstates = dictionary! { "GS0" => gs };
+    for g in &ap.gstates {
+        let mut d = dictionary! { "Type" => "ExtGState" };
+        if let Some(o) = g.fill_opacity {
+            d.set("ca", num(o));
+        }
+        if let Some(o) = g.stroke_opacity {
+            d.set("CA", num(o));
+        }
+        gstates.set(g.name, d);
+    }
+    let mut resources = dictionary! { "ExtGState" => gstates };
     if ap.uses_helvetica {
         resources.set(
             "Font",

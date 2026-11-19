@@ -1,4 +1,4 @@
-use super::dto::Background;
+use super::dto::{Background, Fill, ShapeKind, Stroke};
 use super::fmt::fmt_num;
 use super::winansi::encode_winansi;
 
@@ -9,7 +9,8 @@ use super::winansi::encode_winansi;
 /// (identity when `None`) and the annotation `/Rect` = `rect()` (`bbox`
 /// transformed by `matrix`, so the form maps onto `/Rect` without scaling).
 /// The writer builds the `/ExtGState` resource `GS0` from `opacity` (`/CA`, `/ca`)
-/// and `multiply` (`/BM /Multiply`), and a Helvetica font resource if `uses_helvetica`.
+/// and `multiply` (`/BM /Multiply`), a further `/ExtGState` entry per
+/// `gstates` item, and a Helvetica font resource if `uses_helvetica`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Appearance {
     pub bbox: [f64; 4],
@@ -18,6 +19,16 @@ pub struct Appearance {
     pub multiply: bool,
     pub uses_helvetica: bool,
     pub matrix: Option<[f64; 6]>,
+    /// Extra named graphics states (shapes: separate fill and stroke opacity).
+    pub gstates: Vec<NamedGState>,
+}
+
+/// An `/ExtGState` resource `name` setting `/ca` (fill) and/or `/CA` (stroke) opacity.
+#[derive(Clone, Debug, PartialEq)]
+pub struct NamedGState {
+    pub name: &'static str,
+    pub fill_opacity: Option<f64>,
+    pub stroke_opacity: Option<f64>,
 }
 
 impl Appearance {
@@ -100,7 +111,7 @@ pub fn ink_appearance(strokes: &[Vec<[f64; 2]>], color: [f64; 3], width: f64, op
     }
     c.push_str("Q\n");
 
-    Appearance { bbox, content: c.into_bytes(), opacity, multiply, uses_helvetica: false, matrix: None }
+    Appearance { bbox, content: c.into_bytes(), opacity, multiply, uses_helvetica: false, matrix: None, gstates: Vec::new() }
 }
 
 /// One filled path per quad (QuadPoints order TL, TR, BL, BR; drawn TL→TR→BR→BL),
@@ -134,7 +145,7 @@ pub fn highlight_appearance(quads: &[[f64; 8]], color: [f64; 3], opacity: f64) -
     }
     c.push_str("Q\n");
 
-    Appearance { bbox, content: c.into_bytes(), opacity, multiply: true, uses_helvetica: false, matrix: None }
+    Appearance { bbox, content: c.into_bytes(), opacity, multiply: true, uses_helvetica: false, matrix: None, gstates: Vec::new() }
 }
 
 /// Inner box padding, line height factor and first-baseline offset (fraction of
@@ -244,12 +255,90 @@ pub fn freetext_appearance(
         multiply: false,
         uses_helvetica: true,
         matrix,
+        gstates: Vec::new(),
+    }
+}
+
+/// Bézier circle constant: control points at `KAPPA * r` approximate a quarter circle.
+const KAPPA: f64 = 0.5523;
+
+/// Closed outline of the shape in `rect` (normalised): a `re` rectangle, or
+/// an ellipse of four cubic Béziers around the centre (radii w/2 and h/2).
+fn shape_path(shape: ShapeKind, [x1, y1, x2, y2]: [f64; 4]) -> String {
+    match shape {
+        ShapeKind::Rect => format!("{} {} {} {} re\n", fmt_num(x1), fmt_num(y1), fmt_num(x2 - x1), fmt_num(y2 - y1)),
+        ShapeKind::Circle => {
+            let (cx, cy) = ((x1 + x2) / 2.0, (y1 + y2) / 2.0);
+            let (rx, ry) = ((x2 - x1) / 2.0, (y2 - y1) / 2.0);
+            let (kx, ky) = (KAPPA * rx, KAPPA * ry);
+            let curve = |a: [f64; 2], b: [f64; 2], c: [f64; 2]| format!("{} {} {} c\n", pt(a), pt(b), pt(c));
+            let mut out = format!("{} m\n", pt([cx + rx, cy]));
+            out.push_str(&curve([cx + rx, cy + ky], [cx + kx, cy + ry], [cx, cy + ry]));
+            out.push_str(&curve([cx - kx, cy + ry], [cx - rx, cy + ky], [cx - rx, cy]));
+            out.push_str(&curve([cx - rx, cy - ky], [cx - kx, cy - ry], [cx, cy - ry]));
+            out.push_str(&curve([cx + kx, cy - ry], [cx + rx, cy - ky], [cx + rx, cy]));
+            out.push_str("h\n");
+            out
+        }
+    }
+}
+
+/// Square/Circle appearance: the fill first (`/GSf`, its opacity as `/ca`),
+/// then the border (`/GSs`, its opacity as `/CA`), so both have their own
+/// opacity. `rect` is the geometric outline (centre of the stroke); `bbox` is
+/// it expanded by half the border width plus 1.
+pub fn shape_appearance(shape: ShapeKind, rect: [f64; 4], border: Option<&Stroke>, fill: Option<&Fill>) -> Appearance {
+    let r = [rect[0].min(rect[2]), rect[1].min(rect[3]), rect[0].max(rect[2]), rect[1].max(rect[3])];
+    let pad = border.map_or(0.0, |b| b.width / 2.0) + 1.0;
+    let bbox = [r[0] - pad, r[1] - pad, r[2] + pad, r[3] + pad];
+    let rgb = |c: [f64; 3]| format!("{} {} {}", fmt_num(c[0]), fmt_num(c[1]), fmt_num(c[2]));
+    let path = shape_path(shape, r);
+    let mut c = String::new();
+    let mut gstates = Vec::new();
+    if let Some(f) = fill {
+        c.push_str(&format!("q\n/GSf gs\n{} rg\n{path}f\nQ\n", rgb(f.color)));
+        gstates.push(NamedGState { name: "GSf", fill_opacity: Some(f.opacity), stroke_opacity: None });
+    }
+    if let Some(b) = border {
+        c.push_str(&format!("q\n/GSs gs\n{} w\n{} RG\n{path}S\nQ\n", fmt_num(b.width), rgb(b.color)));
+        gstates.push(NamedGState { name: "GSs", fill_opacity: None, stroke_opacity: Some(b.opacity) });
+    }
+    Appearance {
+        bbox,
+        content: c.into_bytes(),
+        opacity: 1.0,
+        multiply: false,
+        uses_helvetica: false,
+        matrix: None,
+        gstates,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shape_appearance_rect_fill_then_stroke() {
+        let border = Stroke { color: [1.0, 0.0, 0.0], width: 2.0, opacity: 0.5 };
+        let fill = Fill { color: [0.0, 0.0, 1.0], opacity: 0.25 };
+        let a = shape_appearance(ShapeKind::Rect, [30.0, 40.0, 10.0, 20.0], Some(&border), Some(&fill));
+        assert_eq!(
+            text(&a),
+            "q\n/GSf gs\n0 0 1 rg\n10 20 20 20 re\nf\nQ\nq\n/GSs gs\n2 w\n1 0 0 RG\n10 20 20 20 re\nS\nQ\n"
+        );
+        assert_eq!(a.bbox, [8.0, 18.0, 32.0, 42.0]);
+        assert_eq!(
+            a.gstates,
+            vec![
+                NamedGState { name: "GSf", fill_opacity: Some(0.25), stroke_opacity: None },
+                NamedGState { name: "GSs", fill_opacity: None, stroke_opacity: Some(0.5) },
+            ]
+        );
+        let outline = shape_appearance(ShapeKind::Circle, [0.0, 0.0, 10.0, 10.0], Some(&border), None);
+        assert_eq!(text(&outline).matches(" c\n").count(), 4);
+        assert_eq!(outline.gstates.len(), 1);
+    }
 
     #[test]
     fn freetext_appearance_layout() {

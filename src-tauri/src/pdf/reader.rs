@@ -1,4 +1,5 @@
-//! Maps a document's `/Ink`, `/Highlight` and `/FreeText` annotations to DTOs.
+//! Maps a document's `/Ink`, `/Highlight`, `/FreeText`, `/Square` and
+//! `/Circle` annotations to DTOs.
 //! `/JuliePDF` values win; foreign annotations get defaults. Other subtypes,
 //! annotations stored inline in `/Annots` (which cannot be addressed by ref),
 //! hidden ones and ones JuliePDF cannot draw (no points, no quads, empty
@@ -6,7 +7,7 @@
 use lopdf::{Dictionary, Document, Object, decode_text_string};
 
 use super::date::iso_from_pdf_date;
-use super::dto::{AnnotationDto, Background, Blend, Common, InkRole};
+use super::dto::{AnnotationDto, Background, Blend, Common, Fill, InkRole, ShapeKind, Stroke};
 use super::{annotation_nm, annotation_refs, format_source_ref, load_document, nm_owners};
 use crate::error::AppError;
 
@@ -146,8 +147,96 @@ fn map_annotation(doc: &Document, d: &Dictionary, common: Common) -> Option<Anno
                 background,
             })
         }
+        b"Square" | b"Circle" => {
+            let shape = if subtype == b"Square" { ShapeKind::Rect } else { ShapeKind::Circle };
+            map_shape(doc, d, private, shape, opacity, common)
+        }
         _ => None,
     }
+}
+
+/// `/Square` and `/Circle`. JuliePDF's own keep the geometric rect, both
+/// opacities and which of border and fill exist in `/JuliePDF` (`/CA` is 1).
+/// Foreign ones: the geometric rect is `/Rect` inset by `/RD`, then by half
+/// the `/BS /W` border width (default 1); border colour `/C` and fill colour
+/// `/IC` (none when missing or empty), both with opacity `/CA`. Zero-area
+/// shapes and ones with neither border nor fill are skipped.
+fn map_shape(
+    doc: &Document,
+    d: &Dictionary,
+    private: Option<&Dictionary>,
+    shape: ShapeKind,
+    opacity: f64,
+    common: Common,
+) -> Option<AnnotationDto> {
+    let width = d
+        .get_deref(b"BS", doc)
+        .and_then(Object::as_dict)
+        .ok()
+        .and_then(|bs| number(doc, bs.get(b"W").ok()))
+        .filter(|w| w.is_finite() && *w >= 0.0)
+        .unwrap_or(1.0);
+    let c = color_of(doc, d.get(b"C").ok());
+    let ic = color_of(doc, d.get(b"IC").ok());
+    let private_num = |key: &[u8]| private.and_then(|p| number(doc, p.get(key).ok()));
+    let private_bool =
+        |key: &[u8]| private.and_then(|p| p.get_deref(key, doc).and_then(Object::as_bool).ok());
+    let private_rect = private
+        .map(|p| numbers(doc, p.get(b"rect").ok()))
+        .filter(|r| r.len() == 4);
+
+    let (rect, border, fill) = match private_rect {
+        Some(r) => {
+            let border = match private_bool(b"hasBorder") {
+                Some(false) => None,
+                _ => c.map(|color| Stroke {
+                    color: snap_rgb(color),
+                    width,
+                    opacity: private_num(b"borderOpacity").unwrap_or(1.0),
+                }),
+            };
+            let fill = match private_bool(b"hasFill") {
+                Some(false) => None,
+                _ => ic.map(|color| Fill {
+                    color: snap_rgb(color),
+                    opacity: private_num(b"fillOpacity").unwrap_or(1.0),
+                }),
+            };
+            ([r[0].min(r[2]), r[1].min(r[3]), r[0].max(r[2]), r[1].max(r[3])], border, fill)
+        }
+        None => {
+            let r = numbers(doc, d.get(b"Rect").ok());
+            if r.len() != 4 {
+                return None;
+            }
+            let rd = numbers(doc, d.get(b"RD").ok());
+            let rd = if rd.len() == 4 { [rd[0], rd[1], rd[2], rd[3]] } else { [0.0; 4] };
+            let h = width / 2.0;
+            let rect = [
+                r[0].min(r[2]) + rd[0] + h,
+                r[1].min(r[3]) + rd[1] + h,
+                r[0].max(r[2]) - rd[2] - h,
+                r[1].max(r[3]) - rd[3] - h,
+            ];
+            let border = c.map(|color| Stroke { color, width, opacity });
+            let fill = ic.map(|color| Fill { color, opacity });
+            (rect, border, fill)
+        }
+    };
+    // An inset larger than the rect leaves nothing to draw.
+    if rect.iter().any(|v| !v.is_finite()) || rect[2] <= rect[0] || rect[3] <= rect[1] {
+        return None;
+    }
+    if border.is_none() && fill.is_none() {
+        return None;
+    }
+    Some(AnnotationDto::Shape {
+        common,
+        shape,
+        rect,
+        border,
+        fill,
+    })
 }
 
 fn deref<'a>(doc: &'a Document, o: &'a Object) -> &'a Object {

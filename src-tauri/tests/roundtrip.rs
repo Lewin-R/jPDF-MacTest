@@ -4,8 +4,10 @@ use std::collections::HashSet;
 
 use juliepdf_lib::commands::files::save_to_path;
 use juliepdf_lib::error::AppError;
-use juliepdf_lib::pdf::appearance::freetext_appearance;
-use juliepdf_lib::pdf::dto::{AnnotationDto, Background, Blend, Common, DeleteRef, InkRole};
+use juliepdf_lib::pdf::appearance::{freetext_appearance, shape_appearance};
+use juliepdf_lib::pdf::dto::{
+    AnnotationDto, Background, Blend, Common, DeleteRef, Fill, InkRole, ShapeKind, Stroke,
+};
 use juliepdf_lib::pdf::reader::read_annotations;
 use juliepdf_lib::pdf::writer::write_incremental;
 use lopdf::{Document, Object, ObjectId};
@@ -55,6 +57,24 @@ fn freetext(id: &str, page: u32, text: &str, background: Option<Background>) -> 
     }
 }
 
+fn shape(id: &str, page: u32, kind: ShapeKind, border: Option<Stroke>, fill: Option<Fill>) -> AnnotationDto {
+    AnnotationDto::Shape {
+        common: common(&ink(id, page, [0.0; 3])).clone(),
+        shape: kind,
+        rect: [100.5, 200.0, 250.0, 300.25],
+        border,
+        fill,
+    }
+}
+
+fn red_border() -> Option<Stroke> {
+    Some(Stroke { color: [0.898, 0.224, 0.208], width: 2.5, opacity: 0.75 })
+}
+
+fn yellow_fill() -> Option<Fill> {
+    Some(Fill { color: [1.0, 0.922, 0.231], opacity: 0.35 })
+}
+
 fn annot_dict<'a>(doc: &'a Document, r: &str) -> &'a lopdf::Dictionary {
     doc.get_dictionary(lopdf_id(r)).unwrap()
 }
@@ -68,7 +88,8 @@ fn common(a: &AnnotationDto) -> &Common {
     match a {
         AnnotationDto::Ink { common, .. }
         | AnnotationDto::Highlight { common, .. }
-        | AnnotationDto::Freetext { common, .. } => common,
+        | AnnotationDto::Freetext { common, .. }
+        | AnnotationDto::Shape { common, .. } => common,
     }
 }
 
@@ -76,7 +97,8 @@ fn with_ref(mut a: AnnotationDto, r: &str) -> AnnotationDto {
     match &mut a {
         AnnotationDto::Ink { common, .. }
         | AnnotationDto::Highlight { common, .. }
-        | AnnotationDto::Freetext { common, .. } => common.source_ref = Some(r.into()),
+        | AnnotationDto::Freetext { common, .. }
+        | AnnotationDto::Shape { common, .. } => common.source_ref = Some(r.into()),
     }
     a
 }
@@ -982,4 +1004,198 @@ fn freetext_update_drops_stale_rich_text() {
     let text = |k: &[u8]| lopdf::decode_text_string(d.get(k).unwrap()).unwrap();
     assert_eq!(text(b"Contents"), "new text");
     assert_eq!(text(b"CreationDate"), "D:20260101000000Z", "foreign keys are kept");
+}
+
+fn content_of(doc: &Document, annot: &lopdf::Dictionary) -> String {
+    String::from_utf8(ap_stream(doc, annot).decompressed_content().unwrap()).unwrap()
+}
+
+#[test]
+fn shape_rect_roundtrip() {
+    let orig = fixtures::simple_pdf(2);
+    let a = shape("s", 1, ShapeKind::Rect, red_border(), yellow_fill());
+    let (out, refs) = write(&orig, std::slice::from_ref(&a), &[]);
+    assert_eq!(&out[..orig.len()], &orig[..]);
+    assert_eq!(read_annotations(&out).unwrap(), vec![with_ref(a, &refs["s"])]);
+
+    let doc = Document::load_mem(&out).unwrap();
+    let annot = annot_dict(&doc, &refs["s"]);
+    assert_eq!(annot.get(b"Subtype").unwrap().as_name().unwrap(), b"Square");
+    // /Rect = the geometric rect expanded by half the border width + 1.
+    assert_eq!(floats(annot.get(b"Rect").unwrap()), [98.25, 197.75, 252.25, 302.5]);
+    assert_eq!(floats(annot.get(b"C").unwrap()).len(), 3);
+    assert_eq!(floats(annot.get(b"IC").unwrap()).len(), 3);
+    assert_eq!(annot.get(b"CA").unwrap().as_i64().unwrap(), 1, "opacities live in the AP");
+    let bs = annot.get(b"BS").unwrap().as_dict().unwrap();
+    assert_eq!(bs.get(b"W").unwrap().as_float().unwrap(), 2.5);
+    assert_eq!(bs.get(b"S").unwrap().as_name().unwrap(), b"S");
+    let private = annot.get(b"JuliePDF").unwrap().as_dict().unwrap();
+    assert_eq!(private.get(b"v").unwrap().as_i64().unwrap(), 1);
+    assert!(private.get(b"hasBorder").unwrap().as_bool().unwrap());
+    assert!(private.get(b"hasFill").unwrap().as_bool().unwrap());
+    assert_eq!(private.get(b"borderOpacity").unwrap().as_float().unwrap(), 0.75);
+    assert_eq!(private.get(b"fillOpacity").unwrap().as_float().unwrap(), 0.35);
+    assert_eq!(floats(private.get(b"rect").unwrap()), [100.5, 200.0, 250.0, 300.25]);
+    let content = content_of(&doc, annot);
+    assert!(content.contains("100.5 200 149.5 100.25 re\n"), "{content}");
+    for key in ["NM", "M", "T", "F", "P"] {
+        assert!(annot.get(key.as_bytes()).is_ok(), "{key}");
+    }
+}
+
+#[test]
+fn shape_circle_roundtrip() {
+    let orig = fixtures::simple_pdf(1);
+    let k = 32.0 / 255.0;
+    let a = shape(
+        "c",
+        0,
+        ShapeKind::Circle,
+        Some(Stroke { color: [k, 0.5, 1.0], width: 0.5, opacity: 0.1 }),
+        Some(Fill { color: [0.094, 1.0, 1.0], opacity: 0.0 }),
+    );
+    let (out, refs) = write(&orig, std::slice::from_ref(&a), &[]);
+    assert_eq!(read_annotations(&out).unwrap(), vec![with_ref(a, &refs["c"])]);
+    let doc = Document::load_mem(&out).unwrap();
+    let annot = annot_dict(&doc, &refs["c"]);
+    assert_eq!(annot.get(b"Subtype").unwrap().as_name().unwrap(), b"Circle");
+    let content = content_of(&doc, annot);
+    // One path for the fill, one for the stroke: 4 Béziers each.
+    assert_eq!(content.matches(" c\n").count(), 8, "{content}");
+
+    let outline = shape("o", 0, ShapeKind::Circle, red_border(), None);
+    let (out, refs) = write(&orig, std::slice::from_ref(&outline), &[]);
+    assert_eq!(read_annotations(&out).unwrap(), vec![with_ref(outline, &refs["o"])]);
+    let doc = Document::load_mem(&out).unwrap();
+    assert_eq!(content_of(&doc, annot_dict(&doc, &refs["o"])).matches(" c\n").count(), 4);
+}
+
+#[test]
+fn shape_circle_path_is_four_beziers_around_the_centre() {
+    let ap = shape_appearance(ShapeKind::Circle, [0.0, 0.0, 200.0, 100.0], red_border().as_ref(), None);
+    let t = String::from_utf8(ap.content).unwrap();
+    assert_eq!(t.matches(" c\n").count(), 4, "{t}");
+    // Starts at the rightmost point; rx = 100, ry = 50, kappa 0.5523.
+    assert!(t.contains("200 50 m\n200 77.615 155.23 100 100 100 c\n"), "{t}");
+    assert!(t.contains("h\nS\n"), "{t}");
+    assert_eq!(ap.bbox, [-2.25, -2.25, 202.25, 102.25]);
+}
+
+#[test]
+fn shape_appearance_uses_separate_fill_and_stroke_opacity() {
+    let orig = fixtures::simple_pdf(1);
+    let a = shape("s", 0, ShapeKind::Rect, red_border(), yellow_fill());
+    let (out, refs) = write(&orig, &[a], &[]);
+    let doc = Document::load_mem(&out).unwrap();
+    let annot = annot_dict(&doc, &refs["s"]);
+    let stream = ap_stream(&doc, annot);
+    let gs = stream
+        .dict
+        .get(b"Resources")
+        .unwrap()
+        .as_dict()
+        .unwrap()
+        .get(b"ExtGState")
+        .unwrap()
+        .as_dict()
+        .unwrap();
+    let f = gs.get(b"GSf").unwrap().as_dict().unwrap();
+    let s = gs.get(b"GSs").unwrap().as_dict().unwrap();
+    assert_eq!(f.get(b"ca").unwrap().as_float().unwrap(), 0.35);
+    assert!(f.get(b"CA").is_err());
+    assert_eq!(s.get(b"CA").unwrap().as_float().unwrap(), 0.75);
+    assert!(s.get(b"ca").is_err());
+    let content = content_of(&doc, annot);
+    let fill = content.find("/GSf gs").expect("fill state");
+    let stroke = content.find("/GSs gs").expect("stroke state");
+    assert!(fill < stroke, "fill first: {content}");
+    assert!(content.contains("1 0.922 0.231 rg\n"), "{content}");
+    assert!(content.contains("2.5 w\n0.898 0.224 0.208 RG\n"), "{content}");
+    assert!(content.contains("re\nf\n") && content.contains("re\nS\n"), "{content}");
+}
+
+#[test]
+fn shape_without_fill_writes_empty_ic() {
+    let orig = fixtures::simple_pdf(1);
+    let a = shape("s", 0, ShapeKind::Rect, red_border(), None);
+    let (out, refs) = write(&orig, &[a], &[]);
+    let doc = Document::load_mem(&out).unwrap();
+    let annot = annot_dict(&doc, &refs["s"]);
+    assert!(annot.get(b"IC").unwrap().as_array().unwrap().is_empty());
+    let content = content_of(&doc, annot);
+    assert!(!content.contains("/GSf") && !content.contains("\nf\n"), "{content}");
+
+    let fill_only = shape("f", 0, ShapeKind::Rect, None, yellow_fill());
+    let (out, refs) = write(&orig, std::slice::from_ref(&fill_only), &[]);
+    assert_eq!(read_annotations(&out).unwrap(), vec![with_ref(fill_only, &refs["f"])]);
+    let doc = Document::load_mem(&out).unwrap();
+    let annot = annot_dict(&doc, &refs["f"]);
+    assert!(annot.get(b"C").unwrap().as_array().unwrap().is_empty());
+    assert_eq!(annot.get(b"BS").unwrap().as_dict().unwrap().get(b"W").unwrap().as_i64().unwrap(), 0);
+    assert_eq!(floats(annot.get(b"Rect").unwrap()), [99.5, 199.0, 251.0, 301.25]);
+    assert!(!content_of(&doc, annot).contains("/GSs"));
+}
+
+#[test]
+fn shape_without_border_and_fill_is_skipped() {
+    let orig = fixtures::simple_pdf(1);
+    let (out, refs) = write(&orig, &[shape("n", 0, ShapeKind::Rect, None, None)], &[]);
+    assert!(refs.is_empty());
+    assert!(read_annotations(&out).unwrap().is_empty());
+}
+
+#[test]
+fn foreign_square_annotation_is_read() {
+    let orig = fixtures::pdf_with_foreign_shapes();
+    let got = read_annotations(&orig).unwrap();
+    let ids: Vec<_> = got.iter().map(|a| common(a).id.as_str()).collect();
+    assert_eq!(ids, ["sq", "circ", "rd"], "the zero-area and invisible ones are skipped");
+    let AnnotationDto::Shape { shape, rect, border, fill, .. } = &got[0] else { panic!("{got:?}") };
+    assert_eq!(*shape, ShapeKind::Rect);
+    assert_eq!(*rect, [102.0, 202.0, 298.0, 398.0], "/Rect shrunk by /BS /W / 2");
+    assert_eq!(*border, Some(Stroke { color: [0.0, 0.0, 1.0], width: 4.0, opacity: 0.5 }));
+    assert_eq!(*fill, None, "no /IC = no fill");
+    let AnnotationDto::Shape { shape, rect, border, fill, .. } = &got[1] else { panic!("{got:?}") };
+    assert_eq!(*shape, ShapeKind::Circle);
+    assert_eq!(*rect, [100.5, 100.5, 199.5, 149.5], "no /BS = width 1");
+    assert_eq!(*border, None, "empty /C = no border");
+    assert_eq!(*fill, Some(Fill { color: [1.0, 0.0, 0.0], opacity: 1.0 }));
+    let AnnotationDto::Shape { rect, .. } = &got[2] else { panic!("{got:?}") };
+    assert_eq!(*rect, [16.0, 17.0, 86.0, 88.0], "/RD, then half the width");
+}
+
+#[test]
+fn shape_edit_after_save_keeps_object() {
+    let orig = fixtures::simple_pdf(1);
+    let (out1, refs1) = write(&orig, &[shape("s", 0, ShapeKind::Rect, red_border(), yellow_fill())], &[]);
+    let mut edited = with_ref(shape("s", 0, ShapeKind::Rect, None, yellow_fill()), &refs1["s"]);
+    if let AnnotationDto::Shape { rect, .. } = &mut edited {
+        *rect = [50.0, 60.0, 70.0, 80.0];
+    }
+    let (out2, refs2) = write(&out1, std::slice::from_ref(&edited), &[]);
+    assert_eq!(refs2["s"], refs1["s"]);
+    assert_eq!(read_annotations(&out2).unwrap(), vec![edited]);
+    let doc = Document::load_mem(&out2).unwrap();
+    let annot = annot_dict(&doc, &refs2["s"]);
+    assert!(annot.get(b"C").unwrap().as_array().unwrap().is_empty(), "old border colour cleared");
+    assert_eq!(page_annots(&doc, 0).len(), 1);
+}
+
+#[test]
+fn foreign_square_update_drops_stale_rd_and_keeps_foreign_keys() {
+    let orig = fixtures::pdf_with_foreign_shapes();
+    let got = read_annotations(&orig).unwrap();
+    let rd = got.iter().find(|a| common(a).id == "rd").unwrap().clone();
+    let r = common(&rd).source_ref.clone().unwrap();
+    let (out, refs) = write(&orig, &[rd], &[]);
+    assert_eq!(refs["rd"], r);
+    let doc = Document::load_mem(&out).unwrap();
+    let d = annot_dict(&doc, &r);
+    assert!(d.get(b"RD").is_err());
+    assert_eq!(lopdf::decode_text_string(d.get(b"CreationDate").unwrap()).unwrap(), "D:20260101000000Z");
+    let again = read_annotations(&out).unwrap();
+    let AnnotationDto::Shape { rect, .. } = again.iter().find(|a| common(a).id == "rd").unwrap() else {
+        panic!("{again:?}")
+    };
+    assert_eq!(*rect, [16.0, 17.0, 86.0, 88.0]);
 }
