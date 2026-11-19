@@ -8,13 +8,13 @@
 </script>
 
 <div class="controls">
-  <button type="button" aria-label="Minimize" onclick={() => win.minimize()}>
+  <button type="button" aria-label="Minimize" onclick={() => win.minimize().catch(console.error)}>
     <Minus size={16} />
   </button>
-  <button type="button" aria-label="Maximize" onclick={() => win.toggleMaximize()}>
+  <button type="button" aria-label="Maximize" onclick={() => win.toggleMaximize().catch(console.error)}>
     <Square size={14} />
   </button>
-  <button type="button" class="close" aria-label="Close" onclick={() => win.close()}>
+  <button type="button" class="close" aria-label="Close" onclick={() => win.close().catch(console.error)}>
     <X size={16} />
   </button>
 </div>

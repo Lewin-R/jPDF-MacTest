@@ -22,6 +22,6 @@
     place-items: center;
   }
   .dark {
-    filter: drop-shadow(0 0 1px rgba(255, 255, 255, 0.85)) drop-shadow(0 0 1px rgba(255, 255, 255, 0.85));
+    filter: drop-shadow(0 0 1px var(--icon-halo)) drop-shadow(0 0 1px var(--icon-halo));
   }
 </style>

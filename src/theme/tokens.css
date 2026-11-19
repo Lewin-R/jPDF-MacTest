@@ -11,6 +11,8 @@
   --accent-soft: rgba(255, 193, 7, 0.15);
   --danger: #ff5370;
   --success: #c3e88d;
+  /* Light outline that keeps a dark colour swatch in a tool icon visible. */
+  --icon-halo: rgba(255, 255, 255, 0.85);
 
   /* PDF pages are paper, not UI chrome. */
   --page-bg: #ffffff;

@@ -45,7 +45,7 @@
 
   $effect(() => {
     const title = tabs.active ? `${tabs.active.fileName} — JuliePDF` : 'JuliePDF'
-    void getCurrentWindow().setTitle(title)
+    getCurrentWindow().setTitle(title).catch(console.error)
   })
 
   function onKeydown(e: KeyboardEvent) {

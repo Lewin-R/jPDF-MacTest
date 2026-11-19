@@ -2,9 +2,9 @@ import { render, fireEvent } from '@testing-library/svelte'
 import { describe, expect, it, vi } from 'vitest'
 
 const win = vi.hoisted(() => ({
-  minimize: vi.fn(),
-  toggleMaximize: vi.fn(),
-  close: vi.fn(),
+  minimize: vi.fn(async () => {}),
+  toggleMaximize: vi.fn(async () => {}),
+  close: vi.fn(async () => {}),
 }))
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: () => win }))
 
@@ -20,5 +20,15 @@ describe('WindowControls', () => {
     expect(win.minimize).toHaveBeenCalled()
     expect(win.toggleMaximize).toHaveBeenCalled()
     expect(win.close).toHaveBeenCalled()
+  })
+
+  it('logs a failed window call instead of leaving the promise unhandled', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const failure = new Error('not allowed')
+    win.minimize.mockRejectedValueOnce(failure)
+    const { getByLabelText } = render(WindowControls)
+    await fireEvent.click(getByLabelText('Minimize'))
+    await vi.waitFor(() => expect(error).toHaveBeenCalledWith(failure))
+    error.mockRestore()
   })
 })
