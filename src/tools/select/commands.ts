@@ -82,7 +82,7 @@ export async function editSelected(session: DocumentSession, after: Annotation):
       ),
     )
     const relayout = before.kind === 'freetext' && 'fontSize' in patch
-    const rotate = relayout ? (await session.doc.getPage(before.page + 1)).rotate : 0
+    const rotate = relayout ? await session.pageRotation(before.page) : 0
     // The current version: the annotation may have changed (or gone) while waiting.
     const current = session.store.get(after.id)
     if (!current) return

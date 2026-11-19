@@ -83,8 +83,10 @@ describe('editSelected', () => {
     const store = new AnnotationStore()
     store.load(list)
     const history = new History(store)
-    const doc = { getPage: async () => ({ rotate: 0 }) }
-    return { store, history, doc } as unknown as DocumentSession
+    const doc = { getPage: async (_i: number) => ({ rotate: 0 }) }
+    // Pages in file order: a page's rotation is its file page's /Rotate.
+    const s = { store, history, doc, pageRotation: async (i: number) => (await s.doc.getPage(i + 1)).rotate }
+    return s as unknown as DocumentSession
   }
 
   it('commits one update, skipping no-op edits', async () => {

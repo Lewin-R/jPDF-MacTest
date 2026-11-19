@@ -287,3 +287,77 @@ describe('DocumentSession.open annotations', () => {
     expect(s.fileName).toBe('copy.pdf')
   })
 })
+
+describe('DocumentSession page operations', () => {
+  /** Pages 600x800 (unrotated); page 2 has /Rotate 90, so it shows 800x600. */
+  function rotatedDoc() {
+    const doc = fakeDoc(uniform)
+    doc.getPage.mockImplementation(async (i: number) => {
+      const rotate = i === 2 ? 90 : 0
+      return {
+        rotate,
+        getViewport: ({ rotation = rotate }: { rotation?: number } = {}) =>
+          rotation % 180 === 0 ? { width: 600, height: 800 } : { width: 800, height: 600 },
+      }
+    })
+    return doc
+  }
+
+  async function open() {
+    mocks.doc = rotatedDoc()
+    const session = await DocumentSession.open('C:/docs/p.pdf')
+    await session.pageSizesLoaded
+    return session
+  }
+
+  it('starts with one unrotated entry per file page', async () => {
+    const session = await open()
+    expect(session.pages).toEqual([0, 1, 2, 3].map((source) => ({ kind: 'source', source, rotate: 0 })))
+    expect(session.pageSizes[1]).toEqual({ width: 800, height: 600 })
+  })
+
+  it('rotating a page swaps its size, is undoable and makes the session dirty', async () => {
+    const session = await open()
+    await session.rotatePage(0, 90)
+    expect(session.pages[0].rotate).toBe(90)
+    expect(session.pageSizes[0]).toEqual({ width: 800, height: 600 })
+    expect(session.dirty).toBe(true)
+    expect(await session.pageRotation(0)).toBe(90)
+    session.history.undo()
+    expect(session.pageSizes[0]).toEqual({ width: 600, height: 800 })
+    expect(session.dirty).toBe(false)
+  })
+
+  it('pageRotation adds the file rotation', async () => {
+    const session = await open()
+    await session.rotatePage(1, 90)
+    expect(await session.pageRotation(1)).toBe(180)
+  })
+
+  it('an inserted empty page has the size and effective rotation of the page before it', async () => {
+    const session = await open()
+    await session.insertBlankPage(1)
+    expect(session.pages[2]).toEqual({ kind: 'blank', width: 600, height: 800, rotate: 90 })
+    expect(session.pageSizes).toHaveLength(5)
+    expect(session.pageSizes[2]).toEqual({ width: 800, height: 600 })
+  })
+
+  it('duplicate and delete change the page count; the last page cannot be deleted', async () => {
+    const session = await open()
+    session.duplicatePage(3)
+    expect(session.pageSizes).toHaveLength(5)
+    for (let k = 0; k < 4; k++) session.deletePage(0)
+    expect(session.pages).toHaveLength(1)
+    expect(session.canDeletePage()).toBe(false)
+    session.deletePage(0)
+    expect(session.pages).toHaveLength(1)
+  })
+
+  it('commits a pending text edit before a page operation', async () => {
+    const session = await open()
+    const commit = vi.fn()
+    session.pendingEdit = commit
+    session.duplicatePage(0)
+    expect(commit).toHaveBeenCalledOnce()
+  })
+})

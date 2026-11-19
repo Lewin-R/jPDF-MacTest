@@ -74,6 +74,28 @@ export class AnnotationStore {
     this.changed.delete(id)
   }
 
+  /**
+   * Moves every annotation on page p to page `to(p)` (page operations: pages
+   * inserted or deleted before it), keeping each page's z-order. Moved
+   * annotations count as changed. `to` must map pages that have annotations
+   * to distinct pages.
+   */
+  remapPages(to: (page: number) => number): void {
+    const moves = [...this.pages].map(([p, list]) => ({ p, q: to(p), list })).filter((m) => m.q !== m.p)
+    if (new Set([...this.pages.keys()].map(to)).size !== this.pages.size) {
+      throw new Error('remapPages must not merge pages')
+    }
+    for (const { p } of moves) this.pages.delete(p)
+    for (const { q, list } of moves) {
+      const moved = list.map((a) => ({ ...a, page: q }))
+      for (const a of moved) {
+        this.byId.set(a.id, a)
+        this.changed.add(a.id)
+      }
+      this.pages.set(q, moved)
+    }
+  }
+
   /** Replaces all content with annotations read from the file. */
   load(list: Annotation[]): void {
     this.byId.clear()

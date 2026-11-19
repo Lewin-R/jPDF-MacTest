@@ -4,10 +4,12 @@ import {
 } from '../viewer/layout'
 import { loadPdf, type PdfDoc } from '../viewer/pdfEngine'
 import { renderCache } from '../viewer/renderCache'
-import { frameSize, layoutLines } from '../geometry/textLayout'
+import { frameSize, layoutLines, normalizeRotation } from '../geometry/textLayout'
 import { toasts } from '../../ui/toasts.svelte'
 import { History } from './history.svelte'
 import type { Annotation } from './model'
+import { deletePage, duplicatePage, insertBlankPage, rotatePage } from './pageCommands'
+import { identityPages, pageSizesOf, type PageEntry, type PageSize } from './pages'
 import { AnnotationStore } from './store.svelte'
 import { SessionToolState } from './toolState.svelte'
 
@@ -17,10 +19,7 @@ export interface ViewAnchor {
   restore(): void
 }
 
-export interface PageSize {
-  width: number
-  height: number
-}
+export type { PageSize } from './pages'
 
 export function fileNameOf(path: string): string {
   return path.split(/[\\/]/).pop() || path
@@ -79,10 +78,18 @@ export class DocumentSession {
   fileName: string = $state('')
   doc: PdfDoc
   /**
-   * Rotated page sizes at scale 1 (points). Starts as page 1's size for every
-   * page; the real sizes are filled in the background (see pageSizesLoaded).
+   * The pages as shown, in order (page operations edit this list; see
+   * pageCommands). Annotation.page indexes this list.
    */
-  pageSizes: PageSize[] = $state.raw([])
+  pages: PageEntry[] = $state.raw([])
+  /**
+   * Sizes of the file's pages at scale 1 (points, with their own /Rotate).
+   * Starts as page 1's size for every page; the real sizes are filled in the
+   * background (see pageSizesLoaded).
+   */
+  private sourceSizes: PageSize[] = $state.raw([])
+  /** Display size of every page in `pages` at scale 1 (points). */
+  readonly pageSizes: PageSize[] = $derived(pageSizesOf(this.pages, this.sourceSizes))
   /** Resolves once every page's real size is known (or the session is disposed). */
   readonly pageSizesLoaded: Promise<void>
   scale = $state(1)
@@ -129,7 +136,8 @@ export class DocumentSession {
     // Before the first render: pdf.js must not draw what the overlay draws.
     this.suppress(annotations.flatMap((a) => (a.sourceRef ? [a.sourceRef] : [])))
     this.store.load(annotations)
-    this.pageSizes = Array.from({ length: doc.numPages }, () => first)
+    this.sourceSizes = Array.from({ length: doc.numPages }, () => first)
+    this.pages = identityPages(doc.numPages)
     this.pageSizesLoaded = this.loadRemainingSizes().catch((e: unknown) => {
       if (!this.disposed) console.error(`Failed to read page sizes of ${path}`, e)
     })
@@ -175,19 +183,19 @@ export class DocumentSession {
         Array.from({ length: end - start + 1 }, (_, k) => pageSizeOf(this.doc, start + k)),
       )
       if (this.disposed) return
-      const old = this.pageSizes
+      const old = this.sourceSizes
       if (chunk.every((s, k) => sameSize(s, old[start - 1 + k]))) continue
       const next = old.slice()
       chunk.forEach((s, k) => (next[start - 1 + k] = s))
-      this.applyPageSizes(next)
+      this.applySourceSizes(next)
     }
   }
 
-  /** Replaces pageSizes, keeping the current page's position in the viewport. */
-  private applyPageSizes(sizes: PageSize[]): void {
+  /** Replaces the file page sizes, keeping the current page's position in the viewport. */
+  private applySourceSizes(sizes: PageSize[]): void {
     const p = this.currentPage - 1
     const oldTop = this.layout.tops[p]
-    this.pageSizes = sizes
+    this.sourceSizes = sizes
     const delta = this.layout.tops[p] - oldTop
     if (delta === 0) return
     this.scrollTop += delta
@@ -285,6 +293,64 @@ export class DocumentSession {
     this.scrollTop = top
     this.currentPage = p
     this.pinnedTop = top
+  }
+
+  /** /Rotate of 0-based page `i` of the shown list (its file rotation plus any page rotation). */
+  async pageRotation(i: number): Promise<number> {
+    const entry = this.pages[i]
+    if (!entry) return 0
+    return (await this.fileRotation(entry)) + entry.rotate
+  }
+
+  /** The file page's own /Rotate of a source entry; 0 for an empty page. */
+  private async fileRotation(entry: PageEntry): Promise<number> {
+    return entry.kind === 'source' ? (await this.doc.getPage(entry.source + 1)).rotate : 0
+  }
+
+  canDeletePage(): boolean {
+    return this.pages.length > 1
+  }
+
+  /** Page operations (one undo step each); `i` is a 0-based index into `pages`. */
+  duplicatePage(i: number): void {
+    if (!this.pages[i]) return
+    this.commitPendingEdit()
+    this.history.execute(duplicatePage(this, i))
+  }
+
+  deletePage(i: number): void {
+    if (!this.pages[i]) return
+    this.commitPendingEdit()
+    const cmd = deletePage(this, i)
+    if (cmd) this.history.execute(cmd)
+  }
+
+  /** Inserts an empty page after page `i`, with its size and rotation. */
+  async insertBlankPage(i: number): Promise<void> {
+    const entry = this.pages[i]
+    if (!entry) return
+    this.commitPendingEdit()
+    let blank: { width: number; height: number; rotate: number }
+    if (entry.kind === 'blank') {
+      blank = { width: entry.width, height: entry.height, rotate: entry.rotate }
+    } else {
+      const page = await this.doc.getPage(entry.source + 1)
+      const { width, height } = page.getViewport({ scale: 1, rotation: 0 })
+      blank = { width, height, rotate: normalizeRotation(page.rotate + entry.rotate) }
+    }
+    // The list may have changed while waiting: only insert after the same page.
+    if (this.pages[i] !== entry) return
+    this.history.execute(insertBlankPage(this, i, blank))
+  }
+
+  /** Turns page `i` by ±90 degrees. */
+  async rotatePage(i: number, delta: 90 | -90): Promise<void> {
+    const entry = this.pages[i]
+    if (!entry) return
+    this.commitPendingEdit()
+    const fileRotation = await this.fileRotation(entry)
+    if (this.pages[i] !== entry) return
+    this.history.execute(rotatePage(this, i, delta, fileRotation))
   }
 
   dispose(): Promise<void> {
