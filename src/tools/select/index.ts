@@ -9,6 +9,7 @@ import { createTextEditing, resizeFreeText } from '../text/editing'
 import { HANDLE_CURSORS, handleAt, handlesFor, inRect, keepAspect, resizeRect, toPdfRect, toScreenRect, type Handle } from './handles'
 import Icon from './Icon.svelte'
 import SelectionOptions from './SelectionOptions.svelte'
+import { clampShift } from './crossPage'
 
 /** Screen pixels around an annotation that still count as clicking it. */
 const HIT_TOLERANCE_PX = 4
@@ -46,11 +47,6 @@ function screenOf(e: PagePointerEvent): Point {
 /** The page's rect in PDF space. */
 function pageRect(vp: PageViewport): Rect {
   return toPdfRect([0, 0, vp.width, vp.height], vp)
-}
-
-/** `d` limited so the shift does not push an edge further off the page (it never forces a jump onto it). */
-function clampShift(d: number, lo: number, hi: number): number {
-  return Math.min(Math.max(d, Math.min(lo, 0)), Math.max(hi, 0))
 }
 
 /** PDF direction of "screen right" on a page with this /Rotate. */
