@@ -12,14 +12,27 @@ interface ActiveToolLike {
 export { SessionToolState }
 
 /**
+ * Temporary eraser (hold the right mouse button): a handler created next to
+ * the active tool's, for every tool type except `disabledFor`, and also when
+ * no tool is active.
+ */
+export interface TemporaryEraserOptions {
+  create(ctx: ToolContext): ToolHandler
+  disabledFor: readonly string[]
+}
+
+/**
  * Owns the active tool's ToolHandler. The handler is created (with a
  * ToolContext for the active session) whenever the active instance or the
  * session changes; the previous handler gets onDeactivate. Settings changes
  * reach the handler through its live settings getter, without recreating it.
- * Overlays forward pointer input to `handler`.
+ * Overlays forward pointer input to `handler`, and right-button drags to
+ * `eraser` (see TemporaryEraserOptions); both share the session's tool state.
  */
 export class ToolRouter {
   handler: ToolHandler | null = $state.raw(null)
+  /** Temporary right-button eraser for the active session; null when disabled. */
+  eraser: ToolHandler | null = $state.raw(null)
 
   readonly cursor: string | undefined = $derived.by(() => {
     const a = this.getActive()
@@ -29,11 +42,12 @@ export class ToolRouter {
   })
 
   private states = new WeakMap<DocumentSession, SessionToolState>()
-  private key: { instanceId: string; session: DocumentSession } | null = null
+  private key: { instanceId: string | undefined; session: DocumentSession } | null = null
 
   constructor(
     private getActive: () => ActiveToolLike | null,
     private getSession: () => DocumentSession | null,
+    private temporaryEraser?: TemporaryEraserOptions,
   ) {}
 
   /**
@@ -59,9 +73,13 @@ export class ToolRouter {
     if (this.key && this.key.instanceId === instanceId && this.key.session === session) return
     untrack(() => {
       this.deactivate()
-      if (!active || !session || !instanceId) return
+      if (!session) return
       this.key = { instanceId, session }
-      this.handler = active.def.createHandler(this.contextFor(session), this.settingsGetter(active.instance))
+      if (active && instanceId) {
+        this.handler = active.def.createHandler(this.contextFor(session), this.settingsGetter(active.instance))
+      }
+      const te = this.temporaryEraser
+      if (te && !(active && te.disabledFor.includes(active.def.type))) this.eraser = te.create(this.contextFor(session))
     })
   }
 
@@ -88,11 +106,13 @@ export class ToolRouter {
   }
 
   private deactivate(): void {
-    const old = this.handler
+    const olds = [this.handler, this.eraser]
     const oldSession = this.key?.session
     this.handler = null
+    this.eraser = null
     this.key = null
-    if (old) {
+    for (const old of olds) {
+      if (!old) continue
       try {
         old.onDeactivate?.()
       } catch (e) {

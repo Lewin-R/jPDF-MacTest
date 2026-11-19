@@ -59,7 +59,8 @@ export function listenForTextSelection(ctx: ToolContext, settings: () => MarkerS
   let startedInText = false
   function onPointerDown(e: PointerEvent) {
     const t = e.target
-    startedInText = t instanceof Node && [...textLayers()].some(([el]) => el.contains(t))
+    // Right-button presses (temporary eraser) never select text.
+    startedInText = e.button === 0 && t instanceof Node && [...textLayers()].some(([el]) => el.contains(t))
   }
   function onPointerUp() {
     const fromText = startedInText

@@ -170,4 +170,49 @@ describe('ToolRouter', () => {
     store.setActive(store.data.toolbar.at(-1)!.instanceId)
     expect(router.cursor).toBeUndefined()
   })
+
+  it('keeps a temporary eraser handler for any tool but hand, recreated with the tool', () => {
+    const s = fakeSetup([
+      { instanceId: 'p1', type: 'pen', settings: { width: 2 } },
+      { instanceId: 'h1', type: 'hand', settings: {} },
+      { instanceId: 'x1', type: 'future', settings: {} },
+    ])
+    const active = new ActiveTool(s.store, s.registry)
+    const session = fakeSession('s1')
+    const erasers: { ctx: ToolContext; handler: { onDeactivate: ReturnType<typeof vi.fn> } }[] = []
+    const router = new ToolRouter(() => active.current, () => session, {
+      create: (ctx) => {
+        const handler = { onDeactivate: vi.fn() }
+        erasers.push({ ctx, handler })
+        return handler
+      },
+      disabledFor: ['hand'],
+    })
+    router.sync()
+    expect(router.eraser).toBe(erasers[0].handler)
+    expect(erasers[0].ctx.session).toBe(session)
+    // Shares the session's hidden set with the active tool.
+    erasers[0].ctx.hidden.set(['a'])
+    expect([...router.stateOf(session).hidden]).toEqual(['a'])
+
+    s.store.setActive('h1')
+    router.sync()
+    expect(erasers[0].handler.onDeactivate).toHaveBeenCalledOnce()
+    expect(router.eraser).toBeNull()
+
+    // No tool at all (unregistered): right-drag still erases.
+    s.store.setActive('x1')
+    router.sync()
+    expect(router.handler).toBeNull()
+    expect(router.eraser).toBe(erasers[1].handler)
+  })
+
+  it('has no temporary eraser without the option or without a session', () => {
+    const { router, setSession } = setup()
+    router.sync()
+    expect(router.eraser).toBeNull()
+    setSession(null)
+    router.sync()
+    expect(router.eraser).toBeNull()
+  })
 })

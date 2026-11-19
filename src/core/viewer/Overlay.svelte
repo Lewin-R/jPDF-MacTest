@@ -10,6 +10,7 @@
   import { clientToPdf as mapClientToPdf } from './viewerMath'
   import TextEditor from '../../annotations/freetext/Editor.svelte'
   import { handlePoint, handlesFor, toScreenRect } from '../../tools/select/handles'
+  import { eraserTool } from '../../tools/eraser'
 
   let {
     doc,
@@ -19,6 +20,7 @@
     preview = null,
     hidden,
     tool = null,
+    eraser = null,
     cursor,
     textEdit = null,
     selection = [],
@@ -36,6 +38,11 @@
     hidden?: ReadonlySet<string>
     /** Active tool's handler; the overlay takes pointer input only when set. */
     tool?: ToolHandler | null
+    /**
+     * Temporary eraser: a right-button drag anywhere on the page goes to it
+     * (also while the overlay passes input through, or without a tool).
+     */
+    eraser?: ToolHandler | null
     /** CSS cursor while a tool is active. */
     cursor?: string
     /**
@@ -99,10 +106,19 @@
 
   let el: SVGSVGElement
   /**
-   * Gesture in progress: its pointer, the handler that received its pointerdown
-   * and its latest page event (used to cancel when no native event is available).
+   * Gesture in progress: its pointer, the handler that received its pointerdown,
+   * its latest page event (used to cancel when no native event is available)
+   * and whether it is a right-button erase (handler = `eraser`, not `tool`).
    */
-  let gesture: { pointerId: number; tool: ToolHandler; last: PagePointerEvent } | null = null
+  let gesture: { pointerId: number; tool: ToolHandler; last: PagePointerEvent; erase: boolean } | null = null
+  /** A right-button erase is in progress: the overlay takes input and shows the eraser cursor. */
+  let erasing = $state(false)
+  const ERASER_CURSOR = eraserTool.cursor!({})
+  /** Elements where a right click keeps its native behaviour (text box editor). */
+  const EDITABLE = 'textarea, input, [contenteditable]:not([contenteditable="false"])'
+
+  /** The handler a gesture of this kind belongs to now (it is stale once that changed). */
+  const handlerFor = (erase: boolean) => (erase ? eraser : tool)
 
   /** Client coordinates → PDF user space. */
   function clientToPdf(clientX: number, clientY: number, v: PageViewport): Point {
@@ -125,7 +141,9 @@
   function dropGesture() {
     if (!gesture) return
     const id = gesture.pointerId
+    if (gesture.erase) guardContextMenu()
     gesture = null
+    erasing = false
     try {
       if (el?.hasPointerCapture?.(id)) el.releasePointerCapture(id)
     } catch {
@@ -136,15 +154,57 @@
   function onPointerDown(e: PointerEvent) {
     if (!tool || passThrough || !vp || e.button !== 0 || gesture) return
     const pe = toPageEvent(e, vp)
-    gesture = { pointerId: e.pointerId, tool, last: pe }
+    gesture = { pointerId: e.pointerId, tool, last: pe, erase: false }
     el.setPointerCapture?.(e.pointerId)
     tool.onPointerDown?.(pe)
+  }
+
+  /**
+   * Right-button press anywhere on the page (capture phase, so it works while
+   * the overlay passes input through): starts a temporary erase. Its default
+   * is prevented (no native text selection) and it does not reach the text
+   * layer or the tool. A press while another gesture runs never gets here as
+   * pointerdown (Chromium reports chorded buttons as pointermove).
+   */
+  function onPageRightDown(e: PointerEvent) {
+    if (e.button !== 2 || !eraser || !vp || gesture) return
+    const t = e.target
+    if (t instanceof Element && t.closest(EDITABLE)) return
+    e.preventDefault()
+    e.stopPropagation()
+    const pe = toPageEvent(e, vp)
+    gesture = { pointerId: e.pointerId, tool: eraser, last: pe, erase: true }
+    erasing = true
+    try {
+      el.setPointerCapture?.(e.pointerId)
+    } catch {
+      // Pointer already gone; the gesture ends with the next up/cancel.
+    }
+    eraser.onPointerDown?.(pe)
+  }
+
+  /** No browser context menu over the page (right-drag erases), except in the text box editor. */
+  function onContextMenu(e: MouseEvent) {
+    const t = e.target
+    if (t instanceof Element && t.closest(EDITABLE)) return
+    e.preventDefault()
+  }
+
+  /**
+   * An erase released outside the page: the context menu that follows the
+   * right-button release goes to whatever is under the pointer, so swallow
+   * the next one anywhere for a moment.
+   */
+  function guardContextMenu() {
+    const swallow = (e: Event) => e.preventDefault()
+    window.addEventListener('contextmenu', swallow, { capture: true, once: true })
+    setTimeout(() => window.removeEventListener('contextmenu', swallow, { capture: true }), 500)
   }
 
   /** The gesture's handler and page event for `e`, if `e` belongs to the gesture. */
   function forGesture(e: PointerEvent): { t: ToolHandler; pe: PagePointerEvent } | null {
     if (!gesture || gesture.pointerId !== e.pointerId || !vp) return null
-    if (gesture.tool !== tool) {
+    if (gesture.tool !== handlerFor(gesture.erase)) {
       dropGesture()
       return null
     }
@@ -155,7 +215,15 @@
 
   function onPointerMove(e: PointerEvent) {
     const g = forGesture(e)
-    g?.t.onPointerMove?.(g.pe)
+    if (!g) return
+    // Right button released while another is still held: the erase ends here
+    // (the pointerup only comes with the last button).
+    if (gesture?.erase && (e.buttons & 2) === 0) {
+      dropGesture()
+      g.t.onPointerUp?.(g.pe)
+      return
+    }
+    g.t.onPointerMove?.(g.pe)
   }
 
   function onPointerUp(e: PointerEvent) {
@@ -176,8 +244,9 @@
   // A tool switch mid-stroke: the old handler is deactivated by the router;
   // drop the gesture at once so it cannot block the next press.
   $effect(() => {
-    const current = tool // read first: it is this effect's only dependency
-    if (gesture && gesture.tool !== current) dropGesture()
+    const current = tool // read first: with eraser, this effect's only dependencies
+    const currentEraser = eraser
+    if (gesture && gesture.tool !== (gesture.erase ? currentEraser : current)) dropGesture()
     passAt = true
   })
 
@@ -209,18 +278,22 @@
     if (!page) return
     page.addEventListener('pointermove', onHover)
     page.addEventListener('pointerdown', onPagePointerDown)
+    page.addEventListener('pointerdown', onPageRightDown, { capture: true })
+    page.addEventListener('contextmenu', onContextMenu)
     return () => {
       page.removeEventListener('pointermove', onHover)
       page.removeEventListener('pointerdown', onPagePointerDown)
+      page.removeEventListener('pointerdown', onPageRightDown, { capture: true })
+      page.removeEventListener('contextmenu', onContextMenu)
     }
   })
 
   // Unmounted mid-stroke (page virtualised away, tab closed): cancel the stroke.
   onDestroy(() => {
     if (!gesture) return
-    const { tool: t, last } = gesture
+    const { tool: t, last, erase } = gesture
     dropGesture()
-    if (t === tool) t.onPointerCancel?.(last)
+    if (t === handlerFor(erase)) t.onPointerCancel?.(last)
   })
 </script>
 
@@ -230,8 +303,8 @@
 <svg
   bind:this={el}
   class="overlay"
-  class:interactive={tool && !passThrough}
-  style:cursor={tool ? cursor : undefined}
+  class:interactive={(tool && !passThrough) || erasing}
+  style:cursor={erasing ? ERASER_CURSOR : tool ? cursor : undefined}
   onpointerdown={onPointerDown}
   onpointermove={onPointerMove}
   onpointerup={onPointerUp}

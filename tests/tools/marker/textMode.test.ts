@@ -151,6 +151,18 @@ describe('marker text mode', () => {
     expect(executed).toHaveLength(0)
   })
 
+  it('a right-button gesture (temporary eraser) never commits a highlight', () => {
+    const a = layer(0, [{ text: 'Hello', rect: [10, 100, 50, 110] }])
+    cleanup.push(a.unregister)
+    const { executed, handler } = setup()
+    cleanup.push(() => handler.onDeactivate!())
+
+    a.el.firstChild!.dispatchEvent(new MouseEvent('pointerdown', { button: 2, bubbles: true }))
+    select(a.el.firstChild!.firstChild!, 0, a.el.firstChild!.firstChild!, 5)
+    window.dispatchEvent(new MouseEvent('pointerup', { button: 2 }))
+    expect(executed).toHaveLength(0)
+  })
+
   it('does nothing in freehand mode or after deactivation', () => {
     const a = layer(0, [{ text: 'Hello', rect: [10, 100, 50, 110] }])
     cleanup.push(a.unregister)

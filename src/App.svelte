@@ -22,10 +22,15 @@
   import { activeTool } from './toolbar/activeTool.svelte'
   import { registerToolShortcuts } from './toolbar/toolShortcuts'
   import { editSelected, registerSelectionCommands } from './tools/select/commands'
+  import { createEraserHandler } from './tools/eraser'
   import type { Annotation } from './core/session/model'
   import Toast from './ui/Toast.svelte'
 
-  const router = new ToolRouter(() => activeTool.current, () => tabs.active)
+  // Hold the right mouse button to erase, in every tool but Hand.
+  const router = new ToolRouter(() => activeTool.current, () => tabs.active, {
+    create: createEraserHandler,
+    disabledFor: ['hand'],
+  })
   /** The toolbar shows once the persisted layout is loaded (no flash of defaults). */
   let settingsLoaded = $state(false)
 
@@ -151,6 +156,7 @@
         <Viewer
           session={tabs.active}
           tool={router.handler}
+          eraser={router.eraser}
           cursor={router.cursor}
           toolPreview={router.stateOf(tabs.active).preview}
           toolHidden={router.stateOf(tabs.active).hidden}

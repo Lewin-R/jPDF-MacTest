@@ -14,6 +14,7 @@
   let {
     session,
     tool = null,
+    eraser = null,
     cursor,
     toolPreview = null,
     toolHidden,
@@ -23,6 +24,8 @@
     session: DocumentSession
     /** Active tool's handler (see ToolRouter); page overlays forward pointer input to it. */
     tool?: ToolHandler | null
+    /** Temporary right-button eraser (see ToolRouter.eraser). */
+    eraser?: ToolHandler | null
     cursor?: string
     /** The tool's live, uncommitted annotation, drawn on its page. */
     toolPreview?: Annotation | null
@@ -230,6 +233,7 @@
             textEdit={toolTextEdit?.draft.page === i ? toolTextEdit : null}
             selection={toolSelection}
             {tool}
+            {eraser}
             cursor={panning ? 'grabbing' : spaceHeld ? 'grab' : cursor}
           />
         </PageView>
