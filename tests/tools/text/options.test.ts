@@ -1,4 +1,4 @@
-import { render, within } from '@testing-library/svelte'
+import { fireEvent, render, within } from '@testing-library/svelte'
 import { describe, expect, it, vi } from 'vitest'
 import type { FreeTextAnnotation } from '../../../src/core/session/model'
 import SelectionOptions from '../../../src/tools/select/SelectionOptions.svelte'
@@ -9,7 +9,7 @@ const settings: TextSettings = { textColor: [0, 0, 0], fontSize: 12, background:
 
 const box: FreeTextAnnotation = {
   id: 't', page: 0, sourceRef: null, modifiedAt: '', author: '', kind: 'freetext',
-  rect: [0, 0, 100, 20], text: 'hi', lines: ['hi'], fontSize: 12, textColor: [0, 0, 0], background: null,
+  rect: [0, 0, 100, 20], text: 'hi', lines: ['hi'], fontSize: 12, textColor: [0, 0, 0], background: null, align: 'left',
 }
 
 describe('text tool options', () => {
@@ -33,6 +33,29 @@ describe('text tool options', () => {
   it('the title stays while the background is transparent', () => {
     const r = render(Options, { props: { settings, update: vi.fn() } })
     expect(r.getByRole('heading', { name: 'Background' })).toBeTruthy()
+  })
+})
+
+describe('text alignment option', () => {
+  it('sits in its own "Alignment" section below the background', () => {
+    const r = render(Options, { props: { settings, update: vi.fn() } })
+    const headings = r.getAllByRole('heading').map((h) => h.textContent)
+    expect(headings).toEqual(['Background', 'Alignment'])
+    const section = r.getByRole('region', { name: 'Alignment' })
+    const group = within(section).getByRole('radiogroup', { name: 'Alignment' })
+    expect(within(group).getAllByRole('radio').map((b) => b.textContent?.trim())).toEqual(['Left', 'Centre', 'Right'])
+  })
+
+  it('is left for settings saved before alignment existed', () => {
+    const r = render(Options, { props: { settings, update: vi.fn() } })
+    expect(r.getByRole('radio', { name: 'Left' }).getAttribute('aria-checked')).toBe('true')
+  })
+
+  it('updates the tool settings', async () => {
+    const update = vi.fn()
+    const r = render(Options, { props: { settings, update } })
+    await fireEvent.click(r.getByRole('radio', { name: 'Right' }))
+    expect(update).toHaveBeenCalledWith({ align: 'right' })
   })
 })
 
