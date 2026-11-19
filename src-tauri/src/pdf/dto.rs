@@ -69,6 +69,14 @@ pub enum ShapeKind {
     Circle,
 }
 
+/// A pasted image: its pixel size and the PNG file, base64 without a `data:` prefix.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ImageData {
+    pub width: u32,
+    pub height: u32,
+    pub png: String,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(tag = "kind", rename_all = "lowercase", rename_all_fields = "camelCase")]
 pub enum AnnotationDto {
@@ -108,6 +116,13 @@ pub enum AnnotationDto {
         rect: [f64; 4],
         border: Option<Stroke>,
         fill: Option<Fill>,
+    },
+    /// A pasted image drawn upright on screen into `rect` (stretched to fill it).
+    Image {
+        #[serde(flatten)]
+        common: Common,
+        rect: [f64; 4],
+        image: ImageData,
     },
 }
 
@@ -178,6 +193,14 @@ mod tests {
         assert_eq!(out, orig);
         let src = r#"{"kind":"shape","id":"s","page":0,"sourceRef":"3R","modifiedAt":"t","author":"J","shape":"rect","rect":[1,2,3,4],"border":null,"fill":{"color":[0,1,0],"opacity":0.4}}"#;
         let (_, out, orig) = roundtrip(src);
+        assert_eq!(out, orig);
+    }
+
+    #[test]
+    fn dto_image_roundtrip() {
+        let src = r#"{"kind":"image","id":"i","page":0,"sourceRef":null,"modifiedAt":"t","author":"J","rect":[1,2,3,4],"image":{"width":2,"height":1,"png":"iVBORw0KGgo="}}"#;
+        let (dto, out, orig) = roundtrip(src);
+        assert!(matches!(dto, AnnotationDto::Image { ref image, .. } if image.width == 2 && image.height == 1));
         assert_eq!(out, orig);
     }
 

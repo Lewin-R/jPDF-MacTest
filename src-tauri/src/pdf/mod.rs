@@ -4,6 +4,7 @@ pub mod appearance;
 mod date;
 pub mod dto;
 pub mod fmt;
+pub mod image;
 pub mod reader;
 pub mod winansi;
 pub mod writer;

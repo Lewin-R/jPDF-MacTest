@@ -1,5 +1,6 @@
 //! Maps a document's `/Ink`, `/Highlight`, `/FreeText`, `/Square` and
-//! `/Circle` annotations to DTOs.
+//! `/Circle` annotations, and the `/Stamp`s JuliePDF saved for pasted images,
+//! to DTOs.
 //! `/JuliePDF` values win; foreign annotations get defaults. Other subtypes,
 //! annotations stored inline in `/Annots` (which cannot be addressed by ref),
 //! hidden ones and ones JuliePDF cannot draw (no points, no quads, empty
@@ -7,7 +8,8 @@
 use lopdf::{Dictionary, Document, Object, decode_text_string};
 
 use super::date::iso_from_pdf_date;
-use super::dto::{AnnotationDto, Background, Blend, Common, Fill, InkRole, ShapeKind, Stroke};
+use super::dto::{AnnotationDto, Background, Blend, Common, Fill, ImageData, InkRole, ShapeKind, Stroke};
+use super::image::{encode_base64, png_size};
 use super::{annotation_nm, annotation_refs, format_source_ref, load_document, nm_owners};
 use crate::error::AppError;
 
@@ -147,6 +149,7 @@ fn map_annotation(doc: &Document, d: &Dictionary, common: Common) -> Option<Anno
                 background,
             })
         }
+        b"Stamp" if private_name(b"kind") == Some(b"image") => map_image(doc, d, private?, common),
         b"Square" | b"Circle" => {
             let shape = if subtype == b"Square" { ShapeKind::Rect } else { ShapeKind::Circle };
             map_shape(doc, d, private, shape, opacity, common)
@@ -265,6 +268,27 @@ fn map_shape(
         rect,
         border,
         fill,
+    })
+}
+
+/// A pasted image: the original PNG from `/JuliePDF /png`, drawn into
+/// `/Rect`. Without a readable PNG it stays a foreign (display-only) stamp.
+fn map_image(doc: &Document, d: &Dictionary, private: &Dictionary, common: Common) -> Option<AnnotationDto> {
+    let png = private.get(b"png").and_then(Object::as_reference).ok()?;
+    let bytes = doc.get_object(png).and_then(Object::as_stream).ok()?.get_plain_content().ok()?;
+    let (width, height) = png_size(&bytes)?;
+    let r = numbers(doc, d.get(b"Rect").ok());
+    if r.len() != 4 || r.iter().any(|v| !v.is_finite()) {
+        return None;
+    }
+    let rect = normalized(&r);
+    if rect[2] <= rect[0] || rect[3] <= rect[1] {
+        return None;
+    }
+    Some(AnnotationDto::Image {
+        common,
+        rect,
+        image: ImageData { width, height, png: encode_base64(&bytes) },
     })
 }
 

@@ -89,7 +89,8 @@ fn common(a: &AnnotationDto) -> &Common {
         AnnotationDto::Ink { common, .. }
         | AnnotationDto::Highlight { common, .. }
         | AnnotationDto::Freetext { common, .. }
-        | AnnotationDto::Shape { common, .. } => common,
+        | AnnotationDto::Shape { common, .. }
+        | AnnotationDto::Image { common, .. } => common,
     }
 }
 
@@ -98,7 +99,8 @@ fn with_ref(mut a: AnnotationDto, r: &str) -> AnnotationDto {
         AnnotationDto::Ink { common, .. }
         | AnnotationDto::Highlight { common, .. }
         | AnnotationDto::Freetext { common, .. }
-        | AnnotationDto::Shape { common, .. } => common.source_ref = Some(r.into()),
+        | AnnotationDto::Shape { common, .. }
+        | AnnotationDto::Image { common, .. } => common.source_ref = Some(r.into()),
     }
     a
 }

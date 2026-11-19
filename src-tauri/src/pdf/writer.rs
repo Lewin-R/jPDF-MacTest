@@ -9,13 +9,16 @@ use lopdf::{
 };
 
 use super::appearance::{
-    Appearance, freetext_appearance, highlight_appearance, ink_appearance, shape_appearance,
+    Appearance, freetext_appearance, highlight_appearance, image_appearance, ink_appearance,
+    shape_appearance,
 };
 use super::date::pdf_date;
 use super::dto::{
-    AnnotationDto, Background, Blend, Common, DeleteRef, Fill, InkRole, PageSpec, ShapeKind, Stroke,
+    AnnotationDto, Background, Blend, Common, DeleteRef, Fill, ImageData, InkRole, PageSpec,
+    ShapeKind, Stroke,
 };
 use super::fmt::fmt_num;
+use super::image::{decode_base64, decode_png};
 use super::{annotation_nm, format_source_ref, load_document, nm_owners, parse_source_ref};
 use crate::error::AppError;
 
@@ -334,7 +337,17 @@ impl Writer {
             }
             return Ok(None);
         };
-        let ap_id = add_appearance(&mut self.inc.new_document, &ap)?;
+        let image = match dto {
+            AnnotationDto::Image { image, .. } => Some(self.image_objects(image, existing)?),
+            _ => None,
+        };
+        if let Some(im) = &image {
+            annot.set(
+                "JuliePDF",
+                dictionary! { "v" => 1, "kind" => "image", "png" => im.png },
+            );
+        }
+        let ap_id = add_appearance(&mut self.inc.new_document, &ap, image.map(|im| im.xobject))?;
         annot.set("Rect", nums(&ap.rect()));
         annot.set("AP", dictionary! { "N" => ap_id });
         annot.set("P", page_id);
@@ -372,6 +385,43 @@ impl Writer {
         Ok(Some((common.id.clone(), format_source_ref(id))))
     }
 
+    /// The image XObject and the original PNG stream of a pasted image. An
+    /// update of a saved image whose PNG is unchanged (moved or resized)
+    /// reuses both objects instead of writing the data again.
+    fn image_objects(&mut self, image: &ImageData, existing: Option<ObjectId>) -> Result<ImageObjects, AppError> {
+        let png = decode_base64(&image.png)?;
+        if let Some(saved) = existing.and_then(|id| saved_image(self.prev(), id))
+            && saved.1 == png
+        {
+            return Ok(saved.0);
+        }
+        let pixels = decode_png(&png)?;
+        let doc = &mut self.inc.new_document;
+        let mut dict = dictionary! {
+            "Type" => "XObject",
+            "Subtype" => "Image",
+            "Width" => pixels.width as i64,
+            "Height" => pixels.height as i64,
+            "ColorSpace" => "DeviceRGB",
+            "BitsPerComponent" => 8,
+        };
+        if let Some(alpha) = &pixels.alpha {
+            let mask = dictionary! {
+                "Type" => "XObject",
+                "Subtype" => "Image",
+                "Width" => pixels.width as i64,
+                "Height" => pixels.height as i64,
+                "ColorSpace" => "DeviceGray",
+                "BitsPerComponent" => 8,
+            };
+            dict.set("SMask", doc.add_object(compressed_stream(mask, alpha)?));
+        }
+        let xobject = doc.add_object(compressed_stream(dict, &pixels.rgb)?);
+        // Already compressed: stored as is.
+        let png = doc.add_object(Stream::new(Dictionary::new(), png).with_compression(false));
+        Ok(ImageObjects { xobject, png })
+    }
+
     fn finish(mut self) -> Result<Vec<u8>, AppError> {
         for (page_id, a) in std::mem::take(&mut self.annots) {
             if !a.dirty {
@@ -403,6 +453,40 @@ impl Writer {
     }
 }
 
+/// Objects of a saved pasted image.
+#[derive(Clone, Copy)]
+struct ImageObjects {
+    /// The image XObject (`/Im0` of the appearance).
+    xobject: ObjectId,
+    /// The original PNG file (`/JuliePDF /png`).
+    png: ObjectId,
+}
+
+/// The objects of the pasted image annotation `id` as saved in `doc`, with
+/// its PNG bytes; `None` unless it has both an `/Im0` and a PNG stream.
+fn saved_image(doc: &Document, id: ObjectId) -> Option<(ImageObjects, Vec<u8>)> {
+    let annot = doc.get_dictionary(id).ok()?;
+    let private = annot.get_deref(b"JuliePDF", doc).and_then(Object::as_dict).ok()?;
+    if private.get(b"kind").and_then(Object::as_name).ok()? != b"image" {
+        return None;
+    }
+    let png = private.get(b"png").and_then(Object::as_reference).ok()?;
+    let bytes = doc.get_object(png).and_then(Object::as_stream).ok()?.get_plain_content().ok()?;
+    let ap = annot.get_deref(b"AP", doc).and_then(Object::as_dict).ok()?;
+    let form = ap.get(b"N").and_then(Object::as_reference).ok()?;
+    let form = doc.get_object(form).and_then(Object::as_stream).ok()?;
+    let resources = form.dict.get_deref(b"Resources", doc).and_then(Object::as_dict).ok()?;
+    let xobject = resources
+        .get_deref(b"XObject", doc)
+        .and_then(Object::as_dict)
+        .ok()?
+        .get(b"Im0")
+        .and_then(Object::as_reference)
+        .ok()?;
+    doc.get_object(xobject).and_then(Object::as_stream).ok()?;
+    Some((ImageObjects { xobject, png }, bytes))
+}
+
 fn invalid(e: lopdf::Error) -> AppError {
     AppError::InvalidPdf(e.to_string())
 }
@@ -412,7 +496,8 @@ fn common_of(dto: &AnnotationDto) -> &Common {
         AnnotationDto::Ink { common, .. }
         | AnnotationDto::Highlight { common, .. }
         | AnnotationDto::Freetext { common, .. }
-        | AnnotationDto::Shape { common, .. } => common,
+        | AnnotationDto::Shape { common, .. }
+        | AnnotationDto::Image { common, .. } => common,
     }
 }
 
@@ -540,6 +625,16 @@ fn build_annotation(
             }
             let ap = shape_appearance(*shape, r, border.as_ref(), fill.as_ref());
             Ok(Some((shape_dict(*shape, r, border.as_ref(), fill.as_ref()), ap)))
+        }
+        // The image objects and `/JuliePDF` (with the PNG stream) are added by `upsert`.
+        AnnotationDto::Image { rect, .. } => {
+            check_finite(rect)?;
+            let r = [rect[0].min(rect[2]), rect[1].min(rect[3]), rect[0].max(rect[2]), rect[1].max(rect[3])];
+            if r[2] <= r[0] || r[3] <= r[1] {
+                return Err(AppError::InvalidPdf("the image has no size".into()));
+            }
+            let d = dictionary! { "Subtype" => "Stamp", "Name" => "Image" };
+            Ok(Some((d, image_appearance(r, page_rotation))))
         }
     }
 }
@@ -712,7 +807,8 @@ fn nums(values: &[f64]) -> Object {
 
 /// Adds the form XObject for an appearance whose content uses absolute
 /// user-space coordinates (and its transparency group form, if any) to `doc`.
-fn add_appearance(doc: &mut Document, ap: &Appearance) -> Result<ObjectId, AppError> {
+/// `image` is the image XObject an image appearance paints as `/Im0`.
+fn add_appearance(doc: &mut Document, ap: &Appearance, image: Option<ObjectId>) -> Result<ObjectId, AppError> {
     let mut gs =
         dictionary! { "Type" => "ExtGState", "CA" => num(ap.opacity), "ca" => num(ap.opacity) };
     if ap.multiply {
@@ -743,6 +839,10 @@ fn add_appearance(doc: &mut Document, ap: &Appearance) -> Result<ObjectId, AppEr
         };
         let id = doc.add_object(compressed_stream(dict, group)?);
         resources.set("XObject", dictionary! { "Fm0" => id });
+    }
+    if ap.image {
+        let im = image.ok_or_else(|| AppError::InvalidPdf("image appearance without an image".into()))?;
+        resources.set("XObject", dictionary! { "Im0" => im });
     }
     if ap.uses_helvetica {
         resources.set(

@@ -240,6 +240,27 @@ pub fn pdf_with_foreign_shapes() -> Vec<u8> {
     }))
 }
 
+/// Page 0 has a foreign `/Stamp` (`/Name /Approved`, no `/JuliePDF`) and one
+/// whose `/JuliePDF` is not an image (`/kind /other`).
+#[allow(dead_code)] // used by image.rs only
+pub fn pdf_with_foreign_stamps() -> Vec<u8> {
+    save(build(1, |doc, pages| {
+        let approved = doc.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Stamp", "Name" => "Approved",
+            "NM" => Object::string_literal("approved"),
+            "Rect" => vec![100.into(), 100.into(), 300.into(), 160.into()],
+        });
+        let other = doc.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Stamp", "Name" => "Image",
+            "NM" => Object::string_literal("other"),
+            "Rect" => vec![100.into(), 200.into(), 300.into(), 260.into()],
+            "JuliePDF" => dictionary! { "v" => 1, "kind" => "other" },
+        });
+        let annots = [approved, other].map(Object::Reference).to_vec();
+        doc.get_dictionary_mut(pages[0]).unwrap().set("Annots", annots);
+    }))
+}
+
 /// One page whose `/MediaBox` does not start at the origin
 /// (`[50 100 645 942]`), optionally with `/Rotate 90`.
 pub fn offset_box_pdf(rotate: bool) -> Vec<u8> {

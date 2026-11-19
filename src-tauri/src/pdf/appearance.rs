@@ -29,6 +29,8 @@ pub struct Appearance {
     pub gstates: Vec<NamedGState>,
     /// Content of the transparency group `/Fm0` that `content` paints.
     pub group: Option<Vec<u8>>,
+    /// `content` paints the image XObject `/Im0`, which the writer supplies.
+    pub image: bool,
 }
 
 /// Outer content of a grouped appearance: opacity and blend mode, then the group.
@@ -131,6 +133,7 @@ pub fn ink_appearance(strokes: &[Vec<[f64; 2]>], color: [f64; 3], width: f64, op
         matrix: None,
         gstates: Vec::new(),
         group: Some(c.into_bytes()),
+        image: false,
     }
 }
 
@@ -174,6 +177,7 @@ pub fn highlight_appearance(quads: &[[f64; 8]], color: [f64; 3], opacity: f64) -
         matrix: None,
         gstates: Vec::new(),
         group: Some(c.into_bytes()),
+        image: false,
     }
 }
 
@@ -207,6 +211,54 @@ fn upright_rotation(page_rotation: i32) -> Option<[f64; 4]> {
     }
 }
 
+/// The screen-aligned frame of `rect` on a page with this `/Rotate`: a box
+/// anchored at the rect's lower-left corner (width and height swapped for
+/// 90/270) and the `matrix` that turns it exactly onto `rect`, so what is
+/// drawn upright in the frame is upright on screen. No matrix for 0.
+fn upright_frame(rect: [f64; 4], page_rotation: i32) -> ([f64; 4], Option<[f64; 6]>) {
+    let (x1, y1) = (rect[0].min(rect[2]), rect[1].min(rect[3]));
+    let (w, h) = ((rect[2] - rect[0]).abs(), (rect[3] - rect[1]).abs());
+    let (fw, fh) = match page_rotation.rem_euclid(360) {
+        90 | 270 => (h, w),
+        _ => (w, h),
+    };
+    let bbox = [x1, y1, x1 + fw, y1 + fh];
+    let matrix = upright_rotation(page_rotation).map(|[a, b, c, d]| {
+        let turned = transformed_bounds(bbox, [a, b, c, d, 0.0, 0.0]);
+        [a, b, c, d, x1 - turned[0], y1 - turned[1]]
+    });
+    (bbox, matrix)
+}
+
+/// Pasted-image appearance: the image XObject `/Im0` stretched over the
+/// screen-aligned frame of `rect` (see `upright_frame`), so it shows upright
+/// on screen whatever the page rotation, as the overlay draws it.
+pub fn image_appearance(rect: [f64; 4], page_rotation: i32) -> Appearance {
+    let (bbox, matrix) = upright_frame(rect, page_rotation);
+    let content = format!(
+        "q
+{} 0 0 {} {} {} cm
+/Im0 Do
+Q
+",
+        fmt_num(bbox[2] - bbox[0]),
+        fmt_num(bbox[3] - bbox[1]),
+        fmt_num(bbox[0]),
+        fmt_num(bbox[1])
+    );
+    Appearance {
+        bbox,
+        content: content.into_bytes(),
+        opacity: 1.0,
+        multiply: false,
+        uses_helvetica: false,
+        matrix,
+        gstates: Vec::new(),
+        group: None,
+        image: true,
+    }
+}
+
 /// FreeText appearance: optional background fill (its opacity is the `GS0`
 /// opacity, so it applies to the fill only) and one opaque Helvetica (`/Helv`,
 /// WinAnsiEncoding) line per entry of `lines`, `font_size * LINE_HEIGHT` apart,
@@ -225,18 +277,9 @@ pub fn freetext_appearance(
     background: Option<&Background>,
     page_rotation: i32,
 ) -> Appearance {
-    let (x1, y1) = (rect[0].min(rect[2]), rect[1].min(rect[3]));
-    let (w, h) = ((rect[2] - rect[0]).abs(), (rect[3] - rect[1]).abs());
-    let rotation = upright_rotation(page_rotation);
-    let (fw, fh) = match page_rotation.rem_euclid(360) {
-        90 | 270 => (h, w),
-        _ => (w, h),
-    };
-    let bbox = [x1, y1, x1 + fw, y1 + fh];
-    let matrix = rotation.map(|[a, b, c, d]| {
-        let turned = transformed_bounds(bbox, [a, b, c, d, 0.0, 0.0]);
-        [a, b, c, d, x1 - turned[0], y1 - turned[1]]
-    });
+    let (bbox, matrix) = upright_frame(rect, page_rotation);
+    let [x1, y1, _, _] = bbox;
+    let (fw, fh) = (bbox[2] - bbox[0], bbox[3] - bbox[1]);
 
     let rgb = |c: [f64; 3]| format!("{} {} {}", fmt_num(c[0]), fmt_num(c[1]), fmt_num(c[2]));
     let mut c: Vec<u8> = Vec::new();
@@ -286,6 +329,7 @@ pub fn freetext_appearance(
         matrix,
         gstates: Vec::new(),
         group: None,
+        image: false,
     }
 }
 
@@ -342,6 +386,7 @@ pub fn shape_appearance(shape: ShapeKind, rect: [f64; 4], border: Option<&Stroke
         matrix: None,
         gstates,
         group: None,
+        image: false,
     }
 }
 
@@ -369,6 +414,27 @@ mod tests {
         let outline = shape_appearance(ShapeKind::Circle, [0.0, 0.0, 10.0, 10.0], Some(&border), None);
         assert_eq!(text(&outline).matches(" c\n").count(), 4);
         assert_eq!(outline.gstates.len(), 1);
+    }
+
+    #[test]
+    fn image_appearance_stretches_image_over_rect() {
+        let a = image_appearance([10.0, 20.0, 110.0, 70.0], 0);
+        assert_eq!(text(&a), "q
+100 0 0 50 10 20 cm
+/Im0 Do
+Q
+");
+        assert!(a.image && a.matrix.is_none());
+        assert_eq!(a.rect(), [10.0, 20.0, 110.0, 70.0]);
+        // Rotate 90: the frame is the rect turned upright, mapped back onto it.
+        let r = image_appearance([10.0, 20.0, 110.0, 70.0], 90);
+        assert_eq!(text(&r), "q
+50 0 0 100 10 20 cm
+/Im0 Do
+Q
+");
+        assert!(r.matrix.is_some());
+        assert_eq!(r.rect(), [10.0, 20.0, 110.0, 70.0]);
     }
 
     #[test]

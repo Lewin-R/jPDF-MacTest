@@ -2088,9 +2088,11 @@ dependencies = [
 name = "juliepdf"
 version = "0.1.0"
 dependencies = [
+ "base64 0.23.1",
  "chrono",
  "flate2",
  "lopdf",
+ "png",
  "serde",
  "serde_json",
  "tauri",
