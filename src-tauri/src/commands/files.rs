@@ -107,6 +107,17 @@ pub async fn read_annotations(path: String) -> Result<Vec<AnnotationDto>, AppErr
     blocking(move || crate::pdf::reader::read_annotations(&read_file(&path)?)).await
 }
 
+/// Whether something exists at `path`; true when that cannot be determined
+/// (callers use it to avoid overwriting a file nobody confirmed replacing).
+pub fn path_exists_blocking(path: &Path) -> bool {
+    path.try_exists().unwrap_or(true)
+}
+
+#[tauri::command]
+pub async fn path_exists(path: String) -> Result<bool, AppError> {
+    blocking(move || Ok(path_exists_blocking(Path::new(&path)))).await
+}
+
 #[tauri::command]
 pub fn get_launch_files(state: State<LaunchFiles>) -> Vec<String> {
     std::mem::take(&mut *state.0.lock().unwrap())
@@ -129,6 +140,15 @@ mod tests {
         let bytes = read_file(p.to_str().unwrap()).unwrap();
         std::fs::remove_file(&p).ok();
         assert_eq!(bytes, b"%PDF-1.7 test");
+    }
+
+    #[test]
+    fn path_exists_reports_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("a.pdf");
+        assert!(!path_exists_blocking(&p));
+        std::fs::write(&p, b"x").unwrap();
+        assert!(path_exists_blocking(&p));
     }
 
     #[test]

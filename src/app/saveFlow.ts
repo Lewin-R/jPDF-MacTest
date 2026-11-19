@@ -1,11 +1,12 @@
 import { save as saveDialog } from '@tauri-apps/plugin-dialog'
-import { isAppError, savePdf } from '../core/ipc/api'
+import { isAppError, pathExists, savePdf } from '../core/ipc/api'
 import { commands } from '../core/registry/commands'
 import { keybindings } from '../core/registry/keybindings'
 import type { Annotation } from '../core/session/model'
 import type { DocumentSession } from '../core/session/session.svelte'
 import { toasts } from '../ui/toasts.svelte'
 import { askToSave } from './ConfirmClose.svelte'
+import { tabs } from './tabs.svelte'
 
 const DEFAULT_AUTHOR = 'JuliePDF'
 const PDF_FILTER = [{ name: 'PDF', extensions: ['pdf'] }]
@@ -89,12 +90,30 @@ export function saveSession(s: DocumentSession, targetPath?: string): Promise<bo
   return run
 }
 
-/** Asks for a target file and saves there; false if cancelled or failed. */
+/**
+ * Asks for a target file and saves there; false if cancelled, refused or
+ * failed. Refuses (error toast, nothing written) a file open in another tab,
+ * and a typed name whose added ".pdf" names an existing file: the dialog only
+ * confirmed replacing the name as typed.
+ */
 export async function saveSessionAs(s: DocumentSession): Promise<boolean> {
   s.commitPendingEdit()
-  let target = await saveDialog({ defaultPath: s.path, filters: PDF_FILTER })
-  if (!target) return false
-  if (!target.toLowerCase().endsWith('.pdf')) target += '.pdf'
+  const picked = await saveDialog({ defaultPath: s.path, filters: PDF_FILTER })
+  if (!picked) return false
+  let target = picked
+  if (!target.toLowerCase().endsWith('.pdf')) {
+    target += '.pdf'
+    if (await pathExists(target).catch(() => true)) {
+      const name = target.split(/[\\/]/).pop()
+      toasts.show(`Could not save: ${name} already exists. Choose it in the dialog to replace it.`, 'error')
+      return false
+    }
+  }
+  const other = tabs.findByPath(target)
+  if (other && other.id !== s.id) {
+    toasts.show('This file is open in another tab — close it first', 'error')
+    return false
+  }
   return saveSession(s, target)
 }
 
@@ -105,6 +124,8 @@ export async function saveSessionAs(s: DocumentSession): Promise<boolean> {
 export async function confirmAndClose(s: DocumentSession): Promise<boolean> {
   s.commitPendingEdit()
   if (!s.dirty) return true
+  // Show the document the question is about.
+  if (tabs.sessions.some((x) => x.id === s.id)) tabs.activeId = s.id
   const choice = await askToSave(s.fileName)
   if (choice === 'cancel') return false
   if (choice === 'discard') return true

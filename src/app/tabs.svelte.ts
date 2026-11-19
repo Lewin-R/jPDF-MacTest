@@ -61,4 +61,5 @@ export class TabsStore {
   }
 }
 
-export const tabs = new TabsStore(confirmAndClose)
+// Lazy: saveFlow imports this module too (import cycle).
+export const tabs = new TabsStore((s) => confirmAndClose(s))

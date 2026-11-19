@@ -40,6 +40,11 @@ export function savePdf(
   return invoke<{ refs: Record<string, string> }>('save_pdf', { sourcePath, targetPath, upserts, deletes })
 }
 
+/** Whether a file exists at `path` (true when that cannot be determined). */
+export function pathExists(path: string): Promise<boolean> {
+  return invoke<boolean>('path_exists', { path })
+}
+
 export function getLaunchFiles(): Promise<string[]> {
   return invoke<string[]>('get_launch_files')
 }

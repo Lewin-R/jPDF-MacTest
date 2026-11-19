@@ -4,10 +4,12 @@ const h = vi.hoisted(() => ({
   savePdf: vi.fn(),
   askToSave: vi.fn(),
   saveDialog: vi.fn(),
+  pathExists: vi.fn(),
 }))
 vi.mock('../../src/core/ipc/api', async (orig) => ({
   ...(await orig<typeof import('../../src/core/ipc/api')>()),
   savePdf: h.savePdf,
+  pathExists: h.pathExists,
 }))
 vi.mock('../../src/app/ConfirmClose.svelte', () => ({ askToSave: h.askToSave }))
 vi.mock('@tauri-apps/plugin-dialog', () => ({ save: h.saveDialog }))
@@ -19,6 +21,7 @@ import { History } from '../../src/core/session/history.svelte'
 import type { InkAnnotation } from '../../src/core/session/model'
 import type { DocumentSession } from '../../src/core/session/session.svelte'
 import { AnnotationStore } from '../../src/core/session/store.svelte'
+import { tabs } from '../../src/app/tabs.svelte'
 import { toasts } from '../../src/ui/toasts.svelte'
 
 function ink(id: string, sourceRef: string | null = null, author = 'JuliePDF'): InkAnnotation {
@@ -28,11 +31,14 @@ function ink(id: string, sourceRef: string | null = null, author = 'JuliePDF'): 
   }
 }
 
+let sessionCount = 0
+
 function fakeSession(path = 'C:\\docs\\a.pdf', loaded: InkAnnotation[] = []) {
   const store = new AnnotationStore()
   store.load(loaded)
   const history = new History(store)
   const s = {
+    id: `session-${++sessionCount}`,
     path,
     fileName: path.split('\\').pop()!,
     store,
@@ -65,10 +71,14 @@ beforeEach(() => {
   h.savePdf.mockReset()
   h.askToSave.mockReset()
   h.saveDialog.mockReset()
+  h.pathExists.mockReset()
+  h.pathExists.mockResolvedValue(false)
   vi.spyOn(console, 'error').mockImplementation(() => {})
 })
 afterEach(() => {
   for (const t of [...toasts.items]) toasts.dismiss(t.id)
+  tabs.sessions = []
+  tabs.activeId = null
   vi.restoreAllMocks()
 })
 
@@ -258,6 +268,56 @@ describe('saveSessionAs', () => {
     expect(s.path).toBe('D:\\out\\b.pdf')
   })
 
+  it('refuses a target that is open in another tab', async () => {
+    const s = fakeSession('C:\\docs\\a.pdf')
+    const other = fakeSession('D:\\out\\b.pdf')
+    tabs.sessions = [s, other]
+    h.saveDialog.mockResolvedValue('d:\\OUT\\B.pdf')
+    expect(await saveSessionAs(s)).toBe(false)
+    expect(h.savePdf).not.toHaveBeenCalled()
+    expect(toasts.items.map((t) => [t.kind, t.message])).toEqual([
+      ['error', 'This file is open in another tab — close it first'],
+    ])
+    expect(s.path).toBe('C:\\docs\\a.pdf')
+  })
+
+  it('may save over its own file', async () => {
+    const s = fakeSession('C:\\docs\\a.pdf')
+    tabs.sessions = [s]
+    h.saveDialog.mockResolvedValue('C:\\docs\\a.pdf')
+    h.savePdf.mockResolvedValue({ refs: {} })
+    expect(await saveSessionAs(s)).toBe(true)
+  })
+
+  it('appends .pdf to a typed name and saves when that file does not exist', async () => {
+    const s = fakeSession('C:\\docs\\a.pdf')
+    h.saveDialog.mockResolvedValue('D:\\out\\b')
+    h.savePdf.mockResolvedValue({ refs: {} })
+    expect(await saveSessionAs(s)).toBe(true)
+    expect(h.pathExists).toHaveBeenCalledWith('D:\\out\\b.pdf')
+    expect(h.savePdf).toHaveBeenCalledWith('C:\\docs\\a.pdf', 'D:\\out\\b.pdf', [], [])
+  })
+
+  it('refuses when the appended .pdf name exists (the dialog never confirmed replacing it)', async () => {
+    const s = fakeSession('C:\\docs\\a.pdf')
+    h.saveDialog.mockResolvedValue('D:\\out\\b')
+    h.pathExists.mockResolvedValue(true)
+    expect(await saveSessionAs(s)).toBe(false)
+    expect(h.savePdf).not.toHaveBeenCalled()
+    expect(toasts.items).toHaveLength(1)
+    expect(toasts.items[0].kind).toBe('error')
+    expect(toasts.items[0].message).toContain('b.pdf already exists')
+  })
+
+  it('does not second-guess a .pdf path the dialog returned', async () => {
+    const s = fakeSession('C:\\docs\\a.pdf')
+    h.saveDialog.mockResolvedValue('D:\\out\\b.pdf')
+    h.pathExists.mockResolvedValue(true)
+    h.savePdf.mockResolvedValue({ refs: {} })
+    expect(await saveSessionAs(s)).toBe(true)
+    expect(h.pathExists).not.toHaveBeenCalled()
+  })
+
   it('does nothing when the dialog is cancelled', async () => {
     const s = fakeSession()
     h.saveDialog.mockResolvedValue(null)
@@ -306,6 +366,23 @@ describe('confirmAndClose', () => {
     h.askToSave.mockResolvedValueOnce('cancel')
     expect(await confirmAndClose(s)).toBe(false)
     expect(h.savePdf).not.toHaveBeenCalled()
+  })
+})
+
+describe('close prompt', () => {
+  it('activates the session before asking to save it', async () => {
+    const a = fakeSession('C:\\a.pdf')
+    const b = fakeSession('C:\\b.pdf')
+    tabs.sessions = [a, b]
+    tabs.activeId = a.id
+    b.history.execute(addAnnotations([ink('x')]))
+    let activeWhenAsked: string | null = null
+    h.askToSave.mockImplementation(async () => {
+      activeWhenAsked = tabs.activeId
+      return 'cancel'
+    })
+    expect(await confirmCloseAll([a, b])).toBe(false)
+    expect(activeWhenAsked).toBe(b.id)
   })
 })
 
