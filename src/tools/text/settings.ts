@@ -1,5 +1,9 @@
 import type { RGB } from '../../core/session/model'
 
+/** Font size range of text boxes, in pt. Small enough for dense forms and footnotes. */
+export const FONT_SIZE_MIN = 6
+export const FONT_SIZE_MAX = 72
+
 export interface TextSettings {
   textColor: RGB
   fontSize: number

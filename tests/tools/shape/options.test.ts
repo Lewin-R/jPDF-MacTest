@@ -17,6 +17,22 @@ const shape: ShapeAnnotation = {
 }
 
 describe('shape tool options', () => {
+  it('puts border and fill under their own titles, visible while turned off', () => {
+    const r = render(Options, { props: { settings, update: vi.fn() } })
+    const border = r.getByRole('region', { name: 'Border' })
+    expect(within(border).getByRole('slider', { name: 'Border width' })).toBeTruthy()
+    // The fill is off: its section and toggle are still there, its controls not.
+    const fill = r.getByRole('region', { name: 'Fill' })
+    expect(within(fill).getByRole('radiogroup', { name: 'Fill' })).toBeTruthy()
+    expect(within(fill).queryByRole('slider')).toBeNull()
+  })
+
+  it('lines get a "Line" section and no fill', () => {
+    const r = render(Options, { props: { settings: { ...settings, shape: 'arrow' }, update: vi.fn() } })
+    expect(within(r.getByRole('region', { name: 'Line' })).getByRole('slider', { name: 'Line width' })).toBeTruthy()
+    expect(r.queryByRole('region', { name: 'Fill' })).toBeNull()
+  })
+
   it('switches between Rectangle and Circle', async () => {
     const update = vi.fn()
     const r = render(Options, { props: { settings, update } })

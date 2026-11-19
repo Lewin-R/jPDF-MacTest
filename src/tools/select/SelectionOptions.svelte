@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Annotation } from '../../core/session/model'
   import ColorPicker from '../../ui/ColorPicker.svelte'
+  import Section from '../../ui/Section.svelte'
   import Segmented from '../../ui/Segmented.svelte'
   import Slider from '../../ui/Slider.svelte'
   import { MARKER_PRESETS } from '../marker/settings'
@@ -8,7 +9,7 @@
   import { selectionMemory } from '../shape/settings'
   import { TEXT_LINE_PRESETS } from '../textline/settings'
   import StyleControls from '../shape/StyleControls.svelte'
-  import { BACKGROUND_PRESETS, DEFAULT_BACKGROUND } from '../text/settings'
+  import { BACKGROUND_PRESETS, DEFAULT_BACKGROUND, FONT_SIZE_MAX, FONT_SIZE_MIN } from '../text/settings'
 
   let { annotation, update }: { annotation: Annotation; update(after: Annotation): void } = $props()
 
@@ -97,42 +98,44 @@
     />
     <Slider
       label="Font size"
-      min={8}
-      max={72}
+      min={FONT_SIZE_MIN}
+      max={FONT_SIZE_MAX}
       step={1}
       value={shown('fontSize', annotation.fontSize)}
       format={pt}
       onchange={(v) => preview('fontSize', v)}
       oncommit={(fontSize) => commit({ fontSize })}
     />
-    <Segmented
-      label="Background"
-      options={[
-        { value: 'none', label: 'Transparent' },
-        { value: 'color', label: 'Colour' },
-      ]}
-      value={bg ? 'color' : 'none'}
-      onchange={(v) => commit({ background: v === 'color' ? (bg ?? DEFAULT_BACKGROUND) : null })}
-    />
-    {#if bg}
-      <ColorPicker
-        label="Background colour"
-        value={shown('bgColor', bg.color)}
-        presets={BACKGROUND_PRESETS}
-        onchange={(v) => preview('bgColor', v)}
-        oncommit={(color) => commit({ background: { ...bg, color } })}
+    <Section title="Background">
+      <Segmented
+        label="Background"
+        options={[
+          { value: 'none', label: 'Transparent' },
+          { value: 'color', label: 'Colour' },
+        ]}
+        value={bg ? 'color' : 'none'}
+        onchange={(v) => commit({ background: v === 'color' ? (bg ?? DEFAULT_BACKGROUND) : null })}
       />
-      <Slider
-        label="Background opacity"
-        min={0}
-        max={100}
-        step={5}
-        value={shown('bgOpacity', Math.round(bg.opacity * 100))}
-        format={pct}
-        onchange={(v) => preview('bgOpacity', v)}
-        oncommit={(v) => commit({ background: { ...bg, opacity: v / 100 } })}
-      />
-    {/if}
+      {#if bg}
+        <ColorPicker
+          label="Background colour"
+          value={shown('bgColor', bg.color)}
+          presets={BACKGROUND_PRESETS}
+          onchange={(v) => preview('bgColor', v)}
+          oncommit={(color) => commit({ background: { ...bg, color } })}
+        />
+        <Slider
+          label="Background opacity"
+          min={0}
+          max={100}
+          step={5}
+          value={shown('bgOpacity', Math.round(bg.opacity * 100))}
+          format={pct}
+          onchange={(v) => preview('bgOpacity', v)}
+          oncommit={(v) => commit({ background: { ...bg, opacity: v / 100 } })}
+        />
+      {/if}
+    </Section>
   {:else if annotation.kind === 'shape'}
     <StyleControls
       style={shown('style', { border: annotation.border, fill: annotation.fill })}
