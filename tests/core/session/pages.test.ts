@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  identityPages, insertEntry, isIdentity, pagePlan, pageSizesOf, remapForDelete,
+  firstOccurrences, identityPages, insertEntry, isIdentity, pagePlan, pageSizesOf, remapForDelete,
   remapForInsert, removeEntry, rotateEntry, type PageEntry,
 } from '../../../src/core/session/pages'
 
@@ -36,6 +36,13 @@ describe('page list operations', () => {
     expect(rotateEntry(pages, 1, -90)).toEqual([src(0), src(1, 270), src(2)])
     const blank: PageEntry = { kind: 'blank', width: 10, height: 20, rotate: 270 }
     expect(rotateEntry([blank], 0, 90)).toEqual([{ ...blank, rotate: 0 }])
+  })
+})
+
+describe('firstOccurrences', () => {
+  it('marks only the first page showing each file page', () => {
+    const blank: PageEntry = { kind: 'blank', width: 1, height: 1, rotate: 0 }
+    expect(firstOccurrences([src(1), src(0), src(1, 90), blank, src(0)])).toEqual([true, true, false, true, false])
   })
 })
 

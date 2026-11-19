@@ -71,6 +71,21 @@ export function remapForDelete(at: number): (page: number) => number | null {
   return (page) => (page === at ? null : page > at ? page - 1 : page)
 }
 
+/**
+ * For each page, whether it is the first one showing its file page. Saving
+ * keeps a file page's object (and its foreign annotations) there only;
+ * later copies are new pages without them.
+ */
+export function firstOccurrences(pages: readonly PageEntry[]): boolean[] {
+  const seen = new Set<number>()
+  return pages.map((p) => {
+    if (p.kind !== 'source') return true
+    if (seen.has(p.source)) return false
+    seen.add(p.source)
+    return true
+  })
+}
+
 function turned(size: PageSize, rotate: number): PageSize {
   return normRotate(rotate) % 180 === 0 ? size : { width: size.height, height: size.width }
 }

@@ -34,6 +34,8 @@
   import { onDestroy } from 'svelte'
   import type { PageViewport } from 'pdfjs-dist'
   import type { PdfDoc } from './pdfEngine'
+  import type { PageEntry } from '../session/pages'
+  import { blankViewport, entryOf, sourceViewport } from './pageSource'
   import type { AnnotationStore } from '../session/store.svelte'
   import type { Annotation, Point } from '../session/model'
   import type { PagePointerEvent, TextEdit, ToolHandler } from '../registry/tools'
@@ -47,6 +49,7 @@
   let {
     doc,
     pageNumber,
+    entry,
     scale,
     store,
     preview = null,
@@ -60,8 +63,10 @@
     onpagemenu,
   }: {
     doc?: PdfDoc
-    /** 1-based (PdfDoc.getPage); Annotation.page is 0-based. */
+    /** 1-based position in the page list; Annotation.page is 0-based. */
     pageNumber: number
+    /** What the page shows; default: file page `pageNumber`, unrotated. */
+    entry?: PageEntry
     /** CSS scale (not multiplied by devicePixelRatio). */
     scale: number
     store: AnnotationStore
@@ -110,14 +115,22 @@
   const passThrough = $derived(textSelecting || (hoverPassing && passAt))
 
   $effect(() => {
-    if (viewport || !doc) return
+    if (viewport) return
     const s = scale
+    const shows = entryOf(pageNumber, entry)
+    // An empty page: no pdf.js page and no text (the marker draws freehand).
+    if (shows.kind === 'blank') {
+      loaded = blankViewport(shows.width, shows.height, s, shows.rotate)
+      hasText = false
+      return
+    }
+    if (!doc) return
     let cancelled = false
     doc
-      .getPage(pageNumber)
+      .getPage(shows.source + 1)
       .then(async (page) => {
-        // getViewport applies the page's own rotation by default.
-        if (!cancelled) loaded = page.getViewport({ scale: s })
+        // The page's own rotation plus the page list's extra rotation.
+        if (!cancelled) loaded = sourceViewport(page, shows, s)
         // Unreadable text content: treat as a page without text (freehand fallback).
         const text = await pageHasText(page).catch(() => false)
         if (!cancelled) hasText = text

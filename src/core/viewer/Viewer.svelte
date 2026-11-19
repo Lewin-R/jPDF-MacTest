@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import type { TextEdit, ToolHandler } from '../registry/tools'
   import type { Annotation } from '../session/model'
+  import { firstOccurrences } from '../session/pages'
   import type { DocumentSession } from '../session/session.svelte'
   import { clampScale, contentWidth, pageLeft, visibleRange } from './layout'
   import Overlay from './Overlay.svelte'
@@ -55,6 +56,8 @@
   const selectionColor = $derived(tool?.textSelection?.()?.color ?? null)
 
   const layout = $derived(session.layout)
+  /** pdf.js draws the file's annotations on the first copy of a file page only (see firstOccurrences). */
+  const firsts = $derived(firstOccurrences(session.pages))
   const width = $derived(contentWidth(layout, session.viewportW))
   const range = $derived(visibleRange(layout, session.scrollTop, session.viewportH, 1))
   const pages = $derived(
@@ -220,6 +223,8 @@
           doc={session.doc}
           cacheId={session.id}
           pageNumber={i + 1}
+          entry={session.pages[i]}
+          annotations={firsts[i]}
           pageSize={session.pageSizes[i]}
           scale={session.scale}
           left={pageLeft(layout, i, session.viewportW)}
@@ -229,6 +234,7 @@
           <Overlay
             doc={session.doc}
             pageNumber={i + 1}
+            entry={session.pages[i]}
             scale={session.scale}
             store={session.store}
             preview={toolPreview?.page === i ? toolPreview : null}

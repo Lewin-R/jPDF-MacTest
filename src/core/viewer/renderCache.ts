@@ -8,8 +8,8 @@
  * kept for scrolling back.
  *
  * One global instance (`renderCache`) is shared by all sessions so the memory
- * bound holds no matter how many tabs are open. Keys are
- * `${sessionId}:${pageNumber}@${scaleBucket}` (page numbers 1-based); a
+ * bound holds no matter how many tabs are open. Keys are (see pageSource.renderKey)
+ * `${sessionId}:${pageNumber}@${scaleBucket}#${what is shown}` (page numbers 1-based); a
  * session evicts its own entries with `evictPrefix(`${id}:`)` on dispose.
  * Storing a page at one scale drops that page's entries at other scales.
  */

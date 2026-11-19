@@ -1,6 +1,8 @@
 <script lang="ts">
   import { TextLayer } from 'pdfjs-dist'
   import type { RGB } from '../session/model'
+  import type { PageEntry } from '../session/pages'
+  import { entryOf, sourceViewport } from './pageSource'
   import type { PdfDoc } from './pdfEngine'
   import { pageHasText, textContentOf } from './textContent'
   import { registerTextLayer } from './textLayers'
@@ -9,12 +11,15 @@
   let {
     doc,
     pageNumber,
+    entry,
     scale,
     selectionColor = null,
   }: {
     doc: PdfDoc
-    /** 1-based, as PdfDoc.getPage expects. */
+    /** 1-based position in the page list. */
     pageNumber: number
+    /** What the page shows (default: file page `pageNumber`); an empty page has no text. */
+    entry?: PageEntry
     /** CSS scale (not multiplied by devicePixelRatio). */
     scale: number
     /** Tints the native selection (marker text mode); null = default selection colour. */
@@ -32,15 +37,28 @@
   // preview, which CSS-scales the whole page including this layer).
   $effect(() => {
     const s = scale
+    const pdf = doc
+    const shows = entryOf(pageNumber, entry)
+    const index = pageNumber - 1
     let cancelled = false
     let task: TextLayer | null = null
     let unregister: (() => void) | null = null
     void (async () => {
-      const page = await doc.getPage(pageNumber)
-      if (cancelled || !(await pageHasText(page)) || cancelled) return
+      // No text (an empty or scanned page): drop the layer of what was shown before.
+      if (shows.kind !== 'source') {
+        host.replaceChildren()
+        return
+      }
+      const page = await pdf.getPage(shows.source + 1)
+      if (cancelled) return
+      if (!(await pageHasText(page))) {
+        if (!cancelled) host.replaceChildren()
+        return
+      }
+      if (cancelled) return
       const textContentSource = await textContentOf(page)
       if (cancelled) return
-      const viewport = page.getViewport({ scale: s })
+      const viewport = sourceViewport(page, shows, s)
       const container = document.createElement('div')
       container.className = 'textLayer'
       container.style.setProperty('--scale-factor', String(s))
@@ -51,12 +69,12 @@
       // Swap only once rendered, so the previous layer stays selectable meanwhile.
       host.replaceChildren(container)
       unregister = registerTextLayer(host, {
-        page: pageNumber - 1,
+        page: index,
         toPdf: (x, y) => clientToPdf(x, y, host.getBoundingClientRect(), viewport),
       })
     })().catch((e: unknown) => {
       // Cancelled layers and layers of a closed tab's doc reject by design.
-      if (!cancelled && !doc.destroyed) console.error(`Failed to render text layer of page ${pageNumber}`, e)
+      if (!cancelled && !pdf.destroyed) console.error(`Failed to render text layer of page ${pageNumber}`, e)
     })
     return () => {
       cancelled = true

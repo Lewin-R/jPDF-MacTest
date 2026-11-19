@@ -232,3 +232,51 @@ describe('PageView render lifecycle', () => {
     expect(window.matchMedia).toHaveBeenLastCalledWith('(resolution: 2dppx)')
   })
 })
+
+describe('PageView page entries', () => {
+  function mountEntry(doc: ReturnType<typeof fakeRenderDoc>['doc'], props: Record<string, unknown>) {
+    return render(PageView, {
+      props: { doc, cacheId: `pv${++n}`, pageNumber: 1, pageSize: { width: 600, height: 800 }, scale: 1, left: 0, top: 16, ...props },
+    })
+  }
+
+  it('an empty page shows no canvas and never asks pdf.js for a page', async () => {
+    const { doc, renders } = fakeRenderDoc(1)
+    const { container } = mountEntry(doc, { entry: { kind: 'blank', width: 600, height: 800, rotate: 0 } })
+    await new Promise((r) => setTimeout(r, 0))
+    expect(doc.getPage).not.toHaveBeenCalled()
+    expect(renders).toHaveLength(0)
+    expect(container.querySelector('.page > canvas')).toBeNull()
+  })
+
+  it('renders the entry’s file page with the page /Rotate plus the extra rotation', async () => {
+    const { doc, renders } = fakeRenderDoc(3)
+    const page = await doc.getPage(3)
+    Object.assign(page, { rotate: 90 })
+    const getViewport = vi.spyOn(page, 'getViewport')
+    mountEntry(doc, { pageNumber: 1, entry: { kind: 'source', source: 2, rotate: 90 } })
+    await vi.waitFor(() => expect(renders).toHaveLength(1))
+    expect(renders[0].page).toBe(3)
+    expect(getViewport).toHaveBeenCalledWith({ scale: 1, rotation: 180 })
+  })
+
+  it('a later copy of a file page is drawn without the file’s annotations, under its own cache key', async () => {
+    const { doc, renders } = fakeRenderDoc(1)
+    mountEntry(doc, { entry: { kind: 'source', source: 0, rotate: 0 }, annotations: false })
+    await vi.waitFor(() => expect(renders).toHaveLength(1))
+    expect(renders[0].annotationMode).toBe(AnnotationMode.DISABLE)
+    renders[0].finish()
+    await vi.waitFor(() => expect(setSpy).toHaveBeenCalledOnce())
+    expect(setSpy.mock.calls[0][0]).toMatch(/#s0r0n$/)
+  })
+
+  it('removes the canvas when its position switches to an empty page', async () => {
+    const { doc, renders } = fakeRenderDoc(1)
+    const { container, rerender } = mountEntry(doc, {})
+    await vi.waitFor(() => expect(renders).toHaveLength(1))
+    renders[0].finish()
+    await vi.waitFor(() => expect(container.querySelector('.page > canvas')).not.toBeNull())
+    await rerender({ entry: { kind: 'blank', width: 600, height: 800, rotate: 0 } })
+    expect(container.querySelector('.page > canvas')).toBeNull()
+  })
+})

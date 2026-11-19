@@ -2,6 +2,8 @@
   import { onDestroy, type Snippet } from 'svelte'
   import { AnnotationMode, type RenderTask } from 'pdfjs-dist'
   import type { RGB } from '../session/model'
+  import type { PageEntry } from '../session/pages'
+  import { entryOf, renderKey, sourceViewport } from './pageSource'
   import type { PdfDoc } from './pdfEngine'
   import TextLayer from './TextLayer.svelte'
   import { releaseCanvas, renderCache } from './renderCache'
@@ -11,6 +13,8 @@
     doc,
     cacheId,
     pageNumber,
+    entry,
+    annotations = true,
     pageSize,
     scale,
     left,
@@ -21,8 +25,16 @@
     doc: PdfDoc
     /** Render-cache namespace (the session id). */
     cacheId: string
-    /** 1-based, as PdfDoc.getPage expects. */
+    /** 1-based position in the page list. */
     pageNumber: number
+    /** What the page shows; default: file page `pageNumber`, unrotated. */
+    entry?: PageEntry
+    /**
+     * Whether pdf.js draws the file page's annotations (those it does not
+     * suppress). False for a duplicate: only the first occurrence of a file
+     * page keeps the file's annotations when saved.
+     */
+    annotations?: boolean
     /** Page size at scale 1, in points. */
     pageSize: { width: number; height: number }
     scale: number
@@ -33,6 +45,8 @@
     /** Later layers (annotation overlay) stacked above the canvas and text layer. */
     children?: Snippet
   } = $props()
+
+  const shows = $derived(entryOf(pageNumber, entry))
 
   let pageEl: HTMLDivElement
   /**
@@ -66,13 +80,23 @@
     // Off screen: free the page's operator lists and page-level objects in
     // pdf.js (document-level fonts stay; pdf.js defers this until a
     // still-running render has finished).
+    if (shows.kind !== 'source') return
     doc
-      .getPage(pageNumber)
+      .getPage(shows.source + 1)
       .then((page) => {
         if (!doc.destroyed) page.cleanup()
       })
       .catch(() => {})
   })
+
+  /** An empty page: no canvas (the page background is the paper). */
+  function hide() {
+    const old = shown
+    if (!old) return
+    shown = null
+    old.remove()
+    if (!renderCache.holds(old)) releaseCanvas(old)
+  }
 
   /** Swaps `c` in for the canvas on screen in one step: no blank frame. */
   function show(c: HTMLCanvasElement) {
@@ -86,8 +110,15 @@
 
   $effect(() => {
     void contextResets
+    const page = shows
+    const pdf = doc
+    if (page.kind !== 'source') {
+      hide()
+      return
+    }
     const rs = renderScale(pageSize.width, pageSize.height, scale, dpr)
-    const key = `${cacheId}:${pageNumber}@${rs}`
+    const key = renderKey(cacheId, pageNumber, rs, page, annotations)
+    const drawAnnotations = annotations
     const cached = renderCache.get(key)
     if (cached) {
       show(cached)
@@ -97,9 +128,9 @@
     let cancelled = false
     let task: RenderTask | null = null
     void (async () => {
-      const page = await doc.getPage(pageNumber)
+      const proxy = await pdf.getPage(page.source + 1)
       if (cancelled) return
-      const viewport = page.getViewport({ scale: rs })
+      const viewport = sourceViewport(proxy, page, rs)
       // Render off-screen so the previous (CSS-scaled) canvas stays visible meanwhile.
       const off = document.createElement('canvas')
       off.width = Math.floor(viewport.width)
@@ -113,7 +144,8 @@
       })
       try {
         // ENABLE_STORAGE: annotations the session manages are suppressed (noView).
-        task = page.render({ canvas: off, viewport, annotationMode: AnnotationMode.ENABLE_STORAGE })
+        const annotationMode = drawAnnotations ? AnnotationMode.ENABLE_STORAGE : AnnotationMode.DISABLE
+        task = proxy.render({ canvas: off, viewport, annotationMode })
         await task.promise
       } catch (e) {
         releaseCanvas(off)
@@ -128,7 +160,7 @@
       renderCache.set(key, off)
     })().catch((e: unknown) => {
       // Cancelled renders and renders of a closed tab's doc reject by design.
-      if (!cancelled && !doc.destroyed) console.error(`Failed to render page ${pageNumber}`, e)
+      if (!cancelled && !pdf.destroyed) console.error(`Failed to render page ${pageNumber}`, e)
     })
 
     return () => {
@@ -146,7 +178,7 @@
   style:width="{pageSize.width * scale}px"
   style:height="{pageSize.height * scale}px"
 >
-  <TextLayer {doc} {pageNumber} {scale} {selectionColor} />
+  <TextLayer {doc} {pageNumber} entry={shows} {scale} {selectionColor} />
   {@render children?.()}
 </div>
 
