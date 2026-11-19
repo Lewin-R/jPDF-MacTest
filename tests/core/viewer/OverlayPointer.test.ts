@@ -140,4 +140,28 @@ describe('Overlay pointer routing', () => {
     r.unmount()
     expect(frames.has(2)).toBe(false)
   })
+
+  it('re-sends the last pointer position as a move after a scroll when rescrollMoves is set', async () => {
+    for (const rescrollMoves of [true, false]) {
+      const { tool, events } = spyTool()
+      const rect = { left: 10, top: 20, width: 200, height: 200 }
+      const r = render(Overlay, { props: { pageNumber: 1, scale: 2, store: new AnnotationStore(), viewport: vp, tool, rescrollMoves } })
+      const svg = r.container.querySelector('svg')!
+      svg.getBoundingClientRect = () => ({ ...rect, right: rect.left + rect.width, bottom: rect.top + rect.height, x: rect.left, y: rect.top }) as DOMRect
+      svg.setPointerCapture = vi.fn()
+      await fireEvent.pointerDown(svg, { button: 0, clientX: 30, clientY: 60, pointerId: 1 })
+      await fireEvent.pointerMove(svg, { clientX: 30, clientY: 80, pointerId: 1 })
+      rect.top = -30
+      await fireEvent.scroll(window)
+      const moves = events.filter(([k]) => k === 'move')
+      if (rescrollMoves) {
+        expect(moves).toHaveLength(2)
+        expect(moves[1][1].screen).toEqual([20, 110])
+        expect(moves[1][1].native.clientY).toBe(80)
+      } else {
+        expect(moves).toHaveLength(1)
+      }
+      r.unmount()
+    }
+  })
 })

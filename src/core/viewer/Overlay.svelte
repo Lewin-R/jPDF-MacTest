@@ -63,6 +63,7 @@
     viewport,
     onpagemenu,
     frames,
+    rescrollMoves = false,
   }: {
     doc?: PdfDoc
     /** 1-based position in the page list; Annotation.page is 0-based. */
@@ -101,6 +102,11 @@
     onpagemenu?: (page: number, clientX: number, clientY: number, at?: PageMenuPoint) => void
     /** Registry of mounted pages' frames (see SessionToolState.frames): this page registers itself. */
     frames?: Map<number, () => PageFrame | null>
+    /**
+     * While a gesture runs, re-send its last pointer position as a move after
+     * every scroll (auto-scroll during a cross-page drag moves the page, not the pointer).
+     */
+    rescrollMoves?: boolean
   } = $props()
 
   let loaded = $state<PageViewport | null>(null)
@@ -166,6 +172,8 @@
    * and whether it is a right-button erase (handler = `eraser`, not `tool`).
    */
   let gesture: { pointerId: number; tool: ToolHandler; last: PagePointerEvent; erase: boolean } | null = null
+  /** Native event of the gesture's latest move (re-sent after a scroll, see rescrollMoves). */
+  let lastMove: PointerEvent | null = null
   /** A right-button erase is in progress: the overlay takes input and shows the eraser cursor. */
   let erasing = $state(false)
   const ERASER_CURSOR = eraserTool.cursor!({})
@@ -201,6 +209,7 @@
       if (activeErase === cancelErase) activeErase = null
     }
     gesture = null
+    lastMove = null
     erasing = false
     try {
       if (el?.hasPointerCapture?.(id)) el.releasePointerCapture(id)
@@ -277,6 +286,7 @@
   function onPointerMove(e: PointerEvent) {
     const g = forGesture(e)
     if (!g) return
+    lastMove = e
     // Right button released while another is still held: the erase ends here
     // (the pointerup only comes with the last button).
     if (gesture?.erase && (e.buttons & 2) === 0) {
@@ -347,6 +357,21 @@
       page.removeEventListener('pointerdown', onPageRightDown, { capture: true })
       page.removeEventListener('contextmenu', onContextMenu)
     }
+  })
+
+  /** A scroll during the gesture: the pointer now sits elsewhere on the page. */
+  function onScrollDuringGesture() {
+    if (!gesture || gesture.erase || !lastMove || !vp) return
+    if (gesture.tool !== handlerFor(false)) return
+    const pe = toPageEvent(lastMove, vp)
+    gesture.last = pe
+    gesture.tool.onPointerMove?.(pe)
+  }
+
+  $effect(() => {
+    if (!rescrollMoves) return
+    window.addEventListener('scroll', onScrollDuringGesture, true)
+    return () => window.removeEventListener('scroll', onScrollDuringGesture, true)
   })
 
   /** This page's viewport and client origin, for tools that move things between pages. */

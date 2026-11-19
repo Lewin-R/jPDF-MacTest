@@ -4,6 +4,7 @@
   import type { Annotation } from '../session/model'
   import { firstOccurrences } from '../session/pages'
   import type { DocumentSession } from '../session/session.svelte'
+  import { autoScrollSpeed } from './autoScroll'
   import { clampScale, contentWidth, pageLeft, visibleRange } from './layout'
   import Overlay from './Overlay.svelte'
   import PageView from './PageView.svelte'
@@ -75,6 +76,30 @@
       list.sort((a, b) => a - b)
     }
     return list
+  })
+
+  // Cross-page drag: scroll while the pointer is near the top/bottom edge.
+  $effect(() => {
+    if (!crossDrag) return
+    let pointerY: number | null = null
+    let frame = 0
+    const track = (e: PointerEvent) => {
+      pointerY = e.clientY
+    }
+    const step = () => {
+      if (pointerY !== null) {
+        const r = el.getBoundingClientRect()
+        const speed = autoScrollSpeed(pointerY, r.top, r.bottom)
+        if (speed !== 0) el.scrollTop += speed
+      }
+      frame = requestAnimationFrame(step)
+    }
+    window.addEventListener('pointermove', track, true)
+    frame = requestAnimationFrame(step)
+    return () => {
+      window.removeEventListener('pointermove', track, true)
+      cancelAnimationFrame(frame)
+    }
   })
 
   function onScroll() {
@@ -258,6 +283,7 @@
             {eraser}
             {onpagemenu}
             {frames}
+            rescrollMoves={!!crossDrag}
             cursor={panning ? 'grabbing' : spaceHeld ? 'grab' : cursor}
           />
         </PageView>
