@@ -1,7 +1,7 @@
 import { commands as defaultCommands, type CommandRegistry } from '../../core/registry/commands'
 import { keybindings as defaultKeybindings, type KeybindingRegistry } from '../../core/registry/keybindings'
 import { annotationKinds } from '../../core/registry/annotationKinds'
-import { addAnnotations, deleteAnnotations, flattenAnnotations, updateAnnotation } from '../../core/session/commands'
+import { addAnnotations, deleteAnnotations, flattenAnnotations, updateAnnotation, updateAnnotations } from '../../core/session/commands'
 import { isEditable, newId, type Annotation } from '../../core/session/model'
 import type { DocumentSession } from '../../core/session/session.svelte'
 import type { SessionToolState } from '../../core/session/toolState.svelte'
@@ -112,36 +112,46 @@ export function registerSelectionCommands(
 const withoutTime = (a: Annotation) => JSON.stringify({ ...a, modifiedAt: '' })
 
 /**
- * Commits an edit of a selected annotation (selection options) as one undo
- * step; no step when nothing changed. `after` is the annotation with the user's
- * changes: those fields (relative to the annotation as it is now) are applied
- * to the annotation as it is when the edit commits, so a change made meanwhile
- * is not overwritten. A text box whose font size changed is laid out again
- * (lines re-wrapped, height fitted), which needs its page's rotation. Failures
- * are reported to the user, never thrown.
+ * Commits edits of selected annotations (the selection's Style card) as one
+ * undo step; no step when nothing changed. Each of `afters` is an annotation
+ * with the user's changes: those fields (relative to the annotation as it is
+ * now) are applied to the annotation as it is when the edit commits, so a
+ * change made meanwhile is not overwritten. A text box whose font size
+ * changed is laid out again (lines re-wrapped, height fitted), which needs its
+ * page's rotation. Failures are reported to the user, never thrown.
  */
-export async function editSelected(session: DocumentSession, after: Annotation): Promise<void> {
+export async function editAnnotations(session: DocumentSession, afters: readonly Annotation[]): Promise<void> {
   try {
-    const before = session.store.get(after.id)
-    if (!before) return
-    const patch = Object.fromEntries(
-      Object.entries(after).filter(
-        ([k, v]) => JSON.stringify(v) !== JSON.stringify((before as unknown as Record<string, unknown>)[k]),
-      ),
-    )
-    const relayout = before.kind === 'freetext' && 'fontSize' in patch
-    const rotate = relayout ? await session.pageRotation(before.page) : 0
-    // The current version: the annotation may have changed (or gone) while waiting.
-    const current = session.store.get(after.id)
-    if (!current) return
-    let next = { ...current, ...patch } as Annotation
-    if (relayout && current.kind === 'freetext' && next.kind === 'freetext') {
-      next = layoutFreeText(next, next.text, rotate)
-    }
-    if (withoutTime(current) === withoutTime(next)) return
-    session.history.execute(updateAnnotation(current, { ...next, modifiedAt: new Date().toISOString() }))
+    const edits = afters.flatMap((after) => {
+      const before = session.store.get(after.id)
+      if (!before) return []
+      const patch = Object.fromEntries(
+        Object.entries(after).filter(
+          ([k, v]) => JSON.stringify(v) !== JSON.stringify((before as unknown as Record<string, unknown>)[k]),
+        ),
+      )
+      return [{ id: after.id, page: before.page, patch, relayout: before.kind === 'freetext' && 'fontSize' in patch }]
+    })
+    const rotations = await Promise.all(edits.map((e) => (e.relayout ? session.pageRotation(e.page) : 0)))
+    const now = new Date().toISOString()
+    const changes = edits.flatMap((e, i) => {
+      // The current version: the annotation may have changed (or gone) while waiting.
+      const current = session.store.get(e.id)
+      if (!current) return []
+      let next = { ...current, ...e.patch } as Annotation
+      if (e.relayout && next.kind === 'freetext') next = layoutFreeText(next, next.text, rotations[i])
+      if (withoutTime(current) === withoutTime(next)) return []
+      return [{ before: current, after: { ...next, modifiedAt: now } }]
+    })
+    if (changes.length === 1) session.history.execute(updateAnnotation(changes[0].before, changes[0].after))
+    else if (changes.length > 1) session.history.execute(updateAnnotations('Edit style', changes))
   } catch (e) {
-    console.error('Could not edit the selected annotation', e)
+    console.error('Could not edit the selected annotations', e)
     toasts.show('Could not apply the change', 'error')
   }
+}
+
+/** editAnnotations for one annotation. */
+export function editSelected(session: DocumentSession, after: Annotation): Promise<void> {
+  return editAnnotations(session, [after])
 }

@@ -8,7 +8,7 @@ import type { DocumentSession } from '../../../src/core/session/session.svelte'
 import { AnnotationStore } from '../../../src/core/session/store.svelte'
 import { toasts } from '../../../src/ui/toasts.svelte'
 import '../../../src/annotations'
-import { DUPLICATE_OFFSET, duplicatesOf, editSelected, registerSelectionCommands } from '../../../src/tools/select/commands'
+import { DUPLICATE_OFFSET, duplicatesOf, editAnnotations, editSelected, registerSelectionCommands } from '../../../src/tools/select/commands'
 import { boxHeight, layoutLines } from '../../../src/core/geometry/textLayout'
 
 const key = (init: KeyboardEventInit) => new KeyboardEvent('keydown', init)
@@ -221,5 +221,44 @@ describe('duplicate and flatten commands', () => {
     expect(c.id).not.toBe('h')
     expect(c.sourceRef).toBeNull()
     expect(c.modifiedAt).toBe('now')
+  })
+})
+
+describe('editAnnotations', () => {
+  const text = 'the quick brown fox jumps over'
+  const box = (id: string, page: number): FreeTextAnnotation => ({
+    id, page, sourceRef: null, modifiedAt: '', author: '', kind: 'freetext',
+    rect: [10, 70, 110, 90], text, lines: layoutLines(text, 10, 100), fontSize: 10,
+    textColor: [0, 0, 0], background: null, align: 'left',
+  })
+
+  function session(rotations: number[], ...list: FreeTextAnnotation[]) {
+    const store = new AnnotationStore()
+    store.load(list)
+    const history = new History(store)
+    const s = { store, history, pageRotation: async (i: number) => rotations[i] }
+    return s as unknown as DocumentSession
+  }
+
+  it('edits several boxes as one undo step, each laid out on its own page', async () => {
+    const a = box('a', 0)
+    const b = box('b', 1)
+    // Page 1 is turned 90°: the box's screen width is its PDF height (20).
+    const s = session([0, 90], a, b)
+    await editAnnotations(s, [{ ...a, fontSize: 20 }, { ...b, fontSize: 20 }])
+    const got = (id: string) => s.store.get(id) as FreeTextAnnotation
+    expect(got('a').lines).toEqual(layoutLines(text, 20, 100))
+    expect(got('b').lines).toEqual(layoutLines(text, 20, 20))
+    s.history.undo()
+    expect(s.store.get('a')).toEqual(a)
+    expect(s.store.get('b')).toEqual(b)
+    expect(s.history.canUndo).toBe(false)
+  })
+
+  it('adds no undo step when nothing changed', async () => {
+    const a = box('a', 0)
+    const s = session([0], a)
+    await editAnnotations(s, [{ ...a }])
+    expect(s.history.canUndo).toBe(false)
   })
 })
