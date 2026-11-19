@@ -9,4 +9,9 @@ describe('EmptyState', () => {
     await fireEvent.click(getByRole('button', { name: 'Open PDF' }))
     expect(onOpen).toHaveBeenCalledOnce()
   })
+
+  it('shows the full juliePDF logo', () => {
+    const { getByText } = render(EmptyState, { props: { onOpen: vi.fn() } })
+    expect(getByText('julie').className).toContain('logo-j')
+  })
 })

@@ -5,7 +5,7 @@
 </script>
 
 <div class="empty">
-  <Logo size="lg" />
+  <Logo size="lg" full />
   <button type="button" class="open" onclick={() => onOpen()}>Open PDF</button>
   <p class="hint">or drop a file here · Ctrl+O</p>
 </div>

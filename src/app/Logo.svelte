@@ -1,9 +1,14 @@
 <script lang="ts">
-  let { size = 'sm' }: { size?: 'sm' | 'lg' } = $props()
+  /**
+   * App wordmark. The compact "jPDF" fits the title bar; `full` spells out
+   * "juliePDF" for roomier spots like the start page. The accent span covers
+   * the whole "julie" so both variants read as the same mark.
+   */
+  let { size = 'sm', full = false }: { size?: 'sm' | 'lg'; full?: boolean } = $props()
 </script>
 
 <span class="logo" class:lg={size === 'lg'}
-  ><span class="logo-j">j</span><span class="logo-pdf">PDF</span></span
+  ><span class="logo-j">{full ? 'julie' : 'j'}</span><span class="logo-pdf">PDF</span></span
 >
 
 <style>
