@@ -2,7 +2,9 @@ import { fireEvent, render, within } from '@testing-library/svelte'
 import { tick } from 'svelte'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Toolbar from '../../src/toolbar/Toolbar.svelte'
-import { fakeSetup } from './fakeTools'
+import { fakeSetup, fakeTool } from './fakeTools'
+import SelectionOptions from '../../src/tools/select/SelectionOptions.svelte'
+import type { HighlightAnnotation } from '../../src/core/session/model'
 
 beforeEach(() => vi.useFakeTimers())
 afterEach(() => vi.useRealTimers())
@@ -91,6 +93,35 @@ describe('Toolbar', () => {
     await fireEvent.click(toolButtons(r)[1])
     await fireEvent.click(toolButtons(r)[1])
     expect(within(r.getByRole('dialog', { name: 'Hand options' })).getByText('No options')).toBeTruthy()
+  })
+
+  it('shows SelectionOptions instead of options while something is selected; slider edits commit on release', async () => {
+    const setup = fakeSetup([{ instanceId: 's1', type: 'select', settings: {} }])
+    setup.registry.register(fakeTool('select', { Options: null, allowMultipleInstances: false, SelectionOptions }))
+    const selected: HighlightAnnotation = {
+      id: 'h', page: 0, sourceRef: null, modifiedAt: '', author: '', kind: 'highlight',
+      quads: [[0, 10, 10, 10, 0, 0, 10, 0]], color: [1, 1, 0], opacity: 0.4,
+    }
+    const onEditSelected = vi.fn()
+    const r = render(Toolbar, { props: { registry: setup.registry, store: setup.store, selected, onEditSelected } })
+    const button = within(r.getByRole('toolbar')).getByRole('button', { name: 'Select' })
+    await fireEvent.click(button)
+    const flyout = r.getByRole('dialog', { name: 'Select options' })
+    await fireEvent.click(within(flyout).getByRole('radio', { name: '#ff4081' }))
+    expect(onEditSelected).toHaveBeenCalledOnce()
+    expect(onEditSelected.mock.calls[0][0]).toMatchObject({ id: 'h', color: [1, 0.251, 0.506], opacity: 0.4 })
+
+    const slider = within(flyout).getByRole('slider', { name: 'Opacity' }) as HTMLInputElement
+    slider.value = '70'
+    await fireEvent.input(slider)
+    expect(onEditSelected).toHaveBeenCalledOnce()
+    expect(within(flyout).getByText('70%')).toBeTruthy()
+    await fireEvent.change(slider)
+    expect(onEditSelected).toHaveBeenCalledTimes(2)
+    expect(onEditSelected.mock.calls[1][0]).toMatchObject({ opacity: 0.7, color: [1, 1, 0] })
+
+    await r.rerender({ registry: setup.registry, store: setup.store, selected: null, onEditSelected })
+    expect(within(r.getByRole('dialog', { name: 'Select options' })).getByText('No options')).toBeTruthy()
   })
 
   it('"+" opens picker listing registered tools with description', async () => {

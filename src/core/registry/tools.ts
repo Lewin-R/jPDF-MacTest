@@ -30,6 +30,17 @@ export interface ToolHandler {
    * input only on pages without text. Read reactively by the viewer.
    */
   textSelection?(): { color: RGB } | null
+  /**
+   * Hover-based text pass-through (select tool): whether pointer input at `e`
+   * should go through to the text layer because nothing of the tool's is
+   * there. Evaluated as the pointer hovers a page that has (or may have) text,
+   * while no button is pressed; a press where it returned true goes to the
+   * text layer (native text selection) and is reported via onPassThroughDown
+   * instead of onPointerDown.
+   */
+  passThroughAt?(e: PagePointerEvent): boolean
+  /** A press that passThroughAt let through to the text layer (e.g. deselect). */
+  onPassThroughDown?(e: PagePointerEvent): void
 }
 
 /**
@@ -69,6 +80,11 @@ export interface ToolDefinition<S = any> {
   Icon: Component<{ settings: S; size: number }>
   defaultSettings: S
   Options: Component<{ settings: S; update(patch: Partial<S>): void }> | null
+  /**
+   * Shown in the tool's flyout instead of Options while an annotation is
+   * selected: edits it, `update` committing one undo step per call.
+   */
+  SelectionOptions?: Component<{ annotation: Annotation; update(after: Annotation): void }>
   cursor?(settings: S): string
   allowMultipleInstances: boolean
   createHandler(ctx: ToolContext, settings: () => S): ToolHandler

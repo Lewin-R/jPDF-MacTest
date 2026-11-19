@@ -6,6 +6,7 @@
     value,
     format = (v: number) => String(v),
     onchange,
+    oncommit,
     label,
   }: {
     min: number
@@ -13,7 +14,10 @@
     step?: number
     value: number
     format?(v: number): string
+    /** Every value while dragging. */
     onchange(v: number): void
+    /** The final value: on release (or a keyboard step). */
+    oncommit?(v: number): void
     label: string
   } = $props()
 
@@ -35,6 +39,7 @@
     aria-valuetext={format(value)}
     style:--pct="{pct}%"
     oninput={(e) => onchange(Number((e.currentTarget as HTMLInputElement).value))}
+    onchange={(e) => oncommit?.(Number((e.currentTarget as HTMLInputElement).value))}
   />
 </label>
 

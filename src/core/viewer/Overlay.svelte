@@ -9,6 +9,7 @@
   import { pageHasText } from './textContent'
   import { clientToPdf as mapClientToPdf } from './viewerMath'
   import TextEditor from '../../annotations/freetext/Editor.svelte'
+  import { handlePoint, handlesFor, toScreenRect } from '../../tools/select/handles'
 
   let {
     doc,
@@ -20,6 +21,7 @@
     tool = null,
     cursor,
     textEdit = null,
+    selection = [],
     viewport,
   }: {
     doc?: PdfDoc
@@ -41,6 +43,8 @@
      * (a sibling, so its pointer input never reaches the tool).
      */
     textEdit?: TextEdit | null
+    /** Selected annotation ids: outlined (with resize handles) when on this page. */
+    selection?: readonly string[]
     /** Overrides the viewport derived from doc (tests). */
     viewport?: PageViewport
   } = $props()
@@ -53,7 +57,12 @@
    * A text-selecting tool (marker text mode) on a page that has, or may have,
    * text: pointer input goes through to the text layer underneath.
    */
-  const passThrough = $derived(!!tool?.textSelection?.() && hasText !== false)
+  const textSelecting = $derived(!!tool?.textSelection?.() && hasText !== false)
+  /** A tool that lets input through where nothing of its is under the pointer (select). */
+  const hoverPassing = $derived(!!tool?.passThroughAt && hasText !== false)
+  /** tool.passThroughAt at the last hover position (see onHover). */
+  let passAt = $state(true)
+  const passThrough = $derived(textSelecting || (hoverPassing && passAt))
 
   $effect(() => {
     if (viewport || !doc) return
@@ -78,6 +87,15 @@
   })
 
   const annotations = $derived(store.byPage(pageNumber - 1))
+
+  /** Screen box and handles of the selected annotation if it is drawn on this page (its preview while dragged). */
+  const selected = $derived.by(() => {
+    const id = selection[0]
+    if (!vp || id === undefined) return null
+    const a = preview?.id === id ? preview : hidden?.has(id) ? undefined : store.get(id)
+    if (!a || a.page !== pageNumber - 1) return null
+    return { rect: toScreenRect(annotationKinds.get(a.kind).bounds(a), vp), handles: handlesFor(a) }
+  })
 
   let el: SVGSVGElement
   /**
@@ -160,6 +178,41 @@
   $effect(() => {
     const current = tool // read first: it is this effect's only dependency
     if (gesture && gesture.tool !== current) dropGesture()
+    passAt = true
+  })
+
+  /**
+   * Hover pass-through: decides, before a press, whether it goes to the tool
+   * or through to the text layer. Listens on the page (the overlay itself gets
+   * no events while passing through); only while no button is pressed, so a
+   * text selection dragged across an annotation keeps going.
+   */
+  function onHover(e: PointerEvent) {
+    if (!tool?.passThroughAt || !vp || gesture || e.buttons !== 0) return
+    passAt = tool.passThroughAt(toPageEvent(e, vp))
+  }
+
+  /** A press that went through to the text layer (not to the overlay or a text box editor). */
+  function onPagePointerDown(e: PointerEvent) {
+    if (!tool?.passThroughAt || !hoverPassing || !passAt || !vp || e.button !== 0) return
+    const t = e.target
+    if (t instanceof Node && el.contains(t)) return
+    if (t instanceof HTMLElement && t.closest('textarea')) return
+    const pe = toPageEvent(e, vp)
+    tool.onPassThroughDown?.(pe)
+    // No hover before the press (touch): the next press goes where this one was.
+    passAt = tool.passThroughAt(pe)
+  }
+
+  $effect(() => {
+    const page = el.parentElement
+    if (!page) return
+    page.addEventListener('pointermove', onHover)
+    page.addEventListener('pointerdown', onPagePointerDown)
+    return () => {
+      page.removeEventListener('pointermove', onHover)
+      page.removeEventListener('pointerdown', onPagePointerDown)
+    }
   })
 
   // Unmounted mid-stroke (page virtualised away, tab closed): cancel the stroke.
@@ -201,6 +254,16 @@
       {@const K = annotationKinds.get(preview.kind)}
       <K.Render a={preview} {vp} selected={false} />
     {/if}
+    {#if selected}
+      {@const r = selected.rect}
+      <g class="selection">
+        <rect class="selection-box" x={r[0]} y={r[1]} width={r[2] - r[0]} height={r[3] - r[1]} />
+        {#each selected.handles as h (h)}
+          {@const [hx, hy] = handlePoint(r, h)}
+          <rect class="handle" data-handle={h} x={hx - 4} y={hy - 4} width="8" height="8" />
+        {/each}
+      </g>
+    {/if}
   {/if}
 </svg>
 {#if vp && textEdit}
@@ -214,6 +277,19 @@
     overflow: hidden;
     /* Click-through unless a tool takes pointer input. */
     pointer-events: none;
+  }
+  .selection {
+    pointer-events: none;
+  }
+  .selection-box {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 1;
+  }
+  .handle {
+    fill: var(--bg);
+    stroke: var(--accent);
+    stroke-width: 1;
   }
   .interactive {
     pointer-events: auto;

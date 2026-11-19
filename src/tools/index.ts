@@ -3,8 +3,11 @@ import { eraserTool } from './eraser'
 import { handTool } from './hand'
 import { markerTool } from './marker'
 import { penTool } from './pen'
+import { selectTool } from './select'
 import { textTool } from './text'
 
+// First: the default tool, listed first in the tool picker.
+toolRegistry.register(selectTool)
 toolRegistry.register(penTool)
 toolRegistry.register(handTool)
 toolRegistry.register(eraserTool)

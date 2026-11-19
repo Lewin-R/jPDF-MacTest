@@ -7,11 +7,15 @@
     value,
     presets,
     onchange,
+    oncommit,
     label = 'Colour',
   }: {
     value: RGB
     presets: RGB[]
+    /** Every colour picked, including each step while the custom picker is open. */
     onchange(v: RGB): void
+    /** The final colour: a preset click, or the custom picker's committed value. */
+    oncommit?(v: RGB): void
     label?: string
   } = $props()
 
@@ -21,6 +25,16 @@
   function onCustom(e: Event) {
     const rgb = hexToRgb((e.currentTarget as HTMLInputElement).value)
     if (rgb) onchange(rgb)
+  }
+
+  function onCustomCommit(e: Event) {
+    const rgb = hexToRgb((e.currentTarget as HTMLInputElement).value)
+    if (rgb) oncommit?.(rgb)
+  }
+
+  function pick(p: RGB) {
+    onchange(p)
+    oncommit?.(p)
   }
 </script>
 
@@ -35,7 +49,7 @@
       aria-label={hex}
       title={hex}
       style:--swatch={hex}
-      onclick={() => onchange(p)}
+      onclick={() => pick(p)}
     ></button>
   {/each}
   <label
@@ -45,7 +59,7 @@
     style:--swatch={isCustom ? current : 'transparent'}
   >
     {#if !isCustom}<Pipette size={13} />{/if}
-    <input type="color" aria-label="Custom colour" value={current} oninput={onCustom} />
+    <input type="color" aria-label="Custom colour" value={current} oninput={onCustom} onchange={onCustomCommit} />
   </label>
 </div>
 

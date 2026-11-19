@@ -18,6 +18,7 @@
     toolPreview = null,
     toolHidden,
     toolTextEdit = null,
+    toolSelection = [],
   }: {
     session: DocumentSession
     /** Active tool's handler (see ToolRouter); page overlays forward pointer input to it. */
@@ -29,6 +30,8 @@
     toolHidden?: ReadonlySet<string>
     /** The tool's open text box editor, drawn on its page. */
     toolTextEdit?: TextEdit | null
+    /** Selected annotation ids (outlined by the overlays). */
+    toolSelection?: readonly string[]
   } = $props()
 
   const WHEEL_COMMIT_MS = 150
@@ -225,6 +228,7 @@
             preview={toolPreview?.page === i ? toolPreview : null}
             hidden={toolHidden}
             textEdit={toolTextEdit?.draft.page === i ? toolTextEdit : null}
+            selection={toolSelection}
             {tool}
             cursor={panning ? 'grabbing' : spaceHeld ? 'grab' : cursor}
           />

@@ -4,6 +4,7 @@
   import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal'
   import Trash2 from '@lucide/svelte/icons/trash-2'
   import { toolRegistry, type ToolRegistry } from '../core/registry/tools'
+  import type { Annotation } from '../core/session/model'
   import { settings, type SettingsStore } from '../core/settings/settings.svelte'
   import ContextMenu, { type MenuItem } from '../ui/ContextMenu.svelte'
   import Flyout from '../ui/Flyout.svelte'
@@ -12,7 +13,19 @@
   import ToolButton from './ToolButton.svelte'
   import ToolPicker from './ToolPicker.svelte'
 
-  let { registry = toolRegistry, store = settings }: { registry?: ToolRegistry; store?: SettingsStore } = $props()
+  let {
+    registry = toolRegistry,
+    store = settings,
+    selected = null,
+    onEditSelected = () => {},
+  }: {
+    registry?: ToolRegistry
+    store?: SettingsStore
+    /** The selected annotation: tools with SelectionOptions show those in their flyout instead of Options. */
+    selected?: Annotation | null
+    /** Commits an edit of `selected` (one undo step). */
+    onEditSelected?(after: Annotation): void
+  } = $props()
 
   // Instances of unregistered tool types stay in the settings but are not shown.
   const visible = $derived(
@@ -169,7 +182,9 @@
 {#if flyout && flyoutEntry}
   {@const { def, instance } = flyoutEntry}
   <Flyout anchor={flyout.anchor} label="{def.displayName} options" title={def.displayName} onclose={() => (flyout = null)}>
-    {#if def.Options}
+    {#if def.SelectionOptions && selected}
+      <def.SelectionOptions annotation={selected} update={onEditSelected} />
+    {:else if def.Options}
       <def.Options
         settings={instance.settings}
         update={(patch: object) => store.updateSettings(instance.instanceId, patch)}

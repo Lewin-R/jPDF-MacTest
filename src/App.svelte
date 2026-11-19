@@ -20,12 +20,25 @@
   import Toolbar from './toolbar/Toolbar.svelte'
   import { activeTool } from './toolbar/activeTool.svelte'
   import { registerToolShortcuts } from './toolbar/toolShortcuts'
+  import { editSelected, registerSelectionCommands } from './tools/select/commands'
+  import type { Annotation } from './core/session/model'
   import Toast from './ui/Toast.svelte'
   import { toasts } from './ui/toasts.svelte'
 
   const router = new ToolRouter(() => activeTool.current, () => tabs.active)
   /** The toolbar shows once the persisted layout is loaded (no flash of defaults). */
   let settingsLoaded = $state(false)
+
+  /** The selected annotation of the active tab (edited through the select tool's flyout). */
+  const selectedAnnotation = $derived.by(() => {
+    const s = tabs.active
+    const id = s ? router.stateOf(s).selection[0] : undefined
+    return (s && id !== undefined && s.store.get(id)) || null
+  })
+
+  function editSelection(after: Annotation) {
+    if (tabs.active) void editSelected(tabs.active, after)
+  }
 
   function closeActive() {
     if (tabs.activeId) return tabs.close(tabs.activeId)
@@ -104,7 +117,11 @@
     const disposeView = registerViewCommands(() => tabs.active)
     const disposeEdit = registerEditCommands(() => tabs.active)
     const disposeSave = registerSaveCommands(() => tabs.active)
+    const disposeSelection = registerSelectionCommands(() =>
+      tabs.active ? { session: tabs.active, state: router.stateOf(tabs.active) } : null,
+    )
     return () => {
+      disposeSelection()
       disposeSave()
       disposeCloseGuard()
       disposeToolShortcuts()
@@ -133,6 +150,7 @@
           toolPreview={router.stateOf(tabs.active).preview}
           toolHidden={router.stateOf(tabs.active).hidden}
           toolTextEdit={router.stateOf(tabs.active).textEdit}
+          toolSelection={router.stateOf(tabs.active).selection}
         />
       {/key}
     {:else}
@@ -140,7 +158,7 @@
     {/if}
   </main>
   <aside class="toolbar-region">
-    {#if settingsLoaded}<Toolbar />{/if}
+    {#if settingsLoaded}<Toolbar selected={selectedAnnotation} onEditSelected={editSelection} />{/if}
   </aside>
   <div class="statusbar-region"><StatusBar session={tabs.active} /></div>
 </div>
