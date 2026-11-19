@@ -50,7 +50,10 @@
   import { pageHasText } from './textContent'
   import { clientToPdf as mapClientToPdf } from './viewerMath'
   import TextEditor from '../../annotations/freetext/Editor.svelte'
-  import { handlePoint, handlesFor, toScreenRect } from '../../tools/select/handles'
+  import {
+    HANDLE_PILL, HANDLE_PILL_WIDTH, HANDLE_RADIUS, HANDLE_TOLERANCE_PX, handleAt, handlePoint, handlesFor, isCorner, toScreenRect,
+    type Handle,
+  } from '../../tools/select/handles'
   import { eraserTool } from '../../tools/eraser'
 
   let {
@@ -134,6 +137,8 @@
   const hoverPassing = $derived(!!tool?.passThroughAt && hasText !== false)
   /** tool.passThroughAt at the last hover position (see onHover). */
   let passAt = $state(true)
+  /** The resize handle under the pointer (drawn larger); kept while it is dragged. */
+  let hoverHandle = $state<Handle | null>(null)
   const passThrough = $derived(textSelecting || (hoverPassing && passAt))
 
   $effect(() => {
@@ -390,8 +395,20 @@
    * text selection dragged across an annotation keeps going.
    */
   function onHover(e: PointerEvent) {
-    if (!tool?.passThroughAt || !vp || gesture || e.buttons !== 0) return
+    // While dragging, the grabbed handle stays enlarged.
+    if (gesture) return
+    hoverHandle = vp && e.buttons === 0 ? handleUnder(toPageEvent(e, vp).screen) : null
+    if (!tool?.passThroughAt || !vp || e.buttons !== 0) return
     passAt = tool.passThroughAt(toPageEvent(e, vp))
+  }
+
+  /** The selection's resize handle at `p` (viewport px), if any. */
+  function handleUnder(p: Point): Handle | null {
+    return selected ? handleAt(selected.rect, p, HANDLE_TOLERANCE_PX, selected.handles, HANDLE_PILL) : null
+  }
+
+  function onPageLeave() {
+    if (!gesture) hoverHandle = null
   }
 
   /** A press that went through to the text layer (not to the overlay or a text box editor). */
@@ -410,11 +427,13 @@
     const page = el.parentElement
     if (!page) return
     page.addEventListener('pointermove', onHover)
+    page.addEventListener('pointerleave', onPageLeave)
     page.addEventListener('pointerdown', onPagePointerDown)
     page.addEventListener('pointerdown', onPageRightDown, { capture: true })
     page.addEventListener('contextmenu', onContextMenu)
     return () => {
       page.removeEventListener('pointermove', onHover)
+      page.removeEventListener('pointerleave', onPageLeave)
       page.removeEventListener('pointerdown', onPagePointerDown)
       page.removeEventListener('pointerdown', onPageRightDown, { capture: true })
       page.removeEventListener('contextmenu', onContextMenu)
@@ -524,7 +543,24 @@
         <rect class="selection-box" x={r[0]} y={r[1]} width={r[2] - r[0]} height={r[3] - r[1]} />
         {#each selected.handles as h (h)}
           {@const [hx, hy] = handlePoint(r, h)}
-          <rect class="handle" data-handle={h} x={hx - 4} y={hy - 4} width="8" height="8" />
+          {#if isCorner(h)}
+            <circle class="handle" class:hover={hoverHandle === h} data-handle={h} cx={hx} cy={hy} r={HANDLE_RADIUS} />
+          {:else}
+            <!-- A pill lying along its edge. -->
+            {@const along = h === 'n' || h === 's'}
+            {@const w = along ? HANDLE_PILL : HANDLE_PILL_WIDTH}
+            {@const ht = along ? HANDLE_PILL_WIDTH : HANDLE_PILL}
+            <rect
+              class="handle"
+              class:hover={hoverHandle === h}
+              data-handle={h}
+              x={hx - w / 2}
+              y={hy - ht / 2}
+              width={w}
+              height={ht}
+              rx={HANDLE_PILL_WIDTH / 2}
+            />
+          {/if}
         {/each}
       </g>
     {/if}
@@ -550,12 +586,12 @@
   }
   .selection-box {
     fill: none;
-    stroke: var(--accent);
-    stroke-width: 1;
+    stroke: var(--page-accent);
+    stroke-width: 1.5;
   }
   .member-box {
     fill: none;
-    stroke: var(--accent);
+    stroke: var(--page-accent);
     stroke-width: 1;
     stroke-dasharray: 3 3;
     opacity: 0.7;
@@ -565,10 +601,25 @@
     stroke-dasharray: 4 3;
     pointer-events: none;
   }
+  /* White with a blue outline: visible on light pages and on dark drawings. */
   .handle {
-    fill: var(--bg);
-    stroke: var(--accent);
-    stroke-width: 1;
+    fill: #ffffff;
+    stroke: var(--page-accent);
+    stroke-width: 1.5;
+    transform-box: fill-box;
+    transform-origin: center;
+    transition:
+      transform 120ms ease-out,
+      stroke var(--transition);
+  }
+  .handle.hover {
+    transform: scale(1.4);
+    stroke: var(--page-accent-hover);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .handle {
+      transition: none;
+    }
   }
   .interactive {
     pointer-events: auto;

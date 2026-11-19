@@ -129,3 +129,57 @@ describe('select tool: right-click', () => {
     expect(t.state.selection).toEqual([])
   })
 })
+
+describe('select tool: only the selection moves', () => {
+  it('a stationary click selects an annotation without moving it', () => {
+    const t = setup([sq('a', 20, 20)])
+    t.h.onPointerDown!(ev([25, 25]))
+    expect(t.state.selection).toEqual([])
+    t.h.onPointerMove!(ev([25.5, 25]))
+    t.h.onPointerUp!(ev([25.5, 25]))
+    expect(t.state.selection).toEqual(['a'])
+    expect(t.store.get('a')).toEqual(sq('a', 20, 20))
+    expect(t.scrollBy).not.toHaveBeenCalled()
+  })
+
+  it('a drag starting on an unselected annotation pans and leaves it alone', () => {
+    const t = setup([sq('a', 20, 20), sq('b', 50, 20)])
+    t.state.selection = ['b']
+    t.h.onPointerDown!(ev([25, 25]))
+    t.h.onPointerMove!(ev([35, 25]))
+    t.h.onPointerMove!(ev([45, 25]))
+    // From the press: 20px, then 20px more, to the right.
+    expect(t.scrollBy.mock.calls).toEqual([[-20, -0], [-20, -0]])
+    t.h.onPointerUp!(ev([45, 25]))
+    expect(t.store.get('a')).toEqual(sq('a', 20, 20))
+    expect(t.state.selection).toEqual(['b'])
+  })
+
+  it('once selected, holding and dragging it moves it', () => {
+    const t = setup([sq('a', 20, 20)])
+    t.h.onPointerDown!(ev([25, 25]))
+    t.h.onPointerUp!(ev([25, 25]))
+    t.h.onPointerDown!(ev([25, 25]))
+    t.h.onPointerMove!(ev([35, 30]))
+    t.h.onPointerUp!(ev([35, 30]))
+    expect((t.store.get('a') as ShapeAnnotation).rect).toEqual([30, 25, 40, 35])
+    expect(t.scrollBy).not.toHaveBeenCalled()
+  })
+
+  it('shows the move cursor over the selection only', () => {
+    const t = setup([sq('a', 20, 20), sq('b', 50, 20)])
+    t.state.selection = ['a']
+    t.h.onHover!(ev([25, 25]))
+    expect(t.state.cursor).toBe('move')
+    t.h.onHover!(ev([55, 25]))
+    expect(t.state.cursor).toBeNull()
+  })
+
+  it('a cancelled press on an annotation neither selects nor pans', () => {
+    const t = setup([sq('a', 20, 20)])
+    t.h.onPointerDown!(ev([25, 25]))
+    t.h.onPointerCancel!(ev([25, 25]))
+    t.h.onPointerUp!(ev([25, 25]))
+    expect(t.state.selection).toEqual([])
+  })
+})

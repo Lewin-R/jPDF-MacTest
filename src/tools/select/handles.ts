@@ -10,6 +10,22 @@ import type { Annotation, Point, Rect } from '../../core/session/model'
 export type Handle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w'
 
 export const ALL_HANDLES: readonly Handle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
+
+/**
+ * How handles are drawn (screen px): corners are circles of HANDLE_RADIUS,
+ * edges pills HANDLE_PILL long along their edge and HANDLE_PILL_WIDTH across.
+ */
+export const HANDLE_RADIUS = 4.5
+export const HANDLE_PILL = 21
+export const HANDLE_PILL_WIDTH = 6
+/**
+ * Screen pixels around a handle's centre that grab it. Along its edge a pill
+ * grabs over its whole length (see handleAt), which is longer.
+ */
+export const HANDLE_TOLERANCE_PX = 6
+
+/** Whether `h` is a corner (drawn as a circle) rather than an edge (a pill). */
+export const isCorner = (h: Handle): boolean => h.length === 2
 const WIDTH_HANDLES: readonly Handle[] = ['e', 'w']
 const NO_HANDLES: readonly Handle[] = []
 
@@ -94,21 +110,27 @@ export function keepAspect(box: Rect, r: Rect, h: Handle, bounds: Rect, minSize:
 /**
  * The handle of `r` (y-down) whose centre is within `tolerancePt` of `p` on
  * both axes (the nearest when several are), among `allowed`; null if none.
- * Units are those of `r` and `p`.
+ * Edge handles reach `edgeLength / 2` along their edge when that is more
+ * (a long pill grabs over its whole length). Units are those of `r` and `p`.
  */
 export function handleAt(
   r: Rect,
   p: Point,
   tolerancePt: number,
   allowed: readonly Handle[] = ALL_HANDLES,
+  edgeLength = 0,
 ): Handle | null {
   let best: Handle | null = null
   let bestDist = Infinity
+  const along = Math.max(tolerancePt, edgeLength / 2)
   for (const h of allowed) {
     const [hx, hy] = handlePoint(r, h)
     const ax = Math.abs(p[0] - hx)
     const ay = Math.abs(p[1] - hy)
-    if (ax > tolerancePt || ay > tolerancePt) continue
+    // n/s pills lie along x, e/w pills along y.
+    const tx = h === 'n' || h === 's' ? along : tolerancePt
+    const ty = h === 'e' || h === 'w' ? along : tolerancePt
+    if (ax > tx || ay > ty) continue
     const d = Math.hypot(ax, ay)
     if (d < bestDist) {
       best = h

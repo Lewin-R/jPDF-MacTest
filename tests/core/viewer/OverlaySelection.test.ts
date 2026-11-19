@@ -44,7 +44,9 @@ describe('Overlay selection', () => {
     expect(attrs(container.querySelector('.selection-box'))).toEqual([20, 20, 100, 40])
     const handles = [...container.querySelectorAll('.handle')]
     expect(handles.map((h) => h.getAttribute('data-handle'))).toEqual(['e', 'w'])
-    expect(attrs(handles[0])).toEqual([116, 36, 8, 8])
+    // The east edge's handle: an upright pill (6 x 21, round ends) centred on (120, 40).
+    expect(attrs(handles[0])).toEqual([117, 29.5, 6, 21])
+    expect(handles[0].getAttribute('rx')).toBe('3')
   })
 
   it('gives ink all eight handles and highlights none', () => {
@@ -57,6 +59,33 @@ describe('Overlay selection', () => {
     const other = mount({ selection: ['h'] }, [hl])
     expect(other.container.querySelector('.selection-box')).not.toBeNull()
     expect(other.container.querySelectorAll('.handle')).toHaveLength(0)
+  })
+
+  it('draws corners as circles and edges as pills lying along their edge', () => {
+    const { container } = mount({ selection: ['i'] })
+    // Ink bounds [19, 19, 41, 41] → screen [38, 118, 82, 162].
+    const nw = container.querySelector('[data-handle="nw"]')!
+    expect(nw.tagName.toLowerCase()).toBe('circle')
+    expect(['cx', 'cy', 'r'].map((k) => Number(nw.getAttribute(k)))).toEqual([38, 118, 4.5])
+    const n = container.querySelector('[data-handle="n"]')!
+    expect(n.tagName.toLowerCase()).toBe('rect')
+    expect(attrs(n)).toEqual([49.5, 115, 21, 6])
+  })
+
+  it('enlarges the handle under the pointer, and lets go when the pointer leaves', async () => {
+    const { container } = mount({ selection: ['a'] })
+    const page = container
+    const east = () => container.querySelector('[data-handle="e"]')!
+    const west = () => container.querySelector('[data-handle="w"]')!
+    await fireEvent.pointerMove(page, { clientX: 121, clientY: 44, buttons: 0 })
+    expect(east().classList.contains('hover')).toBe(true)
+    expect(west().classList.contains('hover')).toBe(false)
+    await fireEvent.pointerMove(page, { clientX: 70, clientY: 40, buttons: 0 })
+    expect(east().classList.contains('hover')).toBe(false)
+    await fireEvent.pointerMove(page, { clientX: 20, clientY: 40, buttons: 0 })
+    expect(west().classList.contains('hover')).toBe(true)
+    await fireEvent.pointerLeave(page)
+    expect(west().classList.contains('hover')).toBe(false)
   })
 
   it('follows the dragged preview, and draws nothing for a hidden selection or another page', () => {

@@ -16,6 +16,13 @@
 
   /* PDF pages are paper, not UI chrome. */
   --page-bg: #ffffff;
+  /*
+   * Accent for what is drawn on pages (selection, handles, text box editor):
+   * pages are mostly light, where the amber --accent of the dark chrome is
+   * hard to see.
+   */
+  --page-accent: #4f6ef7;
+  --page-accent-hover: #3b5bf0;
   --page-shadow: 0 1px 3px rgba(0, 0, 0, 0.35), 0 6px 18px rgba(0, 0, 0, 0.25);
 
   /* The one soft shadow for flyouts, menus, modals and toasts. */

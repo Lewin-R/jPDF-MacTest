@@ -126,6 +126,7 @@ describe('select tool', () => {
 
   it('drag previews the move live and commits one update with translated geometry', () => {
     const t = setup([box('a', [10, 10, 100, 50])])
+    t.state.selection = ['a'] // only the selected element moves
     t.h.onPointerDown!(ev([20, 20]))
     t.h.onPointerMove!(ev([25, 22]))
     expect(t.state.hidden).toEqual(['a'])
@@ -152,6 +153,7 @@ describe('select tool', () => {
 
   it('moves ink: kept on the page sideways, at most half out at the top of the first page', () => {
     const t = setup([ink('i', [[[20, 20], [40, 30]]])])
+    t.state.selection = ['i']
     t.drag([30, 25], [-100, 500])
     const a = t.store.get('i') as InkAnnotation
     // Bounds [19, 19, 41, 31]: left edge on x 0, top 6pt (half its height) above the page.
@@ -161,6 +163,7 @@ describe('select tool', () => {
   it('drags an image over the bottom edge onto the next page as one undo step', () => {
     const im = { ...base, id: 'im', kind: 'image', rect: [20, 10, 40, 30], image: { width: 1, height: 1, png: '' } } as ImageAnnotation
     const t = setup([im], 2)
+    t.state.selection = ['im']
     t.h.onPointerDown!(ev([30, 20]))
     t.h.onPointerMove!(ev([30, 15]))
     expect(t.state.crossDrag).toEqual({ page: 0 })
@@ -184,6 +187,7 @@ describe('select tool', () => {
   it('a dropped element stays cut off by the page edge', () => {
     const im = { ...base, id: 'im', kind: 'image', rect: [20, 10, 40, 30], image: { width: 1, height: 1, png: '' } } as ImageAnnotation
     const t = setup([im], 2)
+    t.state.selection = ['im']
     t.drag([30, 20], [30, 15], [30, 5])
     expect(t.store.get('im')).toMatchObject({ page: 0, rect: [20, -5, 40, 15] })
   })
@@ -191,6 +195,7 @@ describe('select tool', () => {
   it('cancel after a snap restores the original page and position', () => {
     const im = { ...base, id: 'im', kind: 'image', rect: [20, 10, 40, 30], image: { width: 1, height: 1, png: '' } } as ImageAnnotation
     const t = setup([im], 2)
+    t.state.selection = ['im']
     t.h.onPointerDown!(ev([30, 20]))
     t.h.onPointerMove!(ev([30, -5]))
     expect(t.state.preview!.page).toBe(1)
@@ -204,6 +209,7 @@ describe('select tool', () => {
   it('highlights stay fully on their page', () => {
     const hl = { ...base, id: 'h', kind: 'highlight', quads: [[20, 30, 60, 30, 20, 10, 60, 10]], color: [1, 1, 0], opacity: 0.4 } as Annotation
     const t = setup([hl], 2)
+    t.state.selection = ['h']
     t.drag([30, 20], [30, 15], [30, -50])
     const a = t.store.get('h')!
     expect(a.page).toBe(0)
@@ -213,6 +219,7 @@ describe('select tool', () => {
 
   it('cancel restores the original', () => {
     const t = setup([box('a', [10, 10, 100, 50])])
+    t.state.selection = ['a'] // only the selected element moves
     t.h.onPointerDown!(ev([20, 20]))
     t.h.onPointerMove!(ev([60, 60]))
     t.h.onPointerCancel!(ev([60, 60]))

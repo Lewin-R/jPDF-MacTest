@@ -53,6 +53,17 @@ describe('select handles', () => {
     expect(handleAt(r, [130, 25], 5)).toBeNull()
   })
 
+  it('handleAt grabs an edge pill over its whole length, corners only nearby', () => {
+    const r: [number, number, number, number] = [0, 0, 100, 50]
+    // 10px along the top edge from its centre: beyond the 5px tolerance, on a 21px pill.
+    expect(handleAt(r, [60, 1], 5)).toBeNull()
+    expect(handleAt(r, [60, 1], 5, undefined, 21)).toBe('n')
+    expect(handleAt(r, [-2, 35], 5, undefined, 21)).toBe('w')
+    // Across the edge the tolerance stays 5px; corners do not grow.
+    expect(handleAt(r, [60, 8], 5, undefined, 21)).toBeNull()
+    expect(handleAt(r, [108, 8], 5, undefined, 21)).toBeNull()
+  })
+
   it('handleAt only considers the allowed handles', () => {
     expect(handleAt([0, 0, 100, 50], [100, 50], 5, ['e', 'w'])).toBeNull()
     expect(handleAt([0, 0, 100, 50], [100, 25], 5, ['e', 'w'])).toBe('e')

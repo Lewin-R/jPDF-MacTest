@@ -81,7 +81,7 @@
     box-sizing: border-box;
     margin: 0;
     border: none;
-    outline: 1px dashed var(--accent);
+    outline: 1px dashed var(--page-accent);
     resize: none;
     overflow: hidden;
     line-height: 1.2;
