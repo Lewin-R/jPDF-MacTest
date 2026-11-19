@@ -110,6 +110,107 @@ pub fn pdf_with_foreign_annots() -> Vec<u8> {
     }))
 }
 
+/// Page 0 has a foreign `/FreeText` carrying rich text (`/RC`), `/RD`, `/CL`
+/// and `/IT` next to keys JuliePDF does not own.
+pub fn pdf_with_foreign_freetext() -> Vec<u8> {
+    save(build(1, |doc, pages| {
+        let ft = doc.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "FreeText",
+            "Rect" => vec![100.into(), 600.into(), 300.into(), 640.into()],
+            "NM" => Object::string_literal("foreign-ft"),
+            "Contents" => Object::string_literal("old text"),
+            "DA" => Object::string_literal("/Helv 12 Tf 0 0 0 rg"),
+            "RC" => Object::string_literal("<body><p>old text</p></body>"),
+            "RD" => vec![1.into(), 1.into(), 1.into(), 1.into()],
+            "CL" => vec![90.into(), 590.into(), 100.into(), 610.into()],
+            "IT" => "FreeTextCallout",
+            "CreationDate" => Object::string_literal("D:20260101000000Z"),
+        });
+        doc.get_dictionary_mut(pages[0]).unwrap().set("Annots", vec![Object::Reference(ft)]);
+    }))
+}
+
+fn foreign_ink(doc: &mut Document, nm: Option<&str>, x: i64, extra: lopdf::Dictionary) -> ObjectId {
+    let mut d = dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Ink",
+        "Rect" => vec![(x - 10).into(), 90.into(), (x + 60).into(), 160.into()],
+        "InkList" => vec![Object::Array(vec![x.into(), 100.into(), (x + 50).into(), 150.into()])],
+    };
+    if let Some(nm) = nm {
+        d.set("NM", Object::string_literal(nm));
+    }
+    for (k, v) in extra {
+        d.set(k, v);
+    }
+    doc.add_object(d)
+}
+
+/// Page 0 lists ink A (`/NM dup`) twice and ink B, which repeats `/NM dup`;
+/// page 1 lists ink A again.
+pub fn pdf_with_duplicate_annots() -> Vec<u8> {
+    save(build(2, |doc, pages| {
+        let a = foreign_ink(doc, Some("dup"), 100, dictionary! {});
+        let b = foreign_ink(doc, Some("dup"), 300, dictionary! {});
+        doc.get_dictionary_mut(pages[0]).unwrap().set(
+            "Annots",
+            vec![Object::Reference(a), Object::Reference(b), Object::Reference(a)],
+        );
+        doc.get_dictionary_mut(pages[1]).unwrap().set("Annots", vec![Object::Reference(a)]);
+    }))
+}
+
+/// Page 0 holds one drawable ink (`/NM ok`) and annotations JuliePDF cannot
+/// draw or must not show: ink without points, highlight without
+/// `/QuadPoints`, FreeText with a zero or missing `/Rect`, and inks flagged
+/// Hidden (`/F 2`) or NoView (`/F 32`).
+pub fn pdf_with_undrawable_annots() -> Vec<u8> {
+    save(build(1, |doc, pages| {
+        let ok = foreign_ink(doc, Some("ok"), 100, dictionary! { "F" => 4 });
+        let no_list = doc.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Ink", "NM" => Object::string_literal("no-list"),
+            "Rect" => vec![0.into(), 0.into(), 10.into(), 10.into()],
+        });
+        let empty_list = doc.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Ink", "NM" => Object::string_literal("empty-list"),
+            "Rect" => vec![0.into(), 0.into(), 10.into(), 10.into()],
+            "InkList" => vec![Object::Array(vec![]), Object::Array(vec![5.into()])],
+        });
+        let no_quads = doc.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Highlight", "NM" => Object::string_literal("no-quads"),
+            "Rect" => vec![0.into(), 0.into(), 10.into(), 10.into()],
+        });
+        let zero_rect = doc.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "FreeText", "NM" => Object::string_literal("zero-rect"),
+            "Rect" => vec![10.into(), 10.into(), 10.into(), 40.into()],
+            "Contents" => Object::string_literal("x"),
+        });
+        let no_rect = doc.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "FreeText", "NM" => Object::string_literal("no-rect"),
+            "Contents" => Object::string_literal("x"),
+        });
+        let hidden = foreign_ink(doc, Some("hidden"), 200, dictionary! { "F" => 2 });
+        let no_view = foreign_ink(doc, Some("no-view"), 300, dictionary! { "F" => 36 });
+        let annots = [ok, no_list, empty_list, no_quads, zero_rect, no_rect, hidden, no_view]
+            .map(Object::Reference)
+            .to_vec();
+        doc.get_dictionary_mut(pages[0]).unwrap().set("Annots", annots);
+    }))
+}
+
+/// One page whose `/MediaBox` does not start at the origin
+/// (`[50 100 645 942]`), optionally with `/Rotate 90`.
+pub fn offset_box_pdf(rotate: bool) -> Vec<u8> {
+    save(build(1, |doc, pages| {
+        let page = doc.get_dictionary_mut(pages[0]).unwrap();
+        page.set("MediaBox", vec![50.into(), 100.into(), 645.into(), 942.into()]);
+        if rotate {
+            page.set("Rotate", 90);
+        }
+    }))
+}
+
 /// Page 0's `/Annots` is an indirect array holding one `/Link`.
 pub fn pdf_with_indirect_annots() -> Vec<u8> {
     save(build(1, |doc, pages| {
@@ -218,6 +319,11 @@ fn fixtures_load() {
         rotated_pdf(),
         pdf_with_foreign_annots(),
         pdf_with_indirect_annots(),
+        pdf_with_foreign_freetext(),
+        pdf_with_duplicate_annots(),
+        pdf_with_undrawable_annots(),
+        offset_box_pdf(false),
+        offset_box_pdf(true),
         xref_stream_pdf(),
     ] {
         Document::load_mem(&bytes).unwrap();

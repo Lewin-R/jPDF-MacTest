@@ -12,7 +12,7 @@ use super::appearance::{Appearance, freetext_appearance, highlight_appearance, i
 use super::date::pdf_date;
 use super::dto::{AnnotationDto, Background, Blend, Common, InkRole};
 use super::fmt::fmt_num;
-use super::{format_source_ref, load_document, parse_source_ref};
+use super::{annotation_nm, format_source_ref, load_document, nm_owners, parse_source_ref};
 use crate::error::AppError;
 
 /// Where a page's `/Annots` array lives.
@@ -33,6 +33,8 @@ struct Writer {
     inc: IncrementalDocument,
     pages: Vec<ObjectId>,
     annots: HashMap<ObjectId, PageAnnots>,
+    /// `nm_owners` of the original document, computed on first use.
+    owners: Option<HashMap<String, ObjectId>>,
 }
 
 /// Returns the new file bytes and `id → sourceRef` for every written annotation.
@@ -87,6 +89,7 @@ impl Writer {
             inc,
             pages,
             annots: HashMap::new(),
+            owners: None,
         }
     }
 
@@ -157,13 +160,32 @@ impl Writer {
         self.page_containing(id).map(|_| id)
     }
 
+    /// Whether the object at `id` is the annotation `dto_id` was read as. An
+    /// object whose `/NM` names another annotation is not (the file changed
+    /// since it was loaded), unless the reader gave it a fresh id because an
+    /// earlier object carries the same `/NM`. Without `/NM` there is nothing
+    /// to check against.
+    fn is_same_annotation(&mut self, id: ObjectId, dto_id: &str) -> bool {
+        let prev = self.inc.get_prev_documents();
+        let Some(nm) = prev.get_dictionary(id).ok().and_then(|d| annotation_nm(prev, d)) else {
+            return true;
+        };
+        if nm == dto_id {
+            return true;
+        }
+        let owners = self.owners.get_or_insert_with(|| nm_owners(prev));
+        owners.get(&nm) != Some(&id)
+    }
+
     fn upsert(&mut self, dto: &AnnotationDto) -> Result<Option<(String, String)>, AppError> {
         let common = common_of(dto);
         let page_id = *self
             .pages
             .get(common.page as usize)
             .ok_or_else(|| AppError::InvalidPdf(format!("page {} out of range", common.page)))?;
-        let existing = self.existing(common.source_ref.as_deref());
+        let existing = self
+            .existing(common.source_ref.as_deref())
+            .filter(|&id| self.is_same_annotation(id, &common.id));
 
         let rotation = page_rotation(self.prev(), page_id);
         let Some((mut annot, ap)) = build_annotation(dto, rotation)? else {
@@ -187,6 +209,13 @@ impl Writer {
                 // Keep keys JuliePDF does not own (/Contents, /Popup, /RC,
                 // /CreationDate, /StructParent, …): overwrite only ours.
                 let mut merged = self.prev().get_dictionary(id).cloned().unwrap_or_default();
+                if matches!(dto, AnnotationDto::Freetext { .. }) {
+                    // Rich text, callout and intent of the old version would
+                    // make other viewers show stale text or a callout line.
+                    for key in [b"RC".as_slice(), b"RD", b"CL", b"IT"] {
+                        merged.remove(key);
+                    }
+                }
                 for (k, v) in annot {
                     merged.set(k, v);
                 }

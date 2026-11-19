@@ -810,3 +810,152 @@ fn write_sample() {
     std::fs::write(&out, bytes).unwrap();
     println!("wrote {}", out.display());
 }
+
+fn floats(o: &Object) -> Vec<f64> {
+    o.as_array().unwrap().iter().map(|v| v.as_float().unwrap() as f64).collect()
+}
+
+fn transform_bounds(b: &[f64], m: &[f64]) -> [f64; 4] {
+    let pts = [(b[0], b[1]), (b[2], b[1]), (b[0], b[3]), (b[2], b[3])];
+    let xs = pts.map(|(x, y)| m[0] * x + m[2] * y + m[4]);
+    let ys = pts.map(|(x, y)| m[1] * x + m[3] * y + m[5]);
+    let min = |v: [f64; 4]| v.into_iter().fold(f64::MAX, f64::min);
+    let max = |v: [f64; 4]| v.into_iter().fold(f64::MIN, f64::max);
+    [min(xs), min(ys), max(xs), max(ys)]
+}
+
+#[test]
+fn offset_media_box_roundtrip_keeps_rects_inside_the_box() {
+    let media = [50.0, 100.0, 645.0, 942.0];
+    let inside = |r: &[f64], what: &str| {
+        assert!(
+            r[0] >= media[0] - 1e-3 && r[1] >= media[1] - 1e-3 && r[2] <= media[2] + 1e-3 && r[3] <= media[3] + 1e-3,
+            "{what} {r:?} outside {media:?}"
+        );
+    };
+    for rotate in [false, true] {
+        let orig = fixtures::offset_box_pdf(rotate);
+        let mut a = ink("i", 0, [1.0, 0.0, 0.0]);
+        if let AnnotationDto::Ink { strokes, .. } = &mut a {
+            *strokes = vec![vec![[60.0, 110.0], [300.0, 500.0], [635.0, 932.0]]];
+        }
+        let mut h = highlight("h", 0);
+        if let AnnotationDto::Highlight { quads, .. } = &mut h {
+            *quads = vec![[60.0, 930.0, 400.0, 930.0, 60.0, 910.0, 400.0, 910.0]];
+        }
+        let mut f = freetext("f", 0, "hello", None);
+        if let AnnotationDto::Freetext { rect, .. } = &mut f {
+            // Rotate 90: 200 wide x 30 tall on screen is 30 x 200 in PDF space.
+            *rect = if rotate { [600.0, 120.0, 630.0, 320.0] } else { [60.0, 880.0, 260.0, 920.0] };
+        }
+        let upserts = [a, h, f];
+        let (out, refs) = write(&orig, &upserts, &[]);
+        let mut got = read_annotations(&out).unwrap();
+        got.sort_by(|x, y| common(x).id.cmp(&common(y).id));
+        let mut want: Vec<_> = upserts.iter().map(|u| with_ref(u.clone(), &refs[&common(u).id])).collect();
+        want.sort_by(|x, y| common(x).id.cmp(&common(y).id));
+        assert_eq!(got, want, "rotate {rotate}");
+        let doc = Document::load_mem(&out).unwrap();
+        for id in ["i", "h", "f"] {
+            let annot = annot_dict(&doc, &refs[id]);
+            let rect = floats(annot.get(b"Rect").unwrap());
+            inside(&rect, &format!("{id} /Rect (rotate {rotate})"));
+            let ap = ap_stream(&doc, annot);
+            let bbox = floats(ap.dict.get(b"BBox").unwrap());
+            let matrix = ap.dict.get(b"Matrix").map(floats).unwrap_or(vec![1.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
+            let placed = transform_bounds(&bbox, &matrix);
+            inside(&placed, &format!("{id} /BBox x /Matrix (rotate {rotate})"));
+            for k in 0..4 {
+                assert!((placed[k] - rect[k]).abs() < 1e-3, "{id}: AP {placed:?} maps onto /Rect {rect:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn update_of_object_with_other_nm_is_written_as_new() {
+    // The file on disk changed since loading: the ref now names another annotation.
+    let orig = fixtures::simple_pdf(1);
+    let (out1, refs1) = write(&orig, &[ink("theirs", 0, [1.0, 0.0, 0.0])], &[]);
+    let mine = with_ref(ink("mine", 0, [0.0, 0.0, 1.0]), &refs1["theirs"]);
+    let (out2, refs2) = write(&out1, &[mine], &[]);
+    assert_ne!(refs2["mine"], refs1["theirs"]);
+    let doc = Document::load_mem(&out2).unwrap();
+    assert!(
+        !defined_objects(&out2[out1.len()..]).contains(&lopdf_id(&refs1["theirs"]).0),
+        "the other annotation must not be rewritten"
+    );
+    let theirs = annot_dict(&doc, &refs1["theirs"]);
+    assert_eq!(lopdf::decode_text_string(theirs.get(b"NM").unwrap()).unwrap(), "theirs");
+    let mut ids: Vec<_> = read_annotations(&out2).unwrap().iter().map(|a| common(a).id.clone()).collect();
+    ids.sort();
+    assert_eq!(ids, ["mine", "theirs"]);
+}
+
+#[test]
+fn update_of_foreign_annotation_without_nm_overwrites_it() {
+    // Ink A loses its /NM: the reader gives it a fresh id, which the writer
+    // cannot check against the object, so the update goes in place.
+    let orig = {
+        let mut doc = Document::load_mem(&fixtures::pdf_with_duplicate_annots()).unwrap();
+        let a = refs_of(&page_annots(&doc, 0))[0];
+        doc.get_dictionary_mut(a).unwrap().remove(b"NM");
+        let mut out = Vec::new();
+        doc.save_to(&mut out).unwrap();
+        out
+    };
+    let got = read_annotations(&orig).unwrap();
+    let a = got.iter().find(|a| common(a).id != "dup").unwrap();
+    let r = common(a).source_ref.clone().unwrap();
+    let edited = with_ref(ink(&common(a).id, 0, [0.0, 1.0, 0.0]), &r);
+    let (_, refs) = write(&orig, &[edited], &[]);
+    assert_eq!(refs[&common(a).id], r);
+}
+
+#[test]
+fn duplicate_annotations_read_once_with_unique_ids() {
+    let orig = fixtures::pdf_with_duplicate_annots();
+    let got = read_annotations(&orig).unwrap();
+    assert_eq!(got.len(), 2, "object A is listed three times but read once: {got:?}");
+    let ids: HashSet<_> = got.iter().map(|a| common(a).id.clone()).collect();
+    assert_eq!(ids.len(), 2, "ids are unique");
+    assert!(ids.contains("dup"), "the first carrier keeps its /NM");
+    let refs: HashSet<_> = got.iter().map(|a| common(a).source_ref.clone().unwrap()).collect();
+    assert_eq!(refs.len(), 2);
+
+    // Editing the repeat (fresh id) still updates its object in place.
+    let repeat = got.iter().find(|a| common(a).id != "dup").unwrap();
+    let r = common(repeat).source_ref.clone().unwrap();
+    let edited = with_ref(ink(&common(repeat).id, 0, [0.0, 1.0, 0.0]), &r);
+    let (out, refs) = write(&orig, &[edited], &[]);
+    assert_eq!(refs[&common(repeat).id], r);
+    let again = read_annotations(&out).unwrap();
+    assert_eq!(again.len(), 2);
+    assert!(again.iter().any(|a| common(a).id == common(repeat).id));
+}
+
+#[test]
+fn undrawable_and_hidden_annotations_are_not_editable() {
+    let got = read_annotations(&fixtures::pdf_with_undrawable_annots()).unwrap();
+    let ids: Vec<_> = got.iter().map(|a| common(a).id.as_str()).collect();
+    assert_eq!(ids, ["ok"]);
+}
+
+#[test]
+fn freetext_update_drops_stale_rich_text() {
+    let orig = fixtures::pdf_with_foreign_freetext();
+    let got = read_annotations(&orig).unwrap();
+    assert_eq!(got.len(), 1);
+    let r = common(&got[0]).source_ref.clone().unwrap();
+    let edited = with_ref(freetext("foreign-ft", 0, "new text", None), &r);
+    let (out, refs) = write(&orig, &[edited], &[]);
+    assert_eq!(refs["foreign-ft"], r);
+    let doc = Document::load_mem(&out).unwrap();
+    let d = annot_dict(&doc, &r);
+    for key in [b"RC".as_slice(), b"RD", b"CL", b"IT"] {
+        assert!(d.get(key).is_err(), "{} must be removed", String::from_utf8_lossy(key));
+    }
+    let text = |k: &[u8]| lopdf::decode_text_string(d.get(k).unwrap()).unwrap();
+    assert_eq!(text(b"Contents"), "new text");
+    assert_eq!(text(b"CreationDate"), "D:20260101000000Z", "foreign keys are kept");
+}

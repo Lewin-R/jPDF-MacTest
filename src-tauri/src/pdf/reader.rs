@@ -1,54 +1,54 @@
 //! Maps a document's `/Ink`, `/Highlight` and `/FreeText` annotations to DTOs.
-//! `/JuliePDF` values win; foreign annotations get defaults. Other subtypes (and
-//! annotations stored inline in `/Annots`, which cannot be addressed by ref) are
-//! display-only and skipped.
+//! `/JuliePDF` values win; foreign annotations get defaults. Other subtypes,
+//! annotations stored inline in `/Annots` (which cannot be addressed by ref),
+//! hidden ones and ones JuliePDF cannot draw (no points, no quads, empty
+//! `/Rect`) are skipped: pdf.js keeps drawing them, display-only.
 use lopdf::{Dictionary, Document, Object, decode_text_string};
 
 use super::date::iso_from_pdf_date;
 use super::dto::{AnnotationDto, Background, Blend, Common, InkRole};
-use super::{format_source_ref, load_document};
+use super::{annotation_nm, annotation_refs, format_source_ref, load_document, nm_owners};
 use crate::error::AppError;
 
 const BLACK: [f64; 3] = [0.0; 3];
 
 pub fn read_annotations(bytes: &[u8]) -> Result<Vec<AnnotationDto>, AppError> {
     let doc = load_document(bytes)?;
+    let owners = nm_owners(&doc);
     let mut out = Vec::new();
-    for (index, page_id) in doc.page_iter().enumerate() {
-        let Ok(page) = doc.get_dictionary(page_id) else {
+    for (index, id) in annotation_refs(&doc) {
+        let Ok(d) = doc.get_dictionary(id) else {
             continue;
         };
-        let Ok(annots) = page.get_deref(b"Annots", &doc).and_then(Object::as_array) else {
-            continue;
+        // A repeated /NM keeps ids unique: only its first carrier uses it.
+        let annotation_id = annotation_nm(&doc, d)
+            .filter(|nm| owners.get(nm) == Some(&id))
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let common = Common {
+            id: annotation_id,
+            page: index as u32,
+            source_ref: Some(format_source_ref(id)),
+            modified_at: text(&doc, d, b"M")
+                .and_then(|m| iso_from_pdf_date(&m))
+                .unwrap_or_default(),
+            author: text(&doc, d, b"T").unwrap_or_default(),
         };
-        for item in annots {
-            let Ok(id) = item.as_reference() else {
-                continue;
-            };
-            let Ok(d) = doc.get_dictionary(id) else {
-                continue;
-            };
-            let common = Common {
-                id: text(&doc, d, b"NM")
-                    .filter(|s| !s.is_empty())
-                    .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
-                page: index as u32,
-                source_ref: Some(format_source_ref(id)),
-                modified_at: text(&doc, d, b"M")
-                    .and_then(|m| iso_from_pdf_date(&m))
-                    .unwrap_or_default(),
-                author: text(&doc, d, b"T").unwrap_or_default(),
-            };
-            if let Some(dto) = map_annotation(&doc, d, common) {
-                out.push(dto);
-            }
+        if let Some(dto) = map_annotation(&doc, d, common) {
+            out.push(dto);
         }
     }
     Ok(out)
 }
 
+/// `/F` Hidden (bit 2) and NoView (bit 6).
+const HIDDEN_FLAGS: i64 = 2 | 32;
+
 fn map_annotation(doc: &Document, d: &Dictionary, common: Common) -> Option<AnnotationDto> {
     let subtype = deref(doc, d.get(b"Subtype").ok()?).as_name().ok()?;
+    let flags = number(doc, d.get(b"F").ok()).unwrap_or(0.0) as i64;
+    if flags & HIDDEN_FLAGS != 0 {
+        return None;
+    }
     let private = d.get_deref(b"JuliePDF", doc).and_then(Object::as_dict).ok();
     let private_name =
         |key: &[u8]| private.and_then(|p| p.get_deref(key, doc).and_then(Object::as_name).ok());
@@ -56,11 +56,14 @@ fn map_annotation(doc: &Document, d: &Dictionary, common: Common) -> Option<Anno
     let opacity = number(doc, d.get(b"CA").ok()).unwrap_or(1.0);
     match subtype {
         b"Ink" => {
-            let strokes = d
+            let strokes: Vec<Vec<[f64; 2]>> = d
                 .get_deref(b"InkList", doc)
                 .and_then(Object::as_array)
                 .map(|list| list.iter().map(|s| points(doc, s)).collect())
                 .unwrap_or_default();
+            if strokes.iter().all(|s| s.is_empty()) {
+                return None;
+            }
             let width = d
                 .get_deref(b"BS", doc)
                 .and_then(Object::as_dict)
@@ -88,6 +91,9 @@ fn map_annotation(doc: &Document, d: &Dictionary, common: Common) -> Option<Anno
         b"Highlight" => {
             let flat = numbers(doc, d.get(b"QuadPoints").ok());
             let quads = flat.as_chunks::<8>().0.to_vec();
+            if quads.is_empty() {
+                return None;
+            }
             Some(AnnotationDto::Highlight {
                 common,
                 quads,
@@ -97,16 +103,18 @@ fn map_annotation(doc: &Document, d: &Dictionary, common: Common) -> Option<Anno
         }
         b"FreeText" => {
             let r = numbers(doc, d.get(b"Rect").ok());
-            let rect = if r.len() == 4 {
-                [
-                    r[0].min(r[2]),
-                    r[1].min(r[3]),
-                    r[0].max(r[2]),
-                    r[1].max(r[3]),
-                ]
-            } else {
-                [0.0; 4]
-            };
+            if r.len() != 4 || r.iter().any(|v| !v.is_finite()) {
+                return None;
+            }
+            let rect = [
+                r[0].min(r[2]),
+                r[1].min(r[3]),
+                r[0].max(r[2]),
+                r[1].max(r[3]),
+            ];
+            if rect[2] <= rect[0] || rect[3] <= rect[1] {
+                return None;
+            }
             let (da_size, da_color) = parse_da(&text(doc, d, b"DA").unwrap_or_default());
             let c = color_of(doc, d.get(b"C").ok());
             // JuliePDF keeps /CA at 1 and font size, text colour and background
