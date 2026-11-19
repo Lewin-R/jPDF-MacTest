@@ -5,6 +5,7 @@ import { hitAnnotations } from '../../core/geometry/hit'
 import { frameOrigin, normalizeRotation } from '../../core/geometry/textLayout'
 import { updateAnnotation } from '../../core/session/commands'
 import type { Annotation, Point, Rect } from '../../core/session/model'
+import { isEditable } from '../../core/session/model'
 import { createTextEditing, resizeFreeText } from '../text/editing'
 import { HANDLE_CURSORS, handleAt, handlesFor, inRect, keepAspect, resizeRect, toPdfRect, toScreenRect, type Handle } from './handles'
 import Icon from './Icon.svelte'
@@ -101,7 +102,7 @@ export function createSelectHandler(ctx: ToolContext): ToolHandler {
       const handle = handleAt(box, p, HANDLE_TOLERANCE_PX, handlesFor(sel))
       if (handle) return { a: sel, handle }
     }
-    const hit = hitAnnotations(ctx.session.store.byPage(e.page), e.pdf, HIT_TOLERANCE_PX / e.vp.scale)[0]
+    const hit = hitAnnotations(ctx.session.store.byPage(e.page).filter(isEditable), e.pdf, HIT_TOLERANCE_PX / e.vp.scale)[0]
     if (hit) return { a: hit, handle: null }
     // Inside the selection box (e.g. between ink strokes) still drags the selection.
     if (sel && box && inRect(box, p)) return { a: sel, handle: null }
@@ -186,7 +187,7 @@ export function createSelectHandler(ctx: ToolContext): ToolHandler {
     onPassThroughDown(e) {
       editing.commit()
       // Without hover (touch) the press may still land on an annotation.
-      const hit = hitAnnotations(ctx.session.store.byPage(e.page), e.pdf, HIT_TOLERANCE_PX / e.vp.scale)[0]
+      const hit = hitAnnotations(ctx.session.store.byPage(e.page).filter(isEditable), e.pdf, HIT_TOLERANCE_PX / e.vp.scale)[0]
       ctx.selection.set(hit ? [hit.id] : [])
     },
 

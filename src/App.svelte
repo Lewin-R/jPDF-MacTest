@@ -27,7 +27,7 @@
   import Toast from './ui/Toast.svelte'
   import ContextMenu from './ui/ContextMenu.svelte'
   import { rightClickErases } from './tools/rightClick'
-  import { pageMenuItems, type PageMenuPaste } from './app/pageMenu'
+  import { pageFlatten, pageMenuItems, type PageMenuPaste } from './app/pageMenu'
   import { insertImage } from './app/insertImage'
   import { readClipboardImage, type ClipboardImage } from './core/ipc/clipboard'
   import type { PageMenuPoint } from './core/viewer/viewerMath'
@@ -232,6 +232,7 @@
           cursor={router.cursor}
           toolPreview={router.stateOf(tabs.active).preview}
           toolPagePreviews={router.stateOf(tabs.active).pagePreviews}
+          toolLasso={router.stateOf(tabs.active).lasso}
           toolHidden={router.stateOf(tabs.active).hidden}
           toolTextEdit={router.stateOf(tabs.active).textEdit}
           toolSelection={router.stateOf(tabs.active).selection}
@@ -257,7 +258,12 @@
   <ContextMenu
     x={pageMenu.x}
     y={pageMenu.y}
-    items={pageMenuItems(pageMenu.page, tabs.active, menuPaste(tabs.active, pageMenu.page, pageMenu.at))}
+    items={pageMenuItems(
+      pageMenu.page,
+      tabs.active,
+      menuPaste(tabs.active, pageMenu.page, pageMenu.at),
+      pageFlatten(tabs.active, router.stateOf(tabs.active).selection, pageMenu.page),
+    )}
     onclose={closePageMenu}
   />
 {/if}

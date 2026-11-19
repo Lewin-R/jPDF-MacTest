@@ -1,4 +1,4 @@
-import type { PageFrame, TextEdit } from '../registry/tools'
+import type { LassoPath, PageFrame, TextEdit } from '../registry/tools'
 import type { Annotation } from './model'
 
 /**
@@ -12,8 +12,10 @@ import type { Annotation } from './model'
 export class SessionToolState {
   selection = $state<string[]>([])
   preview = $state.raw<Annotation | null>(null)
-  /** Live annotations, at most one per page (see ToolContext.pagePreviews). */
+  /** Live annotations, any number per page (see ToolContext.pagePreviews). */
   pagePreviews = $state.raw<readonly Annotation[]>([])
+  /** The lasso being drawn (see ToolContext.lasso). */
+  lasso = $state.raw<LassoPath | null>(null)
   hidden = $state.raw<ReadonlySet<string>>(new Set())
   cursor = $state<string | null>(null)
   textEdit = $state.raw<TextEdit | null>(null)

@@ -42,6 +42,7 @@ fn image(id: &str, rect: [f64; 4], png_bytes: &[u8], w: u32, h: u32) -> Annotati
             source_ref: None,
             modified_at: "2026-11-19T10:00:00Z".into(),
             author: "Jülie".into(),
+            flattened: false,
         },
         rect,
         image: ImageData { width: w, height: h, png: STANDARD.encode(png_bytes) },

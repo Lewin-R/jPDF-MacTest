@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import type { PageFrame, TextEdit, ToolHandler } from '../registry/tools'
+  import type { LassoPath, PageFrame, TextEdit, ToolHandler } from '../registry/tools'
   import type { Annotation } from '../session/model'
   import { firstOccurrences } from '../session/pages'
   import type { DocumentSession } from '../session/session.svelte'
@@ -21,6 +21,7 @@
     cursor,
     toolPreview = null,
     toolPagePreviews = [],
+    toolLasso = null,
     toolHidden,
     toolTextEdit = null,
     toolSelection = [],
@@ -37,8 +38,10 @@
     cursor?: string
     /** The tool's live, uncommitted annotation, drawn on its page. */
     toolPreview?: Annotation | null
-    /** The tool's live annotations, at most one per page (see ToolContext.pagePreviews). */
+    /** The tool's live annotations, any number per page (see ToolContext.pagePreviews). */
     toolPagePreviews?: readonly Annotation[]
+    /** The lasso being drawn (see ToolContext.lasso). */
+    toolLasso?: LassoPath | null
     /** Annotation ids the active tool has hidden (erased, not yet committed). */
     toolHidden?: ReadonlySet<string>
     /** The tool's open text box editor, drawn on its page. */
@@ -290,7 +293,9 @@
             entry={session.pages[i]}
             scale={session.scale}
             store={session.store}
-            preview={toolPreview?.page === i ? toolPreview : (toolPagePreviews.find((a) => a.page === i) ?? null)}
+            preview={toolPreview?.page === i ? toolPreview : null}
+            previews={toolPreview?.page === i ? [] : toolPagePreviews.filter((a) => a.page === i)}
+            lasso={toolLasso?.page === i ? toolLasso : null}
             hidden={toolHidden}
             textEdit={toolTextEdit?.draft.page === i ? toolTextEdit : null}
             selection={toolSelection}

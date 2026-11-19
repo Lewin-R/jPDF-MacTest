@@ -9,6 +9,15 @@ pub struct Common {
     pub source_ref: Option<String>,
     pub modified_at: String,
     pub author: String,
+    /// Burn the annotation into the page content instead of saving it as an
+    /// annotation (see `Writer::flatten`). Left out of the JSON when false,
+    /// as the TS model leaves it out.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub flattened: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 /// An annotation deleted in the app: the writer only detaches `source_ref`
@@ -243,6 +252,18 @@ mod tests {
         let (dto, out, orig) = roundtrip(src);
         assert!(matches!(dto, AnnotationDto::Image { ref image, .. } if image.width == 2 && image.height == 1));
         assert_eq!(out, orig);
+    }
+
+    #[test]
+    fn dto_flattened_flag_roundtrip() {
+        let src = r#"{"kind":"highlight","id":"h","page":1,"sourceRef":null,"modifiedAt":"t","author":"J","flattened":true,"quads":[[0,10,10,10,0,0,10,0]],"color":[1,1,0],"opacity":0.4}"#;
+        let (dto, out, orig) = roundtrip(src);
+        assert!(matches!(dto, AnnotationDto::Highlight { ref common, .. } if common.flattened));
+        assert_eq!(out, orig);
+        // Absent means false, and false is not written.
+        let (dto, out, _) = roundtrip(&src.replace(r#""flattened":true,"#, ""));
+        assert!(matches!(dto, AnnotationDto::Highlight { ref common, .. } if !common.flattened));
+        assert!(out.get("flattened").is_none());
     }
 
     #[test]

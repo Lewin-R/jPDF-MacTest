@@ -46,6 +46,9 @@ struct Writer {
     annots: HashMap<ObjectId, PageAnnots>,
     /// `nm_owners` of the original document, computed on first use.
     owners: Option<HashMap<String, ObjectId>>,
+    /// Appearance forms of flattened annotations to paint into each page's
+    /// content, in z-order (see `flatten`).
+    flat: HashMap<ObjectId, Vec<ObjectId>>,
 }
 
 /// Returns the new file bytes and `id → sourceRef` for every written annotation.
@@ -121,6 +124,7 @@ impl Writer {
             rotations: None,
             annots: HashMap::new(),
             owners: None,
+            flat: HashMap::new(),
         }
     }
 
@@ -330,6 +334,10 @@ impl Writer {
             Some(r) => r[common.page as usize],
             None => page_rotation(self.prev(), page_id),
         };
+        if common.flattened {
+            self.flatten(dto, page_id, rotation, existing)?;
+            return Ok(None);
+        }
         let Some((mut annot, ap)) = build_annotation(dto, rotation)? else {
             // Nothing to draw (e.g. every stroke erased): drop any saved version.
             if let Some(id) = existing {
@@ -392,6 +400,118 @@ impl Writer {
         Ok(Some((common.id.clone(), format_source_ref(id))))
     }
 
+    /// Burns an annotation into its page: its appearance becomes a form
+    /// XObject painted by the page content (see `write_flattened`), so it
+    /// looks the same in every viewer but is no longer an annotation. A saved
+    /// version (`existing`) is removed from the page's `/Annots`.
+    fn flatten(
+        &mut self,
+        dto: &AnnotationDto,
+        page_id: ObjectId,
+        rotation: i32,
+        existing: Option<ObjectId>,
+    ) -> Result<(), AppError> {
+        if let Some(id) = existing {
+            self.detach(id);
+        }
+        let Some((_, ap)) = build_annotation(dto, rotation)? else {
+            return Ok(());
+        };
+        let image = match dto {
+            AnnotationDto::Image { image, .. } => Some(self.image_objects(image, existing)?.xobject),
+            _ => None,
+        };
+        let form = add_appearance(&mut self.inc.new_document, &ap, image)?;
+        self.flat.entry(page_id).or_default().push(form);
+        Ok(())
+    }
+
+    /// An object of the document as it will be saved: revised or new, else original.
+    fn object(&self, id: ObjectId) -> Option<&Object> {
+        self.inc
+            .new_document
+            .objects
+            .get(&id)
+            .or_else(|| self.prev().objects.get(&id))
+    }
+
+    /// Paints the flattened annotations' forms on their pages: each page's
+    /// content is wrapped in `q … Q` (so whatever graphics state it leaves
+    /// behind cannot shift the drawing), then a stream paints the forms, in
+    /// order, in default user space (their appearance content uses absolute
+    /// user-space coordinates, like an annotation's). The forms are added to
+    /// the page's own `/Resources` under names it does not use yet.
+    fn write_flattened(&mut self) -> Result<(), AppError> {
+        for (page_id, forms) in std::mem::take(&mut self.flat) {
+            self.inc
+                .opt_clone_object_to_new_document(page_id)
+                .map_err(invalid)?;
+            let page = self
+                .inc
+                .new_document
+                .get_dictionary(page_id)
+                .map_err(invalid)?
+                .clone();
+            let res = match page.get(b"Resources") {
+                Ok(o) => Some(o.clone()),
+                Err(_) => {
+                    let prev = self.prev();
+                    prev.get_dictionary(page_id)
+                        .ok()
+                        .and_then(|p| inherited(prev, p, b"Resources"))
+                        .cloned()
+                }
+            };
+            let mut resources = self.dict_of(res.as_ref());
+            let mut xobjects = self.dict_of(resources.get(b"XObject").ok());
+            let mut draw = String::from("Q\n");
+            let mut n = 0;
+            for form in forms {
+                let name = loop {
+                    let name = format!("JPDFFlat{n}");
+                    n += 1;
+                    if !xobjects.has(name.as_bytes()) {
+                        break name;
+                    }
+                };
+                draw.push_str(&format!("q /{name} Do Q\n"));
+                xobjects.set(name, form);
+            }
+            resources.set("XObject", xobjects);
+            let mut contents = match page.get(b"Contents") {
+                Ok(Object::Reference(id)) => match self.object(*id) {
+                    Some(Object::Array(items)) => items.clone(),
+                    Some(Object::Stream(_)) => vec![Object::Reference(*id)],
+                    _ => Vec::new(),
+                },
+                Ok(Object::Array(items)) => items.clone(),
+                _ => Vec::new(),
+            };
+            let doc = &mut self.inc.new_document;
+            let open = doc.add_object(Stream::new(Dictionary::new(), b"q\n".to_vec()));
+            let paint = doc.add_object(compressed_stream(Dictionary::new(), draw.as_bytes())?);
+            contents.insert(0, Object::Reference(open));
+            contents.push(Object::Reference(paint));
+            let page = doc.get_dictionary_mut(page_id).map_err(invalid)?;
+            page.set("Resources", resources);
+            page.set("Contents", contents);
+        }
+        Ok(())
+    }
+
+    /// A copy of the dictionary `o` is or refers to; empty for anything else.
+    fn dict_of(&self, o: Option<&Object>) -> Dictionary {
+        match o {
+            Some(Object::Dictionary(d)) => d.clone(),
+            Some(Object::Reference(id)) => self
+                .object(*id)
+                .and_then(|o| o.as_dict().ok())
+                .cloned()
+                .unwrap_or_default(),
+            _ => Dictionary::new(),
+        }
+    }
+
     /// The image XObject and the original PNG stream of a pasted image. An
     /// update of a saved image whose PNG is unchanged (moved or resized)
     /// reuses both objects instead of writing the data again.
@@ -430,6 +550,7 @@ impl Writer {
     }
 
     fn finish(mut self) -> Result<Vec<u8>, AppError> {
+        self.write_flattened()?;
         for (page_id, a) in std::mem::take(&mut self.annots) {
             if !a.dirty {
                 continue;

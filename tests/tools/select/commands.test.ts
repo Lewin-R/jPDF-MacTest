@@ -7,7 +7,8 @@ import type { FreeTextAnnotation, HighlightAnnotation } from '../../../src/core/
 import type { DocumentSession } from '../../../src/core/session/session.svelte'
 import { AnnotationStore } from '../../../src/core/session/store.svelte'
 import { toasts } from '../../../src/ui/toasts.svelte'
-import { editSelected, registerSelectionCommands } from '../../../src/tools/select/commands'
+import '../../../src/annotations'
+import { DUPLICATE_OFFSET, duplicatesOf, editSelected, registerSelectionCommands } from '../../../src/tools/select/commands'
 import { boxHeight, layoutLines } from '../../../src/core/geometry/textLayout'
 
 const key = (init: KeyboardEventInit) => new KeyboardEvent('keydown', init)
@@ -158,5 +159,67 @@ describe('editSelected', () => {
     expect(show).toHaveBeenCalledWith('Could not apply the change', 'error')
     err.mockRestore()
     show.mockRestore()
+  })
+})
+
+describe('duplicate and flatten commands', () => {
+  const hl2: HighlightAnnotation = { ...hl, id: 'h2', quads: [[20, 10, 30, 10, 20, 0, 30, 0]] }
+
+  function setupTwo() {
+    const t = setup()
+    t.store.load([hl, hl2])
+    t.state.selection = ['h', 'h2']
+    return t
+  }
+
+  it('edit.duplicate (Ctrl+D) adds offset copies, selects them, one undo step', async () => {
+    const t = setupTwo()
+    expect(t.keys.handle(key({ key: 'd', ctrlKey: true }))).toBe(true)
+    await Promise.resolve()
+    const all = t.store.all()
+    expect(all).toHaveLength(4)
+    const copies = all.slice(2) as HighlightAnnotation[]
+    expect(t.state.selection).toEqual(copies.map((a) => a.id))
+    expect(copies.every((a) => a.id !== 'h' && a.id !== 'h2' && a.sourceRef === null)).toBe(true)
+    const d = DUPLICATE_OFFSET
+    expect(copies[0].quads).toEqual([[d, 10 - d, 10 + d, 10 - d, d, -d, 10 + d, -d]])
+    t.history.undo()
+    expect(t.store.all().map((a) => a.id)).toEqual(['h', 'h2'])
+  })
+
+  it('edit.flatten marks the selection flattened, deselects it, one undo step', async () => {
+    const t = setupTwo()
+    expect(await t.cmds.execute('edit.flatten')).toBe(true)
+    expect(t.store.all().every((a) => a.flattened === true)).toBe(true)
+    expect(t.state.selection).toEqual([])
+    // Flattened annotations cannot be selected for further actions.
+    t.state.selection = ['h']
+    expect(t.cmds.canExecute('edit.flatten')).toBe(false)
+    expect(t.cmds.canExecute('edit.duplicate')).toBe(false)
+    expect(t.cmds.canExecute('edit.delete')).toBe(false)
+    t.history.undo()
+    expect(t.store.all().some((a) => a.flattened)).toBe(false)
+  })
+
+  it('edit.delete deletes the whole selection', async () => {
+    const t = setupTwo()
+    expect(await t.cmds.execute('edit.delete')).toBe(true)
+    expect(t.store.all()).toEqual([])
+    t.history.undo()
+    expect(t.store.all().map((a) => a.id)).toEqual(['h', 'h2'])
+  })
+
+  it('duplicate and flatten are off while a text box is edited', () => {
+    const t = setupTwo()
+    t.state.textEdit = {} as TextEdit
+    expect(t.cmds.canExecute('edit.duplicate')).toBe(false)
+    expect(t.cmds.canExecute('edit.flatten')).toBe(false)
+  })
+
+  it('duplicatesOf gives independent copies with fresh ids', () => {
+    const [c] = duplicatesOf([{ ...hl, sourceRef: '5R' }], 'now')
+    expect(c.id).not.toBe('h')
+    expect(c.sourceRef).toBeNull()
+    expect(c.modifiedAt).toBe('now')
   })
 })

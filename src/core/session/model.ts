@@ -4,7 +4,13 @@ export type Point = [number, number];                 // PDF user space
 export type Rect = [number, number, number, number];  // x1, y1, x2, y2 (PDF, y up)
 export type Quad = [number, number, number, number, number, number, number, number]; // PDF QuadPoints order: TL, TR, BL, BR
 
-interface Base { id: string; page: number; sourceRef: string | null; modifiedAt: string; author: string }
+/**
+ * `flattened`: to be burned into the page content on the next save (drawn
+ * there by its appearance, the annotation object removed). Until then it is
+ * still shown but no longer editable, and undo brings it back. Absent when
+ * not flattened (the reader never sets it).
+ */
+interface Base { id: string; page: number; sourceRef: string | null; modifiedAt: string; author: string; flattened?: true }
 export interface HighlightAnnotation extends Base { kind: 'highlight'; quads: Quad[]; color: RGB; opacity: number }
 /**
  * Underlined or struck-through text: `quads` are the text's line boxes (as for
@@ -50,6 +56,11 @@ export interface ImageAnnotation extends Base {
   image: { width: number; height: number; png: string }
 }
 export type Annotation = HighlightAnnotation | TextLineAnnotation | InkAnnotation | FreeTextAnnotation | ShapeAnnotation | LineAnnotation | ImageAnnotation;
+
+/** Whether tools may select, move, merge or erase `a` (a flattened annotation is page content to be). */
+export function isEditable(a: Annotation): boolean {
+  return !a.flattened
+}
 
 /** `page` is 0-based here (session.currentPage / goToPage are 1-based). */
 export function newId(): string {

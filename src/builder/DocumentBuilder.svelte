@@ -1,9 +1,6 @@
 <script lang="ts">
   import ArrowLeft from '@lucide/svelte/icons/arrow-left'
-  import Copy from '@lucide/svelte/icons/copy'
-  import RotateCcw from '@lucide/svelte/icons/rotate-ccw'
-  import RotateCw from '@lucide/svelte/icons/rotate-cw'
-  import Trash2 from '@lucide/svelte/icons/trash-2'
+  import { actionIcons } from '../ui/actionIcons'
   import { onMount } from 'svelte'
   import { firstOccurrences } from '../core/session/pages'
   import type { DocumentSession } from '../core/session/session.svelte'
@@ -199,16 +196,16 @@
     </button>
     <span class="sep"></span>
     <button type="button" class="action" disabled={selectedCount === 0} onclick={() => rotate(-90)} title="Rotate left">
-      <RotateCcw size={16} /> <span>Rotate left</span>
+      <actionIcons.rotateLeft size={16} /> <span>Rotate left</span>
     </button>
     <button type="button" class="action" disabled={selectedCount === 0} onclick={() => rotate(90)} title="Rotate right">
-      <RotateCw size={16} /> <span>Rotate right</span>
+      <actionIcons.rotateRight size={16} /> <span>Rotate right</span>
     </button>
     <button type="button" class="action" disabled={selectedCount === 0} onclick={duplicate} title="Duplicate (Ctrl+D)">
-      <Copy size={16} /> <span>Duplicate</span>
+      <actionIcons.duplicate size={16} /> <span>Duplicate</span>
     </button>
     <button type="button" class="action danger" disabled={!canDelete} onclick={remove} title="Delete (Del)">
-      <Trash2 size={16} /> <span>Delete</span>
+      <actionIcons.delete size={16} /> <span>Delete</span>
     </button>
     <span class="spacer"></span>
     <input

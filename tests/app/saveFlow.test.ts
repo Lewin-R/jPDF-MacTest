@@ -16,7 +16,7 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({ save: h.saveDialog }))
 
 import { confirmAndClose, confirmCloseAll, registerSaveCommands, saveSession, saveSessionAs } from '../../src/app/saveFlow'
 import { commands } from '../../src/core/registry/commands'
-import { addAnnotations, deleteAnnotations, updateAnnotation } from '../../src/core/session/commands'
+import { addAnnotations, deleteAnnotations, flattenAnnotations, updateAnnotation } from '../../src/core/session/commands'
 import { History } from '../../src/core/session/history.svelte'
 import type { InkAnnotation } from '../../src/core/session/model'
 import type { PageSpec } from '../../src/core/session/pages'
@@ -612,5 +612,36 @@ describe('pending edit (open text box)', () => {
     h.saveDialog.mockResolvedValue(null)
     expect(await saveSessionAs(s)).toBe(false)
     expect(commit).toHaveBeenCalledOnce()
+  })
+})
+
+describe('saveSession with flattened annotations', () => {
+  it('sends them flattened, then reloads: they are page content now', async () => {
+    const s = fakeSession('C:\docs\a.pdf', [ink('a', '10R'), ink('keep', '11R')])
+    s.history.execute(flattenAnnotations([s.store.get('a')!], 't'))
+    s.reloaded = [ink('keep', '11R')]
+    h.savePdf.mockResolvedValue({ refs: {} })
+    expect(await saveSession(s)).toBe(true)
+    const [, , upserts, deletes, pages] = h.savePdf.mock.calls[0]
+    expect(upserts).toEqual([{ ...ink('a', '10R'), flattened: true, modifiedAt: 't' }])
+    expect(deletes).toEqual([])
+    expect(pages).toBeUndefined()
+    expect(s.applyReload).toHaveBeenCalledOnce()
+    expect(s.store.all().map((a) => a.id)).toEqual(['keep'])
+    expect(s.dirty).toBe(false)
+  })
+
+  it('keeps an annotation flattened while saving flattened (and dirty) after the reload', async () => {
+    const s = fakeSession('C:\docs\a.pdf', [ink('a', '10R'), ink('b', '11R')])
+    s.history.execute(flattenAnnotations([s.store.get('a')!], 't'))
+    s.reloaded = [ink('b', '31R')]
+    const first = deferred<{ refs: Record<string, string> }>()
+    h.savePdf.mockReturnValueOnce(first.promise)
+    const saving = saveSession(s)
+    s.history.execute(flattenAnnotations([s.store.get('b')!], 't'))
+    first.resolve({ refs: {} })
+    expect(await saving).toBe(true)
+    expect(s.store.all().map((a) => [a.id, a.flattened])).toEqual([['b', true]])
+    expect(s.dirty).toBe(true)
   })
 })

@@ -1,7 +1,8 @@
 import { commands as defaultCommands, type CommandRegistry } from '../../core/registry/commands'
 import { keybindings as defaultKeybindings, type KeybindingRegistry } from '../../core/registry/keybindings'
-import { deleteAnnotations, updateAnnotation } from '../../core/session/commands'
-import type { Annotation } from '../../core/session/model'
+import { annotationKinds } from '../../core/registry/annotationKinds'
+import { addAnnotations, deleteAnnotations, flattenAnnotations, updateAnnotation } from '../../core/session/commands'
+import { isEditable, newId, type Annotation } from '../../core/session/model'
 import type { DocumentSession } from '../../core/session/session.svelte'
 import type { SessionToolState } from '../../core/session/toolState.svelte'
 import { toasts } from '../../ui/toasts.svelte'
@@ -12,17 +13,42 @@ export interface SelectionTarget {
   state: Pick<SessionToolState, 'selection' | 'textEdit'>
 }
 
+/** How far (pt) a duplicate is placed from its original: right and down on an upright page. */
+export const DUPLICATE_OFFSET = 12
+
+/** The selected annotations that still exist and can be edited, in selection order. */
 function selectedAnnotations({ session, state }: SelectionTarget): Annotation[] {
   return state.selection.flatMap((id) => {
     const a = session.store.get(id)
-    return a ? [a] : []
+    return a && isEditable(a) ? [a] : []
   })
 }
 
+/** Selection commands are off while a text box is edited (its keys go to the editor). */
+function canEditSelection(t: SelectionTarget | null): t is SelectionTarget {
+  return t !== null && t.state.textEdit === null && selectedAnnotations(t).length > 0
+}
+
 /**
- * Registers edit.delete (Delete, Backspace: deletes the selection, unless a
- * text box is being edited) and edit.deselect (Escape) for the active session.
- * Both are disabled without a selection, so the keys pass through then.
+ * Independent copies of `list` (new ids, not yet saved), shifted by
+ * DUPLICATE_OFFSET so they do not hide their originals.
+ */
+export function duplicatesOf(list: Annotation[], modifiedAt = new Date().toISOString()): Annotation[] {
+  return list.map((a) => ({
+    ...annotationKinds.get(a.kind).translate(a, DUPLICATE_OFFSET, -DUPLICATE_OFFSET),
+    id: newId(),
+    sourceRef: null,
+    modifiedAt,
+  }))
+}
+
+/**
+ * Registers the commands acting on the selection of the active session:
+ * edit.delete (Delete, Backspace), edit.duplicate (Ctrl+D: the copies become
+ * the selection), edit.flatten (burns the selection into the page on the
+ * next save) and edit.deselect (Escape). All but deselect are off while a
+ * text box is edited; all are off without a selection, so the keys pass
+ * through then. Each change is one undo step.
  */
 export function registerSelectionCommands(
   active: () => SelectionTarget | null,
@@ -33,10 +59,7 @@ export function registerSelectionCommands(
     commands.register({
       id: 'edit.delete',
       title: 'Delete selection',
-      enabled: () => {
-        const t = active()
-        return t !== null && t.state.textEdit === null && selectedAnnotations(t).length > 0
-      },
+      enabled: () => canEditSelection(active()),
       run: () => {
         const t = active()
         if (!t) return
@@ -47,6 +70,31 @@ export function registerSelectionCommands(
     }),
     keybindings.bind('Delete', 'edit.delete'),
     keybindings.bind('Backspace', 'edit.delete'),
+    commands.register({
+      id: 'edit.duplicate',
+      title: 'Duplicate selection',
+      enabled: () => canEditSelection(active()),
+      run: () => {
+        const t = active()
+        if (!canEditSelection(t)) return
+        const copies = duplicatesOf(selectedAnnotations(t))
+        t.session.history.execute({ ...addAnnotations(copies), label: 'Duplicate annotations' })
+        t.state.selection = copies.map((a) => a.id)
+      },
+    }),
+    keybindings.bind('Ctrl+D', 'edit.duplicate'),
+    commands.register({
+      id: 'edit.flatten',
+      title: 'Flatten selection into the page',
+      enabled: () => canEditSelection(active()),
+      run: () => {
+        const t = active()
+        if (!canEditSelection(t)) return
+        const list = selectedAnnotations(t)
+        t.state.selection = []
+        t.session.history.execute(flattenAnnotations(list))
+      },
+    }),
     commands.register({
       id: 'edit.deselect',
       title: 'Deselect',

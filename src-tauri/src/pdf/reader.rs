@@ -35,6 +35,7 @@ pub fn read_annotations(bytes: &[u8]) -> Result<Vec<AnnotationDto>, AppError> {
                 .and_then(|m| iso_from_pdf_date(&m))
                 .unwrap_or_default(),
             author: text(&doc, d, b"T").unwrap_or_default(),
+            flattened: false,
         };
         if let Some(dto) = map_annotation(&doc, d, common) {
             out.push(dto);

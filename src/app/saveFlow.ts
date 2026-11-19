@@ -68,7 +68,9 @@ async function writeSession(s: DocumentSession, target: string): Promise<boolean
     return false
   }
 
-  if (plan) {
+  // Flattened annotations are now page content: pdf.js must draw the saved
+  // pages, and the annotations leave the session, so reload as after a page change.
+  if (plan || upserts.some((a) => a.flattened)) {
     if (!samePath(target, s.path)) s.setPath(target)
     await reloadSaved(s, before, pages)
     return true

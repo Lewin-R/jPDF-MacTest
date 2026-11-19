@@ -1,4 +1,9 @@
 import type { ClipboardImage } from '../core/ipc/clipboard'
+import { flattenAnnotations } from '../core/session/commands'
+import type { History } from '../core/session/history.svelte'
+import { isEditable, type Annotation } from '../core/session/model'
+import type { AnnotationStore } from '../core/session/store.svelte'
+import { actionIcons } from '../ui/actionIcons'
 import type { MenuItem } from '../ui/ContextMenu.svelte'
 import { toasts } from '../ui/toasts.svelte'
 
@@ -18,13 +23,53 @@ export interface PageMenuPaste {
   insert(image: ClipboardImage): void | Promise<void>
 }
 
+/** Flattening annotations of the page into its content (on the next save). */
+export interface PageMenuFlatten {
+  /** Selected annotations on the page; the "Flatten selection" item shows only when > 0. */
+  selected: number
+  /** Editable annotations on the page; "Flatten all" is disabled without any. */
+  onPage: number
+  flattenSelection(): void | Promise<void>
+  flattenPage(): void | Promise<void>
+}
+
 /**
- * Items of the page context menu (right-click with select, hand or the
- * text-selection marker) for `page` (1-based) of the document `actions`
- * belongs to. Each operation is one undo step. "Insert image" pastes the
- * clipboard image (`paste`); it is disabled while there is none.
+ * Flattening for the page menu of `page` (1-based): the selected and all
+ * editable annotations on that page, each flattened as one undo step (the
+ * selection then drops them, see ToolRouter.pruneSelection).
  */
-export function pageMenuItems(page: number, actions: PageMenuActions, paste?: PageMenuPaste): MenuItem[] {
+export function pageFlatten(
+  session: { store: AnnotationStore; history: History },
+  selection: readonly string[],
+  page: number,
+): PageMenuFlatten {
+  const onPage = session.store.byPage(page - 1).filter(isEditable)
+  const ids = new Set(selection)
+  const selected = onPage.filter((a) => ids.has(a.id))
+  const run = (list: Annotation[]) => {
+    if (list.length > 0) session.history.execute(flattenAnnotations(list))
+  }
+  return {
+    selected: selected.length,
+    onPage: onPage.length,
+    flattenSelection: () => run(selected),
+    flattenPage: () => run(onPage),
+  }
+}
+
+/**
+ * Items of the page context menu (right-click with select, lasso, hand or
+ * the text-selection marker) for `page` (1-based) of the document `actions`
+ * belongs to. Each operation is one undo step. "Insert image" pastes the
+ * clipboard image (`paste`); it is disabled while there is none. With
+ * `flatten`, the selection or all annotations of the page can be flattened.
+ */
+export function pageMenuItems(
+  page: number,
+  actions: PageMenuActions,
+  paste?: PageMenuPaste,
+  flatten?: PageMenuFlatten,
+): MenuItem[] {
   const i = page - 1
   /** Runs an operation; a failure is reported to the user, never thrown. */
   const attempt = (what: string, op: () => void | Promise<void>, failure = `Could not ${what} the page`) => () => {
@@ -38,9 +83,29 @@ export function pageMenuItems(page: number, actions: PageMenuActions, paste?: Pa
       fail(e)
     }
   }
+  const flattenItems: MenuItem[] = !flatten
+    ? []
+    : [
+        ...(flatten.selected > 0
+          ? [
+              {
+                label: 'Flatten selection',
+                icon: actionIcons.flatten,
+                run: attempt('flatten the selection on', flatten.flattenSelection, 'Could not flatten the selection'),
+              },
+            ]
+          : []),
+        {
+          label: `Flatten all annotations on page ${page}`,
+          icon: actionIcons.flatten,
+          disabled: flatten.onPage === 0,
+          run: attempt('flatten the annotations on', flatten.flattenPage, 'Could not flatten the annotations'),
+        },
+      ]
   return [
     {
       label: 'Insert image',
+      icon: actionIcons.insertImage,
       disabled: !paste?.image,
       run: attempt(
         'insert the image on',
@@ -50,12 +115,18 @@ export function pageMenuItems(page: number, actions: PageMenuActions, paste?: Pa
         'Could not insert the image',
       ),
     },
-    { label: `Insert empty page after page ${page}`, run: attempt('insert an empty page after', () => actions.insertBlankPage(i)) },
-    { label: `Duplicate page ${page}`, run: attempt('duplicate', () => actions.duplicatePage(i)) },
-    { label: 'Rotate right', run: attempt('rotate', () => actions.rotatePage(i, 90)) },
-    { label: 'Rotate left', run: attempt('rotate', () => actions.rotatePage(i, -90)) },
+    {
+      label: `Insert empty page after page ${page}`,
+      icon: actionIcons.insertPage,
+      run: attempt('insert an empty page after', () => actions.insertBlankPage(i)),
+    },
+    { label: `Duplicate page ${page}`, icon: actionIcons.duplicate, run: attempt('duplicate', () => actions.duplicatePage(i)) },
+    { label: 'Rotate right', icon: actionIcons.rotateRight, run: attempt('rotate', () => actions.rotatePage(i, 90)) },
+    { label: 'Rotate left', icon: actionIcons.rotateLeft, run: attempt('rotate', () => actions.rotatePage(i, -90)) },
+    ...flattenItems,
     {
       label: `Delete page ${page}`,
+      icon: actionIcons.delete,
       danger: true,
       disabled: !actions.canDeletePage(),
       run: attempt('delete', () => actions.deletePage(i)),

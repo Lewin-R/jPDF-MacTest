@@ -1,5 +1,6 @@
 import type { Command } from '../../core/session/history.svelte'
 import type { Annotation, HighlightAnnotation, Quad, RGB, TextMarkupAnnotation } from '../../core/session/model'
+import { isEditable } from '../../core/session/model'
 import { compositeCommand, deleteAnnotations, updateAnnotation } from '../../core/session/commands'
 import { cutQuads } from '../../core/geometry/merge'
 import type { ToolContext } from '../../core/registry/tools'
@@ -79,7 +80,7 @@ export function unmarkCommand(
   const updates: Command[] = []
   const deleted: Annotation[] = []
   for (const { page, quads: cut } of cuts) {
-    for (const a of store.byPage(page)) {
+    for (const a of store.byPage(page).filter(isEditable)) {
       if (!isKind(a, kind)) continue
       const quads = cutQuads(a.quads, cut)
       if (quads.length === a.quads.length && quads.every((q, i) => q === a.quads[i])) continue

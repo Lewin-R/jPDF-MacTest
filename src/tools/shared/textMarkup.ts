@@ -1,5 +1,6 @@
 import type { Command } from '../../core/session/history.svelte'
 import type { Annotation, Quad, TextMarkupAnnotation } from '../../core/session/model'
+import { isEditable } from '../../core/session/model'
 import { addAnnotations, compositeCommand, mergeAnnotations } from '../../core/session/commands'
 import { findMergeableTextMarkup, mergeHighlightQuads } from '../../core/geometry/merge'
 import { rectsToQuads, type ScreenRect } from '../../core/geometry/quads'
@@ -152,7 +153,7 @@ export function textMarkupCommand<T extends TextMarkupAnnotation>(store: PageSou
   const added: T[] = []
   const merges: Command[] = []
   for (const m of fresh) {
-    const found = findMergeableTextMarkup(store.byPage(m.page), m)
+    const found = findMergeableTextMarkup(store.byPage(m.page).filter(isEditable), m)
     if (found.length === 0) {
       added.push(m)
       continue

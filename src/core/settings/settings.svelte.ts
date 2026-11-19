@@ -24,6 +24,7 @@ function inst(type: string, settings: unknown): ToolInstance {
 export function defaultToolbar(): ToolInstance[] {
   return [
     inst('select', {}),
+    inst('lasso', {}),
     inst('hand', {}),
     inst('marker', { mode: 'text', color: [1, 0.922, 0.231], opacity: 0.4, width: 14 }),
     inst('pen', { color: [0.898, 0.224, 0.208], width: 2, opacity: 1 }),

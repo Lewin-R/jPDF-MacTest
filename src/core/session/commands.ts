@@ -34,6 +34,22 @@ export function deleteAnnotations(list: Annotation[]): Command {
   }
 }
 
+/** Moves several annotations as one undo step: each `before` becomes the `after` with its id. */
+export function updateAnnotations(label: string, changes: { before: Annotation; after: Annotation }[]): Command {
+  return compositeCommand(label, changes.map(({ before, after }) => updateAnnotation(before, after)))
+}
+
+/**
+ * Marks annotations flattened (burned into the page content on the next
+ * save; see Base.flattened), one undo step. Already flattened ones are skipped.
+ */
+export function flattenAnnotations(list: Annotation[], modifiedAt = new Date().toISOString()): Command {
+  return updateAnnotations(
+    'Flatten annotations',
+    list.filter((a) => !a.flattened).map((a) => ({ before: a, after: { ...a, flattened: true, modifiedAt } })),
+  )
+}
+
 /** One undo step made of `parts`: done in order, undone in reverse. */
 export function compositeCommand(label: string, parts: Command[]): Command {
   return {

@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
-import { pageMenuItems } from '../../src/app/pageMenu'
+import { pageFlatten, pageMenuItems } from '../../src/app/pageMenu'
+import { History } from '../../src/core/session/history.svelte'
+import type { Annotation } from '../../src/core/session/model'
+import { AnnotationStore } from '../../src/core/session/store.svelte'
+import { actionIcons } from '../../src/ui/actionIcons'
 import type { MenuItem } from '../../src/ui/ContextMenu.svelte'
 import { toasts } from '../../src/ui/toasts.svelte'
 import { rightClickErases } from '../../src/tools/rightClick'
@@ -108,5 +112,80 @@ describe('pageMenuItems', () => {
     item(pageMenuItems(1, actions(), { image: { width: 1, height: 1, rgba: new Uint8Array(4) }, insert }), 'Insert image').run()
     await vi.waitFor(() => expect(toasts.items.at(-1)?.message).toBe('Could not insert the image'))
     err.mockRestore()
+  })
+})
+
+describe('pageMenuItems flatten and icons', () => {
+  const flatten = (selected: number, onPage: number) => ({
+    selected,
+    onPage,
+    flattenSelection: vi.fn(),
+    flattenPage: vi.fn(),
+  })
+
+  it('offers flattening before delete; "Flatten selection" only with a selection on the page', () => {
+    expect(pageMenuItems(2, actions(), undefined, flatten(0, 3)).map((i) => i.label).slice(-2)).toEqual([
+      'Flatten all annotations on page 2',
+      'Delete page 2',
+    ])
+    expect(pageMenuItems(2, actions(), undefined, flatten(2, 3)).map((i) => i.label).slice(-3)).toEqual([
+      'Flatten selection',
+      'Flatten all annotations on page 2',
+      'Delete page 2',
+    ])
+  })
+
+  it('runs the flatten actions; "Flatten all" is disabled on a page without annotations', () => {
+    const f = flatten(1, 2)
+    const items = pageMenuItems(1, actions(), undefined, f)
+    item(items, 'Flatten selection').run()
+    item(items, 'Flatten all annotations on page 1').run()
+    expect(f.flattenSelection).toHaveBeenCalledOnce()
+    expect(f.flattenPage).toHaveBeenCalledOnce()
+    expect(item(pageMenuItems(1, actions(), undefined, flatten(0, 0)), 'Flatten all annotations on page 1').disabled).toBe(true)
+  })
+
+  it('gives every item its action icon, the same one wherever the action appears', () => {
+    const items = pageMenuItems(3, actions(), undefined, flatten(1, 1))
+    expect(items.every((i) => i.icon)).toBe(true)
+    expect(item(items, 'Insert image').icon).toBe(actionIcons.insertImage)
+    expect(item(items, 'Insert empty page after page 3').icon).toBe(actionIcons.insertPage)
+    expect(item(items, 'Duplicate page 3').icon).toBe(actionIcons.duplicate)
+    expect(item(items, 'Rotate right').icon).toBe(actionIcons.rotateRight)
+    expect(item(items, 'Rotate left').icon).toBe(actionIcons.rotateLeft)
+    expect(item(items, 'Flatten selection').icon).toBe(actionIcons.flatten)
+    expect(item(items, 'Flatten all annotations on page 3').icon).toBe(actionIcons.flatten)
+    expect(item(items, 'Delete page 3').icon).toBe(actionIcons.delete)
+  })
+})
+
+describe('pageFlatten', () => {
+  const ink = (id: string, page: number, flattened = false): Annotation => ({
+    id, page, sourceRef: null, modifiedAt: 't', author: 'A', kind: 'ink', strokes: [[[0, 0], [1, 1]]],
+    color: [1, 0, 0], width: 1, opacity: 1, blend: 'normal', role: 'pen', ...(flattened ? { flattened: true as const } : {}),
+  })
+
+  function session() {
+    const store = new AnnotationStore()
+    store.load([ink('a', 0), ink('b', 0), ink('done', 0, true), ink('other', 1)])
+    return { store, history: new History(store) }
+  }
+
+  it('counts the selected and editable annotations of the page only', () => {
+    const f = pageFlatten(session(), ['a', 'other', 'done'], 1)
+    expect(f.selected).toBe(1)
+    expect(f.onPage).toBe(2)
+  })
+
+  it('flattens the selection on the page, or all of its annotations, one undo step each', () => {
+    const s = session()
+    pageFlatten(s, ['a', 'other'], 1).flattenSelection()
+    expect(s.store.all().filter((a) => a.flattened).map((a) => a.id)).toEqual(['a', 'done'])
+    pageFlatten(s, [], 1).flattenPage()
+    expect(s.store.byPage(0).every((a) => a.flattened)).toBe(true)
+    expect(s.store.get('other')!.flattened).toBeUndefined()
+    s.history.undo()
+    s.history.undo()
+    expect(s.store.all().filter((a) => a.flattened).map((a) => a.id)).toEqual(['done'])
   })
 })

@@ -15,6 +15,7 @@ fn common(id: &str, page: u32) -> Common {
         source_ref: None,
         modified_at: "2026-11-19T10:00:00Z".into(),
         author: "JuliePDF".into(),
+        flattened: false,
     }
 }
 

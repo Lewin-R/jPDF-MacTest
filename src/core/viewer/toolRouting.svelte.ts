@@ -1,5 +1,6 @@
 import { untrack } from 'svelte'
 import type { ToolContext, ToolDefinition, ToolHandler } from '../registry/tools'
+import { isEditable } from '../session/model'
 import type { DocumentSession } from '../session/session.svelte'
 import { SessionToolState } from '../session/toolState.svelte'
 import type { ToolInstance } from '../settings/settings.svelte'
@@ -116,12 +117,15 @@ export class ToolRouter {
     }
   }
 
-  /** Drops selected ids whose annotation is gone (undo, redo, eraser, delete). */
+  /** Drops selected ids whose annotation is gone (undo, redo, eraser, delete) or flattened. */
   private pruneSelection(): void {
     const session = this.getSession()
     if (!session) return
     const state = this.stateOf(session)
-    const alive = state.selection.filter((id) => session.store.get(id) !== undefined)
+    const alive = state.selection.filter((id) => {
+      const a = session.store.get(id)
+      return a !== undefined && isEditable(a)
+    })
     if (alive.length !== state.selection.length) state.selection = alive
   }
 
@@ -144,6 +148,7 @@ export class ToolRouter {
       const state = this.stateOf(oldSession)
       state.preview = null
       state.pagePreviews = []
+      state.lasso = null
       state.hidden = new Set()
       state.cursor = null
       state.textEdit = null
@@ -182,6 +187,11 @@ export class ToolRouter {
       pagePreviews: {
         set: (list) => {
           state.pagePreviews = list
+        },
+      },
+      lasso: {
+        set: (l) => {
+          state.lasso = l
         },
       },
       hidden: {

@@ -20,6 +20,7 @@ fn ink(id: &str, page: u32, color: [f64; 3]) -> AnnotationDto {
             source_ref: None,
             modified_at: "2026-11-18T10:00:00Z".into(),
             author: "Jülie".into(),
+            flattened: false,
         },
         strokes: vec![
             vec![[100.5, 200.25], [150.0, 250.0], [200.0, 210.0]],

@@ -55,6 +55,18 @@ export interface ToolHandler {
   passThroughAt?(e: PagePointerEvent): boolean
   /** A press that passThroughAt let through to the text layer (e.g. deselect). */
   onPassThroughDown?(e: PagePointerEvent): void
+  /**
+   * The selection may hold several annotations (lasso): the overlay outlines
+   * each one and their common box, without resize handles, and shows the
+   * selection actions (duplicate, flatten, delete) next to it.
+   */
+  groupSelection?: boolean
+}
+
+/** A lasso being drawn on `page`: its outline so far, in PDF user space. */
+export interface LassoPath {
+  page: number
+  points: readonly Point[]
 }
 
 /**
@@ -78,10 +90,13 @@ export interface ToolContext {
   /** Live, uncommitted annotation drawn by Overlay. */
   preview: { set(a: Annotation | null): void }
   /**
-   * Live, uncommitted annotations, at most one per page (e.g. text markup of a
-   * selection across pages), drawn on pages where `preview` has nothing.
+   * Live, uncommitted annotations, any number per page (e.g. text markup of a
+   * selection across pages, a group being moved), drawn on pages where
+   * `preview` has nothing.
    */
   pagePreviews?: { set(list: readonly Annotation[]): void }
+  /** The lasso outline drawn by Overlay (null: none); cleared when the tool changes. */
+  lasso?: { set(l: LassoPath | null): void }
   /** Annotations hidden by Overlay while a gesture (e.g. erasing) is in progress; cleared when the tool changes. */
   hidden: { readonly ids: ReadonlySet<string>; set(ids: Iterable<string>): void }
   /** Overrides the tool's cursor (e.g. 'grabbing' during a drag); null restores it. */

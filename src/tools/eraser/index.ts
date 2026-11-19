@@ -1,5 +1,6 @@
 import { hitAnnotations } from '../../core/geometry/hit'
 import type { Annotation, Point } from '../../core/session/model'
+import { isEditable } from '../../core/session/model'
 import { deleteAnnotations } from '../../core/session/commands'
 import type { PagePointerEvent, ToolContext, ToolDefinition, ToolHandler } from '../../core/registry/tools'
 import Icon from './Icon.svelte'
@@ -26,7 +27,7 @@ export function createEraserHandler(ctx: ToolContext): ToolHandler {
   function eraseAt(p: Point, e: PagePointerEvent) {
     if (!erased) return
     const radius = ERASER_RADIUS_PX / e.vp.scale
-    const candidates = ctx.session.store.byPage(e.page).filter((a) => !erased!.has(a.id))
+    const candidates = ctx.session.store.byPage(e.page).filter((a) => isEditable(a) && !erased!.has(a.id))
     for (const a of hitAnnotations(candidates, p, radius, erasable)) erased.set(a.id, a)
   }
 

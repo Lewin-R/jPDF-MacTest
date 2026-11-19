@@ -24,19 +24,19 @@ beforeEach(() => vi.useFakeTimers())
 afterEach(() => vi.useRealTimers())
 
 describe('SettingsStore', () => {
-  it('load with null returns defaultToolbar of 6 instances in order', async () => {
+  it('load with null returns defaultToolbar of 7 instances in order', async () => {
     const { store } = make(null)
     await store.load()
-    expect(store.data.toolbar.map((i) => i.type)).toEqual(['select', 'hand', 'marker', 'pen', 'text', 'eraser'])
+    expect(store.data.toolbar.map((i) => i.type)).toEqual(['select', 'lasso', 'hand', 'marker', 'pen', 'text', 'eraser'])
     expect(store.data.activeInstanceId).toBe(store.data.toolbar[0].instanceId)
     expect(store.data.author).toBe('JuliePDF')
   })
 
   it('default toolbar settings and unique ids', () => {
     const tb = defaultToolbar()
-    expect(tb[2].settings).toEqual({ mode: 'text', color: [1, 0.922, 0.231], opacity: 0.4, width: 14 })
-    expect(tb[5].settings).toEqual({})
-    expect(new Set(tb.map((i) => i.instanceId)).size).toBe(6)
+    expect(tb[3].settings).toEqual({ mode: 'text', color: [1, 0.922, 0.231], opacity: 0.4, width: 14 })
+    expect(tb[6].settings).toEqual({})
+    expect(new Set(tb.map((i) => i.instanceId)).size).toBe(7)
   })
 
   it('setHint records the flag and saves it', async () => {
@@ -53,7 +53,7 @@ describe('SettingsStore', () => {
     for (const bad of ['garbage', { version: 2, toolbar: [] }, { version: 1, toolbar: 'x' }, 42]) {
       const { store } = make(bad)
       await store.load()
-      expect(store.data.toolbar).toHaveLength(6)
+      expect(store.data.toolbar).toHaveLength(7)
     }
   })
 
@@ -71,7 +71,7 @@ describe('SettingsStore', () => {
     const { store, load } = make()
     load.mockRejectedValueOnce(new Error('boom'))
     await store.load()
-    expect(store.data.toolbar).toHaveLength(6)
+    expect(store.data.toolbar).toHaveLength(7)
   })
 
   it('addInstance appends with defaultSettings', () => {
@@ -127,7 +127,7 @@ describe('SettingsStore', () => {
 
   it('updateSettings merges patch', () => {
     const { store } = make()
-    const m = store.data.toolbar[2]
+    const m = store.data.toolbar.find((i) => i.type === 'marker')!
     store.updateSettings(m.instanceId, { opacity: 0.7 })
     expect(m.settings).toMatchObject({ mode: 'text', opacity: 0.7 })
   })

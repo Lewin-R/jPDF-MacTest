@@ -32,6 +32,7 @@ fn pen_stroke(id: usize) -> AnnotationDto {
             source_ref: None,
             modified_at: "2026-11-19T10:00:00Z".into(),
             author: "JuliePDF".into(),
+            flattened: false,
         },
         strokes: vec![stroke],
         color: [0.9, 0.1, 0.2],

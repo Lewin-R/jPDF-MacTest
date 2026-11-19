@@ -1,6 +1,7 @@
 import { toolRegistry } from '../core/registry/tools'
 import { eraserTool } from './eraser'
 import { handTool } from './hand'
+import { lassoTool } from './lasso'
 import { markerTool } from './marker'
 import { penTool } from './pen'
 import { selectTool } from './select'
@@ -10,6 +11,7 @@ import { strikeoutTool, underlineTool } from './textline'
 
 // First: the default tool, listed first in the tool picker.
 toolRegistry.register(selectTool)
+toolRegistry.register(lassoTool)
 toolRegistry.register(penTool)
 toolRegistry.register(handTool)
 toolRegistry.register(eraserTool)

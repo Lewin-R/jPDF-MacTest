@@ -1,8 +1,7 @@
 <script lang="ts">
-  import Copy from '@lucide/svelte/icons/copy'
   import Plus from '@lucide/svelte/icons/plus'
   import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal'
-  import Trash2 from '@lucide/svelte/icons/trash-2'
+  import { actionIcons } from '../ui/actionIcons'
   import { toolRegistry, type ToolRegistry } from '../core/registry/tools'
   import type { Annotation } from '../core/session/model'
   import { settings, type SettingsStore } from '../core/settings/settings.svelte'
@@ -81,10 +80,10 @@
 
   function menuItems(id: string, allowDuplicate: boolean, anchor: HTMLElement): MenuItem[] {
     const items: MenuItem[] = [{ label: 'Options', icon: SlidersHorizontal, run: () => (flyout = { id, anchor }) }]
-    if (allowDuplicate) items.push({ label: 'Duplicate', icon: Copy, run: () => store.duplicate(id) })
+    if (allowDuplicate) items.push({ label: 'Duplicate', icon: actionIcons.duplicate, run: () => store.duplicate(id) })
     items.push({
       label: 'Remove',
-      icon: Trash2,
+      icon: actionIcons.delete,
       danger: true,
       run: () => {
         if (flyout?.id === id) flyout = null

@@ -1,7 +1,7 @@
 import type { PagePointerEvent, ToolContext, ToolDefinition, ToolHandler } from '../../core/registry/tools'
 import { annotationKinds } from '../../core/registry/annotationKinds'
 import type { FreeTextAnnotation, Point } from '../../core/session/model'
-import { newId } from '../../core/session/model'
+import { isEditable, newId } from '../../core/session/model'
 import { settings as appSettings } from '../../core/settings/settings.svelte'
 import { boxHeight, DEFAULT_BOX_WIDTH, normalizeRotation, pageBoxRect } from '../../core/geometry/textLayout'
 import { createTextEditing, layoutFreeText } from './editing'
@@ -26,7 +26,7 @@ export function createTextHandler(ctx: ToolContext, settings: () => TextSettings
 
   function boxAt(e: PagePointerEvent, p: Point): FreeTextAnnotation | null {
     const tolerance = HIT_TOLERANCE_PX / e.vp.scale
-    const onPage = ctx.session.store.byPage(e.page)
+    const onPage = ctx.session.store.byPage(e.page).filter(isEditable)
     for (let i = onPage.length - 1; i >= 0; i--) {
       const a = onPage[i]
       if (a.kind === 'freetext' && annotationKinds.get('freetext').hitTest(a, p, tolerance)) return a

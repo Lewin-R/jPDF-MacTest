@@ -37,9 +37,15 @@
   import type { PageEntry } from '../session/pages'
   import { blankViewport, entryOf, sourceViewport } from './pageSource'
   import type { AnnotationStore } from '../session/store.svelte'
-  import type { Annotation, Point } from '../session/model'
+  import type { Annotation, Point, Rect } from '../session/model'
   import type { PageMenuPoint } from './viewerMath'
-  import type { PageFrame, PagePointerEvent, TextEdit, ToolHandler } from '../registry/tools'
+  import type { LassoPath, PageFrame, PagePointerEvent, TextEdit, ToolHandler } from '../registry/tools'
+  import SelectionBar from './SelectionBar.svelte'
+  import { UNMARK_COLOR } from '../../tools/shared/unmark'
+  import { cssColor } from '../../annotations/freetext/screen'
+
+  const LASSO_COLOR = cssColor(UNMARK_COLOR)
+  const LASSO_FILL_OPACITY = 0.15
   import { annotationKinds } from '../registry/annotationKinds'
   import { pageHasText } from './textContent'
   import { clientToPdf as mapClientToPdf } from './viewerMath'
@@ -54,6 +60,8 @@
     scale,
     store,
     preview = null,
+    previews = [],
+    lasso = null,
     hidden,
     tool = null,
     eraser = null,
@@ -75,6 +83,10 @@
     store: AnnotationStore
     /** In-progress annotation drawn on top (tool preview). */
     preview?: Annotation | null
+    /** More in-progress annotations on this page (e.g. a group being moved), drawn on top. */
+    previews?: readonly Annotation[]
+    /** The lasso being drawn, when on this page. */
+    lasso?: LassoPath | null
     /** Annotation ids not drawn (erased during an uncommitted drag). */
     hidden?: ReadonlySet<string>
     /** Active tool's handler; the overlay takes pointer input only when set. */
@@ -154,15 +166,57 @@
     }
   })
 
-  const annotations = $derived(store.byPage(pageNumber - 1))
+  /**
+   * The page's annotations in drawing order: flattened ones first, as they
+   * will be part of the page content (under every annotation) once saved.
+   */
+  const annotations = $derived.by(() => {
+    const all = store.byPage(pageNumber - 1)
+    return all.some((a) => a.flattened) ? [...all.filter((a) => a.flattened), ...all.filter((a) => !a.flattened)] : all
+  })
+
+  /** Annotation `id` as drawn now: its preview while dragged, nothing while hidden. */
+  function drawn(id: string): Annotation | undefined {
+    if (preview?.id === id) return preview
+    const p = previews.find((x) => x.id === id)
+    if (p) return p
+    return hidden?.has(id) ? undefined : store.get(id)
+  }
 
   /** Screen box and handles of the selected annotation if it is drawn on this page (its preview while dragged). */
   const selected = $derived.by(() => {
     const id = selection[0]
-    if (!vp || id === undefined) return null
-    const a = preview?.id === id ? preview : hidden?.has(id) ? undefined : store.get(id)
+    if (!vp || id === undefined || tool?.groupSelection) return null
+    const a = drawn(id)
     if (!a || a.page !== pageNumber - 1) return null
     return { rect: toScreenRect(annotationKinds.get(a.kind).bounds(a), vp), handles: handlesFor(a) }
+  })
+
+  /**
+   * Group selection (lasso): the screen boxes of the selected annotations on
+   * this page and their common box; `moving` while they are being dragged.
+   */
+  const group = $derived.by(() => {
+    if (!vp || !tool?.groupSelection || selection.length === 0) return null
+    const boxes = selection.flatMap((id) => {
+      const a = drawn(id)
+      return a && a.page === pageNumber - 1 ? [toScreenRect(annotationKinds.get(a.kind).bounds(a), vp!)] : []
+    })
+    if (boxes.length === 0) return null
+    const rect: Rect = [
+      Math.min(...boxes.map((b) => b[0])),
+      Math.min(...boxes.map((b) => b[1])),
+      Math.max(...boxes.map((b) => b[2])),
+      Math.max(...boxes.map((b) => b[3])),
+    ]
+    const moving = selection.some((id) => hidden?.has(id))
+    return { boxes, rect, moving }
+  })
+
+  /** The lasso outline as SVG polygon points (viewport px). */
+  const lassoPoints = $derived.by(() => {
+    if (!vp || !lasso || lasso.page !== pageNumber - 1) return null
+    return lasso.points.map((p) => vp!.convertToViewportPoint(p[0], p[1]).join(',')).join(' ')
   })
 
   let el: SVGSVGElement
@@ -434,6 +488,32 @@
       {@const K = annotationKinds.get(preview.kind)}
       <K.Render a={preview} {vp} selected={false} />
     {/if}
+    {#each previews as p (p.id)}
+      {@const K = annotationKinds.get(p.kind)}
+      <K.Render a={p} {vp} selected={false} />
+    {/each}
+    {#if group}
+      {@const r = group.rect}
+      <g class="selection" data-testid="group-selection">
+        {#if group.boxes.length > 1}
+          {#each group.boxes as b, i (i)}
+            <rect class="member-box" x={b[0]} y={b[1]} width={b[2] - b[0]} height={b[3] - b[1]} />
+          {/each}
+        {/if}
+        <rect class="selection-box" x={r[0]} y={r[1]} width={r[2] - r[0]} height={r[3] - r[1]} />
+      </g>
+    {/if}
+    {#if lassoPoints}
+      <!-- The same blue as the tint of text being unmarked: a selection gesture, not a mark. -->
+      <polygon
+        class="lasso"
+        data-testid="lasso"
+        points={lassoPoints}
+        fill={LASSO_COLOR}
+        fill-opacity={LASSO_FILL_OPACITY}
+        stroke={LASSO_COLOR}
+      />
+    {/if}
     {#if selected}
       {@const r = selected.rect}
       <g class="selection">
@@ -448,6 +528,9 @@
 </svg>
 {#if vp && textEdit}
   <TextEditor edit={textEdit} {vp} />
+{/if}
+{#if vp && group && !group.moving && !lassoPoints}
+  <SelectionBar rect={group.rect} {vp} count={group.boxes.length} />
 {/if}
 
 <style>
@@ -465,6 +548,18 @@
     fill: none;
     stroke: var(--accent);
     stroke-width: 1;
+  }
+  .member-box {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 1;
+    stroke-dasharray: 3 3;
+    opacity: 0.7;
+  }
+  .lasso {
+    stroke-width: 1;
+    stroke-dasharray: 4 3;
+    pointer-events: none;
   }
   .handle {
     fill: var(--bg);
