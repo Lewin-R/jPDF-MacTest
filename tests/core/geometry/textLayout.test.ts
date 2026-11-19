@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  boxRect, DEFAULT_BOX_WIDTH, frameOrigin, frameSize, LINE_HEIGHT, measureHelvetica, pageBoxRect, TEXT_PADDING,
-  wrapText,
+  boxRect, defaultBoxWidth, frameOrigin, frameSize, LINE_HEIGHT, measureHelvetica, minBoxWidth, pageBoxRect, PLACEHOLDER,
+  screenDx, TEXT_PADDING, wrapText,
 } from '../../../src/core/geometry/textLayout'
 
 const half = (s: string, size: number) => s.length * size * 0.5
@@ -43,14 +43,30 @@ describe('wrapText', () => {
 })
 
 describe('boxRect', () => {
-  it('boxRect height for 2 lines at 10pt === 32', () => {
+  it('boxRect height for 2 lines at 10pt === 27', () => {
     const r = boxRect([100, 500], 200, 2, 10)
-    expect(r[3] - r[1]).toBeCloseTo(32)
+    expect(r[3] - r[1]).toBeCloseTo(27)
     expect(r).toEqual([100, 500 - 2 * 10 * LINE_HEIGHT - 2 * TEXT_PADDING, 300, 500])
   })
 
   it('exports the layout constants', () => {
-    expect([TEXT_PADDING, LINE_HEIGHT, DEFAULT_BOX_WIDTH]).toEqual([4, 1.2, 200])
+    expect([TEXT_PADDING, LINE_HEIGHT]).toEqual([1.5, 1.2])
+  })
+
+  it('a new box is just wide enough for the placeholder', () => {
+    // "Text" is 1.945 em in Helvetica: 19.45 + 2 * 1.5 padding, rounded up.
+    expect(defaultBoxWidth(10)).toBe(23)
+    expect(measureHelvetica(PLACEHOLDER, 10)).toBeLessThanOrEqual(defaultBoxWidth(10) - 2 * TEXT_PADDING)
+    expect(defaultBoxWidth(6)).toBeLessThan(defaultBoxWidth(12))
+    // One "W" (0.944 em) plus 1.5 pt padding on each side.
+    expect(minBoxWidth(10)).toBeCloseTo(12.44)
+  })
+
+  it('screenDx measures along screen right on every rotation', () => {
+    expect(screenDx([100, 500], [130, 480], 0)).toBe(30)
+    expect(screenDx([100, 500], [130, 540], 90)).toBe(40)
+    expect(screenDx([100, 500], [70, 480], 180)).toBe(30)
+    expect(screenDx([100, 500], [130, 460], 270)).toBe(40)
   })
 })
 

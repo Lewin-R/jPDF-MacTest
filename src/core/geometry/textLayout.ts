@@ -1,7 +1,13 @@
 import type { Point, Rect } from '../session/model'
 
-/** Inner padding of a text box, line height factor and default box width (pt). */
-export const TEXT_PADDING = 4, LINE_HEIGHT = 1.2, DEFAULT_BOX_WIDTH = 200
+/**
+ * Inner padding of a text box and line height factor (pt). The padding keeps
+ * the box barely larger than its text; a coloured background still gets a
+ * thin margin around the glyphs.
+ */
+export const TEXT_PADDING = 1.5, LINE_HEIGHT = 1.2
+/** Shown in an empty box while it is placed and edited; a new box is just wide enough for it. */
+export const PLACEHOLDER = 'Text'
 /** First baseline below the top padding, as a fraction of the font size (same in the saved appearance). */
 export const ASCENT = 0.8
 
@@ -165,6 +171,37 @@ export function frameOrigin(rect: Rect, rotation: number): Point {
       return [rect[2], rect[3]]
     default:
       return [rect[0], rect[3]]
+  }
+}
+
+/** Width (pt) of a new box placed with a click: the placeholder fits on one line. */
+export function defaultBoxWidth(fontSize: number): number {
+  return Math.ceil(measureHelvetica(PLACEHOLDER, fontSize) + 2 * TEXT_PADDING)
+}
+
+/**
+ * Narrowest box a drag can make (pt): one letter with the padding on both
+ * sides. Sized for the widest letter ("W"), so any single character fits
+ * without being broken.
+ */
+export function minBoxWidth(fontSize: number): number {
+  return measureHelvetica('W', fontSize) + 2 * TEXT_PADDING
+}
+
+/**
+ * How far `to` lies right of `from` on screen (pt, negative = left), on a page
+ * with this /Rotate: screen right is +x, +y, -x, -y for 0, 90, 180, 270.
+ */
+export function screenDx(from: Point, to: Point, rotation: number): number {
+  switch (normalizeRotation(rotation)) {
+    case 90:
+      return to[1] - from[1]
+    case 180:
+      return from[0] - to[0]
+    case 270:
+      return from[1] - to[1]
+    default:
+      return to[0] - from[0]
   }
 }
 

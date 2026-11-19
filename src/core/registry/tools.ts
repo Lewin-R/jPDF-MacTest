@@ -86,6 +86,11 @@ export interface TextEdit {
   draft: FreeTextAnnotation
   /** /Rotate of the box's page (the editor is laid out upright on screen). */
   rotation: number
+  /**
+   * The box is still being placed (its width dragged out): the editor shows
+   * it with the placeholder but takes no focus or pointer input yet.
+   */
+  sizing?: boolean
   setText(text: string): void
   commit(): void
 }

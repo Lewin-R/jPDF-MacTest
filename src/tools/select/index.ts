@@ -2,7 +2,7 @@ import type { PageViewport } from 'pdfjs-dist'
 import type { PagePointerEvent, ToolContext, ToolDefinition, ToolHandler } from '../../core/registry/tools'
 import { annotationKinds } from '../../core/registry/annotationKinds'
 import { hitAnnotations } from '../../core/geometry/hit'
-import { frameOrigin, normalizeRotation } from '../../core/geometry/textLayout'
+import { frameOrigin, minBoxWidth, normalizeRotation } from '../../core/geometry/textLayout'
 import { updateAnnotation } from '../../core/session/commands'
 import type { Annotation, Point, Rect } from '../../core/session/model'
 import { isEditable } from '../../core/session/model'
@@ -24,8 +24,6 @@ export { HANDLE_TOLERANCE_PX }
 const DRAG_THRESHOLD_PX = 3
 /** Max time between two clicks on a text box that opens its editor. */
 const DOUBLE_CLICK_MS = 500
-/** Narrowest a text box can be resized to (pt). */
-export const FREETEXT_MIN_WIDTH = 24
 /** Smallest extent (pt, without the stroke width) ink, shapes and images can be resized to. */
 const INK_MIN_SIZE = 4
 
@@ -186,7 +184,8 @@ export function createSelectHandler(ctx: ToolContext, textAt: TextLookup = sessi
     const dy = Math.min(Math.max(sy, 0), vp.height) - pr.startScreen[1]
     if (a.kind === 'freetext') {
       const rotation = normalizeRotation(vp.rotation)
-      const r = resizeRect(box, handle, dx, 0, FREETEXT_MIN_WIDTH * vp.scale)
+      // As narrow as the text tool can place it: one letter.
+      const r = resizeRect(box, handle, dx, 0, minBoxWidth(a.fontSize) * vp.scale)
       const shift = (r[0] - box[0]) / vp.scale
       const [ox, oy] = frameOrigin(a.rect, rotation)
       const [rx, ry] = screenRight(rotation)

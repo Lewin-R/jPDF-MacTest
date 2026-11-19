@@ -7,7 +7,7 @@ import { History } from '../../../src/core/session/history.svelte'
 import type { Annotation, FreeTextAnnotation, ImageAnnotation, InkAnnotation, Point, ShapeAnnotation } from '../../../src/core/session/model'
 import { ALL_HANDLES, handlesFor } from '../../../src/tools/select/handles'
 import { AnnotationStore } from '../../../src/core/session/store.svelte'
-import { boxHeight, layoutLines, pageBoxRect } from '../../../src/core/geometry/textLayout'
+import { boxHeight, layoutLines, minBoxWidth, pageBoxRect } from '../../../src/core/geometry/textLayout'
 
 // Page 200 x 100 pt at scale 2: screen = (2x, 2(100 - y)).
 const vp = {
@@ -244,13 +244,13 @@ describe('select tool', () => {
     expect(t.history.canUndo).toBe(true)
   })
 
-  it('text box w handle keeps the right edge and stops at the minimum width', () => {
+  it('text box w handle keeps the right edge and stops at the minimum width (one letter)', () => {
     const t = setup([box('a', [10, 70, 110, 90])])
     t.click([50, 80])
     t.drag([10, 80], [180, 80])
     const a = t.store.get('a') as FreeTextAnnotation
     expect(a.rect[2]).toBeCloseTo(110)
-    expect(a.rect[0]).toBeCloseTo(110 - 24)
+    expect(a.rect[0]).toBeCloseTo(110 - minBoxWidth(10))
   })
 
   it('resizes text boxes on rotated pages along their on-screen width', () => {

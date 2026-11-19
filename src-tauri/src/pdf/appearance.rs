@@ -274,7 +274,7 @@ pub fn text_line_appearance(quads: &[[f64; 8]], kind: TextLine, color: [f64; 3])
 /// Inner box padding, line height factor and first-baseline offset (fraction of
 /// the font size below the padding); identical to the TS `textLayout` and the
 /// overlay's FreeText rendering.
-const TEXT_PADDING: f64 = 4.0;
+const TEXT_PADDING: f64 = 1.5;
 const LINE_HEIGHT: f64 = 1.2;
 const ASCENT: f64 = 0.8;
 
@@ -676,12 +676,13 @@ Q
 
     #[test]
     fn freetext_appearance_layout() {
+        // First baseline: x1 + 1.5 padding, top - 1.5 padding - 0.8 * 10 ascent.
         let lines = vec!["a(b)".to_string(), String::new(), "c".to_string()];
         let bg = Background { color: [1.0, 1.0, 0.0], opacity: 0.5 };
         let a = freetext_appearance([10.0, 20.0, 110.0, 70.0], &lines, 10.0, [0.0, 0.0, 1.0], Some(&bg), 0);
         assert_eq!(
             text(&a),
-            "q\n/GS0 gs\n1 1 0 rg\n10 20 100 50 re\nf\nQ\nBT\n/Helv 10 Tf\n0 0 1 rg\n14 58 Td\n(a\\(b\\)) Tj\n0 -12 Td\n0 -12 Td\n(c) Tj\nET\n"
+            "q\n/GS0 gs\n1 1 0 rg\n10 20 100 50 re\nf\nQ\nBT\n/Helv 10 Tf\n0 0 1 rg\n11.5 60.5 Td\n(a\\(b\\)) Tj\n0 -12 Td\n0 -12 Td\n(c) Tj\nET\n"
         );
         assert_eq!(a.opacity, 0.5);
         assert!(a.uses_helvetica && !a.multiply);

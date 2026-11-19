@@ -2,7 +2,7 @@
   import { onDestroy, onMount } from 'svelte'
   import type { PageViewport } from 'pdfjs-dist'
   import type { TextEdit } from '../../core/registry/tools'
-  import { TEXT_PADDING } from '../../core/geometry/textLayout'
+  import { PLACEHOLDER, TEXT_PADDING } from '../../core/geometry/textLayout'
   import { cssColor, editorInsets, FREETEXT_FONT, screenBox } from './screen'
 
   let { edit, vp }: { edit: TextEdit; vp: PageViewport } = $props()
@@ -47,6 +47,18 @@
   onMount(() => {
     el.value = a.text
     grow()
+  })
+
+  // The box may widen (or narrow) while typing: re-fit the height to the new wrapping.
+  $effect(() => {
+    void box.width
+    grow()
+  })
+
+  // Focused once the box is placed (right away when not sizing): while its
+  // width is being dragged out, the pointer still belongs to the page.
+  $effect(() => {
+    if (edit.sizing || document.activeElement === el) return
     el.focus({ preventScroll: true })
     el.setSelectionRange(el.value.length, el.value.length)
   })
@@ -58,7 +70,9 @@
 <textarea
   bind:this={el}
   class="freetext-editor"
+  class:sizing={edit.sizing}
   aria-label="Text box"
+  placeholder={PLACEHOLDER}
   spellcheck="false"
   rows="1"
   style:left="{box.left}px"
@@ -93,5 +107,13 @@
     /* Typing, not drawing: no tool gestures from inside the box. */
     touch-action: auto;
     pointer-events: auto;
+  }
+  .freetext-editor.sizing {
+    pointer-events: none;
+  }
+  /* Grey on both light and dark pages, whatever the text colour. */
+  .freetext-editor::placeholder {
+    color: rgba(128, 128, 128, 0.75);
+    opacity: 1;
   }
 </style>
