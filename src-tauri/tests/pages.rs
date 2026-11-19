@@ -3,7 +3,7 @@
 mod fixtures;
 
 use juliepdf_lib::error::AppError;
-use juliepdf_lib::pdf::dto::{AnnotationDto, Blend, Common, DeleteRef, InkRole, PageSpec};
+use juliepdf_lib::pdf::dto::{AnnotationDto, Blend, Common, DeleteRef, InkRole, PageSpec, TextAlign};
 use juliepdf_lib::pdf::reader::read_annotations;
 use juliepdf_lib::pdf::writer::{write_incremental, write_incremental_with_pages};
 use lopdf::{Dictionary, Document, Object, ObjectId};
@@ -40,6 +40,7 @@ fn freetext(id: &str, page: u32) -> AnnotationDto {
         font_size: 12.0,
         text_color: [0.0; 3],
         background: None,
+        align: TextAlign::Left,
     }
 }
 

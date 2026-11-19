@@ -15,7 +15,7 @@ use super::appearance::{
 use super::date::pdf_date;
 use super::dto::{
     AnnotationDto, Background, Blend, Common, DeleteRef, Fill, ImageData, InkRole, PageSpec,
-    ShapeKind, Stroke,
+    ShapeKind, Stroke, TextAlign,
 };
 use super::fmt::fmt_num;
 use super::image::{decode_base64, decode_png};
@@ -727,6 +727,7 @@ fn build_annotation(
             font_size,
             text_color,
             background,
+            align,
             ..
         } => {
             check_finite(
@@ -752,9 +753,10 @@ fn build_annotation(
                 *font_size,
                 *text_color,
                 background.as_ref(),
+                *align,
                 page_rotation,
             );
-            Ok(Some((freetext_dict(text, *font_size, *text_color, background.as_ref()), ap)))
+            Ok(Some((freetext_dict(text, *font_size, *text_color, background.as_ref(), *align), ap)))
         }
         AnnotationDto::Shape {
             shape,
@@ -862,7 +864,7 @@ fn line_dict(points: &[[f64; 2]], arrow: bool, border: &Stroke) -> Dictionary {
 /// only), and `/CA` would also fade the text. `/JuliePDF` keeps the font size,
 /// text colour and background opacity at full real precision for the reader
 /// (`/DA` numbers are rounded to 3 decimals).
-fn freetext_dict(text: &str, font_size: f64, color: [f64; 3], bg: Option<&Background>) -> Dictionary {
+fn freetext_dict(text: &str, font_size: f64, color: [f64; 3], bg: Option<&Background>, align: TextAlign) -> Dictionary {
     let da = format!(
         "/Helv {} Tf {} {} {} rg",
         fmt_num(font_size),
@@ -883,6 +885,11 @@ fn freetext_dict(text: &str, font_size: f64, color: [f64; 3], bg: Option<&Backgr
         "Contents" => text_string(text),
         "DA" => Object::String(da.into_bytes(), StringFormat::Literal),
         "DS" => Object::String(ds.into_bytes(), StringFormat::Literal),
+        "Q" => match align {
+            TextAlign::Left => 0,
+            TextAlign::Center => 1,
+            TextAlign::Right => 2,
+        },
         "C" => bg.map_or(Object::Array(Vec::new()), |b| nums(&b.color)),
         "CA" => 1,
         "BS" => dictionary! { "W" => 0 },

@@ -60,6 +60,17 @@ pub struct Background {
     pub opacity: f64,
 }
 
+/// Horizontal alignment of a text box's lines (`/Q` 0, 1, 2). Left when absent,
+/// so DTOs from before alignment existed still parse.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TextAlign {
+    #[default]
+    Left,
+    Center,
+    Right,
+}
+
 /// A shape's fill: same JSON shape as a text box background.
 pub type Fill = Background;
 
@@ -129,6 +140,8 @@ pub enum AnnotationDto {
         font_size: f64,
         text_color: [f64; 3],
         background: Option<Background>,
+        #[serde(default)]
+        align: TextAlign,
     },
     /// `rect` is the geometric outline (centre of the border stroke); for
     /// circles the bounding box of the circle (an ellipse after resizing).
@@ -189,10 +202,17 @@ mod tests {
 
     #[test]
     fn dto_freetext_camel_case_roundtrip() {
-        let src = r#"{"kind":"freetext","id":"f","page":2,"sourceRef":"12R3","modifiedAt":"2026-11-18T10:00:00Z","author":"J","rect":[1,2,3,4],"text":"a\nb","lines":["a","b"],"fontSize":12,"textColor":[0,0,0],"background":{"color":[1,1,0],"opacity":0.5}}"#;
+        let src = r#"{"kind":"freetext","id":"f","page":2,"sourceRef":"12R3","modifiedAt":"2026-11-18T10:00:00Z","author":"J","rect":[1,2,3,4],"text":"a\nb","lines":["a","b"],"fontSize":12,"textColor":[0,0,0],"background":{"color":[1,1,0],"opacity":0.5},"align":"center"}"#;
         let (dto, out, orig) = roundtrip(src);
-        assert!(matches!(dto, AnnotationDto::Freetext { font_size, .. } if font_size == 12.0));
+        assert!(matches!(dto, AnnotationDto::Freetext { font_size, align: TextAlign::Center, .. } if font_size == 12.0));
         assert_eq!(out, orig);
+    }
+
+    #[test]
+    fn dto_freetext_without_align_is_left_aligned() {
+        let src = r#"{"kind":"freetext","id":"f","page":0,"sourceRef":null,"modifiedAt":"","author":"J","rect":[1,2,3,4],"text":"","lines":[],"fontSize":12,"textColor":[0,0,0],"background":null}"#;
+        let dto: AnnotationDto = serde_json::from_str(src).unwrap();
+        assert!(matches!(dto, AnnotationDto::Freetext { align: TextAlign::Left, .. }));
     }
 
     #[test]

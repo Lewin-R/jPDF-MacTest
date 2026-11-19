@@ -6,7 +6,7 @@ use juliepdf_lib::commands::files::save_to_path;
 use juliepdf_lib::error::AppError;
 use juliepdf_lib::pdf::appearance::{freetext_appearance, shape_appearance};
 use juliepdf_lib::pdf::dto::{
-    AnnotationDto, Background, Blend, Common, DeleteRef, Fill, InkRole, ShapeKind, Stroke,
+    AnnotationDto, Background, Blend, Common, DeleteRef, Fill, InkRole, ShapeKind, Stroke, TextAlign,
 };
 use juliepdf_lib::pdf::reader::read_annotations;
 use juliepdf_lib::pdf::writer::write_incremental;
@@ -55,6 +55,7 @@ fn freetext(id: &str, page: u32, text: &str, background: Option<Background>) -> 
         font_size: 14.0,
         text_color: [0.1, 0.2, 0.7],
         background,
+        align: TextAlign::Left,
     }
 }
 
@@ -705,6 +706,46 @@ fn freetext_custom_colours_and_size_survive_exactly() {
 }
 
 #[test]
+fn freetext_alignment_roundtrips_as_q() {
+    let orig = fixtures::simple_pdf(1);
+    let mut boxes = Vec::new();
+    for (id, align) in [("l", TextAlign::Left), ("c", TextAlign::Center), ("r", TextAlign::Right)] {
+        let mut a = freetext(id, 0, "aligned", None);
+        if let AnnotationDto::Freetext { align: al, .. } = &mut a {
+            *al = align;
+        }
+        boxes.push(a);
+    }
+    let (out, refs) = write(&orig, &boxes, &[]);
+    let expected: Vec<_> = boxes.iter().map(|a| with_ref(a.clone(), &refs[&a_id(a)])).collect();
+    assert_eq!(read_annotations(&out).unwrap(), expected);
+    let doc = Document::load_mem(&out).unwrap();
+    for (id, q) in [("l", 0), ("c", 1), ("r", 2)] {
+        assert_eq!(annot_dict(&doc, &refs[id]).get(b"Q").unwrap().as_i64().unwrap(), q, "{id}");
+    }
+}
+
+#[test]
+fn freetext_unknown_q_reads_as_left_aligned() {
+    let orig = fixtures::simple_pdf(1);
+    let mut a = freetext("q", 0, "x", None);
+    if let AnnotationDto::Freetext { align, .. } = &mut a {
+        *align = TextAlign::Right;
+    }
+    let (out, refs) = write(&orig, &[a], &[]);
+    let mut doc = Document::load_mem(&out).unwrap();
+    doc.get_dictionary_mut(lopdf_id(&refs["q"])).unwrap().set("Q", 7);
+    let mut bytes = Vec::new();
+    doc.save_to(&mut bytes).unwrap();
+    let got = read_annotations(&bytes).unwrap();
+    assert!(matches!(&got[0], AnnotationDto::Freetext { align: TextAlign::Left, .. }), "{got:?}");
+}
+
+fn a_id(a: &AnnotationDto) -> String {
+    common(a).id.clone()
+}
+
+#[test]
 fn freetext_has_bg_without_colour_reads_as_transparent() {
     let orig = fixtures::simple_pdf(1);
     let a = freetext("b", 0, "x", Some(Background { color: [1.0, 0.0, 0.0], opacity: 0.5 }));
@@ -743,11 +784,11 @@ fn freetext_on_rotated_page_has_counter_rotation_matrix() {
     // Rotate 90: a box 200 wide and 30 tall on screen is 30 x 200 in PDF space.
     let rect = [100.0, 500.0, 130.0, 700.0];
     let lines = vec!["upright".to_string()];
-    let flat = freetext_appearance(rect, &lines, 12.0, [0.0; 3], None, 0);
+    let flat = freetext_appearance(rect, &lines, 12.0, [0.0; 3], None, TextAlign::Left, 0);
     assert!(flat.matrix.is_none());
     assert_eq!(flat.rect(), rect);
 
-    let ap = freetext_appearance(rect, &lines, 12.0, [0.0; 3], None, 90);
+    let ap = freetext_appearance(rect, &lines, 12.0, [0.0; 3], None, TextAlign::Left, 90);
     let m = ap.matrix.expect("rotated page needs a matrix");
     assert_eq!(&m[..4], &[0.0, 1.0, -1.0, 0.0]);
     assert_ne!(m, [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
@@ -757,7 +798,7 @@ fn freetext_on_rotated_page_has_counter_rotation_matrix() {
     assert_eq!(ap.rect(), rect);
 
     for (rot, abcd) in [(180, [-1.0, 0.0, 0.0, -1.0]), (270, [0.0, -1.0, 1.0, 0.0])] {
-        let ap = freetext_appearance(rect, &lines, 12.0, [0.0; 3], None, rot);
+        let ap = freetext_appearance(rect, &lines, 12.0, [0.0; 3], None, TextAlign::Left, rot);
         assert_eq!(&ap.matrix.unwrap()[..4], &abcd, "rotation {rot}");
         assert_eq!(ap.rect(), rect, "rotation {rot}");
     }

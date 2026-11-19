@@ -1,6 +1,6 @@
-use super::dto::{Background, Fill, ShapeKind, Stroke};
+use super::dto::{Background, Fill, ShapeKind, Stroke, TextAlign};
 use super::fmt::fmt_num;
-use super::winansi::encode_winansi;
+use super::winansi::{encode_winansi, helvetica_width};
 
 /// An appearance stream description, built independent of lopdf.
 ///
@@ -353,6 +353,9 @@ Q
 /// opacity, so it applies to the fill only) and one opaque Helvetica (`/Helv`,
 /// WinAnsiEncoding) line per entry of `lines`, `font_size * LINE_HEIGHT` apart,
 /// the first baseline `TEXT_PADDING + font_size * ASCENT` below the top.
+/// Each line starts at the inner left edge, or (by `align`) is centred in or
+/// flush with the right of the text area (the box minus `TEXT_PADDING` on both
+/// sides), measured with Helvetica's metrics as the overlay measures it.
 ///
 /// `rect` is axis-aligned in PDF space. On a page with `/Rotate` 90/180/270 the
 /// text is laid out in the screen-aligned frame (width and height swapped for
@@ -365,6 +368,7 @@ pub fn freetext_appearance(
     font_size: f64,
     text_color: [f64; 3],
     background: Option<&Background>,
+    align: TextAlign,
     page_rotation: i32,
 ) -> Appearance {
     let (bbox, matrix) = upright_frame(rect, page_rotation);
@@ -387,21 +391,25 @@ pub fn freetext_appearance(
         );
     }
     let baseline = y1 + fh - TEXT_PADDING - font_size * ASCENT;
-    c.extend_from_slice(
-        format!(
-            "BT\n/Helv {} Tf\n{} rg\n{} {} Td\n",
-            fmt_num(font_size),
-            rgb(text_color),
-            fmt_num(x1 + TEXT_PADDING),
-            fmt_num(baseline)
-        )
-        .as_bytes(),
-    );
-    let lead = format!("0 {} Td\n", fmt_num(-font_size * LINE_HEIGHT));
-    for (i, line) in lines.iter().enumerate() {
-        if i > 0 {
-            c.extend_from_slice(lead.as_bytes());
-        }
+    let inner = fw - 2.0 * TEXT_PADDING;
+    // Where each line starts, from the inner left edge.
+    let offset = |line: &str| match align {
+        TextAlign::Left => 0.0,
+        TextAlign::Center => (inner - helvetica_width(line, font_size)) / 2.0,
+        TextAlign::Right => inner - helvetica_width(line, font_size),
+    };
+    c.extend_from_slice(format!("BT\n/Helv {} Tf\n{} rg\n", fmt_num(font_size), rgb(text_color)).as_bytes());
+    // `Td` moves relative to the previous line's start, so left-aligned text
+    // keeps its plain `0 -lead Td` steps.
+    let mut prev: Option<f64> = None;
+    for line in lines {
+        let x = offset(line);
+        let step = match prev {
+            None => format!("{} {} Td\n", fmt_num(x1 + TEXT_PADDING + x), fmt_num(baseline)),
+            Some(p) => format!("{} {} Td\n", fmt_num(x - p), fmt_num(-font_size * LINE_HEIGHT)),
+        };
+        c.extend_from_slice(step.as_bytes());
+        prev = Some(x);
         if !line.is_empty() {
             c.push(b'(');
             c.extend(literal(line));
@@ -679,7 +687,7 @@ Q
         // First baseline: x1 + 1.5 padding, top - 1.5 padding - 0.8 * 10 ascent.
         let lines = vec!["a(b)".to_string(), String::new(), "c".to_string()];
         let bg = Background { color: [1.0, 1.0, 0.0], opacity: 0.5 };
-        let a = freetext_appearance([10.0, 20.0, 110.0, 70.0], &lines, 10.0, [0.0, 0.0, 1.0], Some(&bg), 0);
+        let a = freetext_appearance([10.0, 20.0, 110.0, 70.0], &lines, 10.0, [0.0, 0.0, 1.0], Some(&bg), TextAlign::Left, 0);
         assert_eq!(
             text(&a),
             "q\n/GS0 gs\n1 1 0 rg\n10 20 100 50 re\nf\nQ\nBT\n/Helv 10 Tf\n0 0 1 rg\n11.5 60.5 Td\n(a\\(b\\)) Tj\n0 -12 Td\n0 -12 Td\n(c) Tj\nET\n"
@@ -687,23 +695,51 @@ Q
         assert_eq!(a.opacity, 0.5);
         assert!(a.uses_helvetica && !a.multiply);
         assert_eq!(a.bbox, [10.0, 20.0, 110.0, 70.0]);
-        let plain = freetext_appearance([10.0, 20.0, 110.0, 70.0], &lines, 10.0, [0.0; 3], None, 0);
+        let plain = freetext_appearance([10.0, 20.0, 110.0, 70.0], &lines, 10.0, [0.0; 3], None, TextAlign::Left, 0);
         assert!(text(&plain).starts_with("BT\n"));
         assert_eq!(plain.opacity, 1.0);
     }
 
     #[test]
+    fn freetext_appearance_centres_and_right_aligns_lines() {
+        // Box 100 wide: text area 97 from x 11.5. "Hi" at 10 pt is 9.44 wide.
+        let lines = vec!["Hi".to_string(), String::new()];
+        let rect = [10.0, 20.0, 110.0, 70.0];
+        let centre = freetext_appearance(rect, &lines, 10.0, [0.0; 3], None, TextAlign::Center, 0);
+        // First line at 11.5 + (97 - 9.44) / 2 = 55.28; the empty line at the
+        // centre, 48.5 from the inner edge (relative move 48.5 - 43.78).
+        assert_eq!(text(&centre), "BT
+/Helv 10 Tf
+0 0 0 rg
+55.28 60.5 Td
+(Hi) Tj
+4.72 -12 Td
+ET
+");
+        let right = freetext_appearance(rect, &lines, 10.0, [0.0; 3], None, TextAlign::Right, 0);
+        // 11.5 + 97 - 9.44 = 99.06; the empty line at the right edge (+9.44).
+        assert_eq!(text(&right), "BT
+/Helv 10 Tf
+0 0 0 rg
+99.06 60.5 Td
+(Hi) Tj
+9.44 -12 Td
+ET
+");
+    }
+
+    #[test]
     fn freetext_rotation_matrix_maps_frame_onto_rect() {
         let rect = [100.0, 500.0, 130.0, 700.0];
-        let ninety = freetext_appearance(rect, &[], 12.0, [0.0; 3], None, 90);
+        let ninety = freetext_appearance(rect, &[], 12.0, [0.0; 3], None, TextAlign::Left, 90);
         assert_eq!(ninety.matrix, Some([0.0, 1.0, -1.0, 0.0, 630.0, 400.0]));
         // Frame top-left (screen top-left) lands on the rect's min corner, which is
         // the top-left on screen for Rotate 90 (right = +y, down = +x).
         let m = ninety.matrix.unwrap();
         let (fx, fy) = (ninety.bbox[0], ninety.bbox[3]);
         assert_eq!((m[0] * fx + m[2] * fy + m[4], m[1] * fx + m[3] * fy + m[5]), (100.0, 500.0));
-        assert_eq!(freetext_appearance(rect, &[], 12.0, [0.0; 3], None, -270).matrix, ninety.matrix);
-        assert!(freetext_appearance(rect, &[], 12.0, [0.0; 3], None, 45).matrix.is_none());
+        assert_eq!(freetext_appearance(rect, &[], 12.0, [0.0; 3], None, TextAlign::Left, -270).matrix, ninety.matrix);
+        assert!(freetext_appearance(rect, &[], 12.0, [0.0; 3], None, TextAlign::Left, 45).matrix.is_none());
     }
 
     fn text(a: &Appearance) -> String {
@@ -738,7 +774,7 @@ Q
         // Other appearances draw directly.
         let fill = Fill { color: [0.0; 3], opacity: 0.5 };
         assert!(shape_appearance(ShapeKind::Rect, [0.0, 0.0, 1.0, 1.0], None, Some(&fill)).group.is_none());
-        assert!(freetext_appearance([0.0, 0.0, 10.0, 10.0], &[], 10.0, [0.0; 3], None, 0).group.is_none());
+        assert!(freetext_appearance([0.0, 0.0, 10.0, 10.0], &[], 10.0, [0.0; 3], None, TextAlign::Left, 0).group.is_none());
     }
 
     #[test]

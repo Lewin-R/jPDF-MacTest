@@ -8,7 +8,7 @@
 use lopdf::{Dictionary, Document, Object, decode_text_string};
 
 use super::date::iso_from_pdf_date;
-use super::dto::{AnnotationDto, Background, Blend, Common, Fill, ImageData, InkRole, ShapeKind, Stroke};
+use super::dto::{AnnotationDto, Background, Blend, Common, Fill, ImageData, InkRole, ShapeKind, Stroke, TextAlign};
 use super::image::{encode_base64, png_size};
 use super::{annotation_nm, annotation_refs, format_source_ref, load_document, nm_owners};
 use crate::error::AppError;
@@ -160,6 +160,11 @@ fn map_annotation(doc: &Document, d: &Dictionary, common: Common) -> Option<Anno
                 font_size,
                 text_color,
                 background,
+                align: match d.get(b"Q").ok().and_then(|q| q.as_i64().ok()) {
+                    Some(1) => TextAlign::Center,
+                    Some(2) => TextAlign::Right,
+                    _ => TextAlign::Left,
+                },
             })
         }
         b"Stamp" if private_name(b"kind") == Some(b"image") => map_image(doc, d, private?, common),
