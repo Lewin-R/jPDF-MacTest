@@ -1,0 +1,61 @@
+# JuliePDF
+
+A fast, lightweight PDF annotator for Windows. Highlight, draw and type notes on
+your PDFs, press **Ctrl+S**, and the annotations are saved into the file as
+standard PDF annotations, so they show up in every other PDF viewer too.
+
+## How to use
+
+### Install
+
+1. Go to the [latest release](https://github.com/Manuel-Schmid/jPDF/releases/latest).
+2. Download `JuliePDF_<version>_x64-setup.exe`.
+3. Run it. No admin rights are needed; it installs for your user only.
+   - The installer isn't code-signed, so Windows SmartScreen may warn you.
+     Click **More info → Run anyway**.
+4. Open a PDF with JuliePDF: start it from the Start menu and press **Ctrl+O**,
+   or right-click a PDF → **Open with → JuliePDF**.
+
+Requires Windows 10 or 11 (64-bit). The WebView2 runtime it uses ships with
+Windows 11; on Windows 10 the installer fetches it if it's missing.
+
+### Annotate
+
+Pick a tool from the toolbar on the right (the **+** button adds more), or use
+its key:
+
+| Key | Tool | Key | Tool |
+|---|---|---|---|
+| `V` | Select / move / resize | `T` | Text box |
+| `M` | Marker (highlight) | `S` | Shapes |
+| `P` | Pen | `L` | Lasso |
+| `U` | Underline | `E` | Eraser |
+| `K` | Strikethrough | | |
+
+Select an annotation to restyle, duplicate (`Ctrl+D`) or delete it (`Del`).
+
+| Shortcut | Action |
+|---|---|
+| `Ctrl+O` / `Ctrl+W` / `Ctrl+Tab` | Open / close / switch tab |
+| `Ctrl+S` / `Ctrl+Shift+S` | Save into the PDF / Save as |
+| `Ctrl+Z` / `Ctrl+Y` | Undo / redo |
+| `F11` | Fullscreen |
+
+Saving appends to the file (incremental update), so the original page content
+is never rewritten.
+
+## Building from source
+
+Needs [Node.js](https://nodejs.org/) and [Rust](https://rustup.rs/) (plus the
+[Tauri prerequisites](https://tauri.app/start/prerequisites/)).
+
+```powershell
+npm ci
+npm run tauri dev     # run in development
+npm run tauri build   # installer in src-tauri/target/release/bundle/nsis/
+```
+
+Tests: `npx vitest run` (TypeScript) and `cargo test` in `src-tauri/` (Rust).
+
+Built with Tauri 2, Svelte 5 and TypeScript, pdf.js for rendering, and Rust
+with `lopdf` for writing annotations.
