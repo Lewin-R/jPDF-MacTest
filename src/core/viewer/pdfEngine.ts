@@ -23,9 +23,24 @@ function pdfWorker(): PDFWorker {
   return sharedWorker
 }
 
-/** Starts the shared pdf.js worker ahead of the first open. */
+/**
+ * Starts the shared pdf.js worker ahead of the first open. A failure is only
+ * logged: the failed worker is dropped and loadPdf starts a new one.
+ */
 export function warmUpPdfWorker(): void {
-  pdfWorker()
+  let worker: PDFWorker
+  try {
+    worker = pdfWorker()
+  } catch (e) {
+    console.error('pdf.js worker warm-up failed', e)
+    sharedWorker = null
+    return
+  }
+  worker.promise.catch((e: unknown) => {
+    console.error('pdf.js worker warm-up failed', e)
+    if (sharedWorker === worker) sharedWorker = null
+    worker.destroy()
+  })
 }
 
 export interface PdfDoc {

@@ -60,8 +60,12 @@
       shown.width = 0
       shown.height = 0
     }
-    // Off screen: free pdf.js' decoded fonts, images and operator lists of the
-    // page (pdf.js defers this until a still-running render has finished).
+    // Once the page has left the DOM its canvas is no longer pinned: let the
+    // cache drop it if the off-screen pages exceed the budget.
+    queueMicrotask(() => renderCache.trim())
+    // Off screen: free the page's operator lists and page-level objects in
+    // pdf.js (document-level fonts stay; pdf.js defers this until a
+    // still-running render has finished).
     doc
       .getPage(pageNumber)
       .then((page) => {
@@ -100,7 +104,9 @@
       const off = document.createElement('canvas')
       off.width = Math.floor(viewport.width)
       off.height = Math.floor(viewport.height)
-      // A GPU canvas comes back blank after a GPU reset.
+      // A GPU canvas loses its pixels on a GPU reset. preventDefault() lets the
+      // browser restore the 2D context; it comes back blank, so render again.
+      off.addEventListener('contextlost', (e) => e.preventDefault())
       off.addEventListener('contextrestored', () => {
         renderCache.evict(off)
         if (shown === off) contextResets++

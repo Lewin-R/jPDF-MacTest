@@ -165,6 +165,42 @@ describe('PageView render lifecycle', () => {
     expect(blank.width).toBe(0)
   })
 
+  it('keeps a canvas that lost its GPU context restorable and renders it once on restore', async () => {
+    const { doc, renders } = fakeRenderDoc(1)
+    const { container } = mount(doc)
+    await vi.waitFor(() => expect(renders).toHaveLength(1))
+    renders[0].finish()
+    await vi.waitFor(() => expect(setSpy).toHaveBeenCalledOnce())
+    const canvas = renders[0].canvas!
+    const lost = new Event('contextlost', { cancelable: true })
+    canvas.dispatchEvent(lost)
+    // Without preventDefault the browser never restores the 2D context.
+    expect(lost.defaultPrevented).toBe(true)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(renders).toHaveLength(1)
+    canvas.dispatchEvent(new Event('contextrestored'))
+    await vi.waitFor(() => expect(renders).toHaveLength(2))
+    renders[1].finish()
+    await vi.waitFor(() => expect(shownCanvas(container)).toBe(renders[1].canvas))
+    await new Promise((r) => setTimeout(r, 0))
+    expect(renders).toHaveLength(2)
+  })
+
+  it('trims the render cache once its canvas left the screen', async () => {
+    const { doc, renders } = fakeRenderDoc(1)
+    const { unmount } = mount(doc, 1, 'pv-trim')
+    await vi.waitFor(() => expect(renders).toHaveLength(1))
+    renders[0].finish()
+    await vi.waitFor(() => expect(setSpy).toHaveBeenCalledOnce())
+    const canvas = renders[0].canvas!
+    // Trimming only helps once the canvas is off screen (no longer pinned).
+    const connectedAtTrim: boolean[] = []
+    vi.spyOn(renderCache, 'trim').mockImplementation(() => void connectedAtTrim.push(canvas.isConnected))
+    unmount()
+    await vi.waitFor(() => expect(connectedAtTrim).toEqual([false]))
+    renderCache.evictPrefix('pv-trim:')
+  })
+
   it('cleans up the pdf.js page on unmount', async () => {
     const { doc, renders } = fakeRenderDoc(1)
     const { unmount } = mount(doc)

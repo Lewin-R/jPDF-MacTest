@@ -5,16 +5,18 @@ interface Entry {
   width: number
   height: number
   close: () => void
+  /** On screen: the cache must not evict it. */
+  pinned: boolean
 }
 
 /** A fake rendered page of `w` x `h` pixels (4 bytes each). */
 function entry(w = 10, h = 10): Entry {
-  return { width: w, height: h, close: vi.fn() }
+  return { width: w, height: h, close: vi.fn(), pinned: false }
 }
 
 class RenderCacheOf extends RenderCache<Entry> {
   constructor(maxBytes: number) {
-    super(maxBytes, (e) => e.width * e.height * 4, (e) => e.close())
+    super(maxBytes, (e) => e.width * e.height * 4, (e) => e.close(), (e) => e.pinned)
   }
 }
 
@@ -127,6 +129,37 @@ describe('RenderCache', () => {
     c.evict(a)
     expect(a.close).toHaveBeenCalledOnce()
     expect(c.get('1@1')).toBeUndefined()
+    expect(c.get('2@1')).toBe(b)
+    expect(c.size).toBe(B)
+  })
+
+  it('never evicts pinned entries; the budget bounds the unpinned ones', () => {
+    const c = new RenderCacheOf(2 * B)
+    const shown = [entry(), entry(), entry()]
+    shown.forEach((e, i) => {
+      e.pinned = true
+      c.set(`${i}@1`, e)
+    })
+    // Pinned entries are still accounted for.
+    expect(c.size).toBe(3 * B)
+    const off = [entry(), entry(), entry()]
+    off.forEach((e, i) => c.set(`off${i}@1`, e))
+    shown.forEach((e) => expect(e.close).not.toHaveBeenCalled())
+    expect(off[0].close).toHaveBeenCalledOnce()
+    expect(c.get('off1@1')).toBe(off[1])
+    expect(c.get('off2@1')).toBe(off[2])
+    expect(c.size).toBe(5 * B)
+  })
+
+  it('trim evicts entries that became unpinned beyond the budget', () => {
+    const c = new RenderCacheOf(B)
+    const a = entry(), b = entry()
+    a.pinned = b.pinned = true
+    c.set('1@1', a)
+    c.set('2@1', b)
+    a.pinned = b.pinned = false
+    c.trim()
+    expect(a.close).toHaveBeenCalledOnce()
     expect(c.get('2@1')).toBe(b)
     expect(c.size).toBe(B)
   })
