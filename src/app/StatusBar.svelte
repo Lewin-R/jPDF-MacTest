@@ -1,6 +1,7 @@
 <script lang="ts">
   import ChevronLeft from '@lucide/svelte/icons/chevron-left'
   import ChevronRight from '@lucide/svelte/icons/chevron-right'
+  import LayoutGrid from '@lucide/svelte/icons/layout-grid'
   import Maximize from '@lucide/svelte/icons/maximize'
   import Minus from '@lucide/svelte/icons/minus'
   import Plus from '@lucide/svelte/icons/plus'
@@ -10,7 +11,16 @@
   import type { DocumentSession } from '../core/session/session.svelte'
   import { parsePageInput, parseZoomInput } from '../core/viewer/viewerMath'
 
-  let { session = null }: { session?: DocumentSession | null } = $props()
+  let {
+    session = null,
+    builderOpen = false,
+    ontogglebuilder,
+  }: {
+    session?: DocumentSession | null
+    /** Whether the Document Builder is shown (its button looks pressed). */
+    builderOpen?: boolean
+    ontogglebuilder?: () => void
+  } = $props()
 
   const numPages = $derived(session?.pageSizes.length ?? 0)
   const zoomPct = $derived(session ? Math.round(session.scale * 100) : 100)
@@ -105,6 +115,18 @@
     </button>
   </div>
   <div class="right">
+    <button
+      type="button"
+      class:pressed={builderOpen}
+      aria-label="Document Builder"
+      aria-pressed={builderOpen}
+      title="Document Builder"
+      disabled={!session}
+      onclick={() => ontogglebuilder?.()}
+    >
+      <LayoutGrid size={16} />
+    </button>
+    <span class="divider"></span>
     <div class="zoom" data-region="zoom">
       <button
         type="button"
@@ -197,6 +219,16 @@
   button:disabled {
     color: var(--text-muted);
     cursor: default;
+  }
+  button.pressed {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+  .divider {
+    width: 1px;
+    height: 16px;
+    margin: 0 4px;
+    background: var(--border);
   }
   .zoom-level,
   .zoom-input {

@@ -135,16 +135,120 @@ export function rotatePage(host: PageHost, i: number, delta: number, fileRotatio
     host,
     (s, pages) => {
       const next = rotateEntry(pages, i, delta)
-      const rotation = fileRotation + next[i].rotate
-      for (const a of s.byPage(i)) {
-        if (a.kind === 'freetext') {
-          s.update(a.id, { ...a, lines: layoutLines(a.text, a.fontSize, frameSize(a.rect, rotation).width) })
-        } else if (a.kind === 'image' && normalizeRotation(delta) % 180 !== 0) {
-          s.update(a.id, { ...a, rect: turnedRect(a.rect, pageBox) })
-        }
+      turnAnnotations(s, i, fileRotation + next[i].rotate, delta, pageBox)
+      return next
+    },
+    () => {},
+  )
+}
+
+/** Sorted, distinct, in-range page indices. */
+function normalizeIndices(host: PageHost, indices: Iterable<number>): number[] {
+  const n = host.pages.length
+  return [...new Set(indices)].filter((i) => Number.isInteger(i) && i >= 0 && i < n).sort((a, b) => a - b)
+}
+
+/**
+ * Copies of the pages `indices` (in page order), inserted together right
+ * after the last of them, with independent copies (new ids) of their
+ * annotations. Null when `indices` is empty.
+ */
+export function duplicatePages(host: PageHost, indices: Iterable<number>): Command | null {
+  const list = normalizeIndices(host, indices)
+  if (list.length === 0) return null
+  const last = list[list.length - 1]
+  const n = list.length
+  let copies: Annotation[] | null = null
+  return pageCommand(
+    n === 1 ? 'Duplicate page' : 'Duplicate pages',
+    host,
+    (s, pages) => {
+      copies ??= list.flatMap((i, k) =>
+        s.byPage(i).map((a) => ({ ...a, id: newId(), page: last + 1 + k, sourceRef: null })),
+      )
+      s.remapPages((p) => (p > last ? p + n : p))
+      copies.forEach((a) => s.add(a))
+      const next = pages.slice()
+      next.splice(last + 1, 0, ...list.map((i) => ({ ...pages[i] })))
+      return next
+    },
+    (s) => {
+      copies?.forEach((a) => s.remove(a.id))
+      s.remapPages((p) => (p > last + n ? p - n : p))
+    },
+  )
+}
+
+/**
+ * Deletes the pages `indices` and their annotations; null when that would
+ * leave no page (or `indices` is empty).
+ */
+export function deletePages(host: PageHost, indices: Iterable<number>): Command | null {
+  const list = normalizeIndices(host, indices)
+  if (list.length === 0 || list.length >= host.pages.length) return null
+  const gone = new Set(list)
+  /** New index of each kept page (old index → new index). */
+  const shift = (p: number) => p - list.filter((i) => i < p).length
+  let removed: Annotation[] = []
+  return pageCommand(
+    list.length === 1 ? 'Delete page' : 'Delete pages',
+    host,
+    (s, pages) => {
+      removed = list.flatMap((i) => s.byPage(i))
+      removed.forEach((a) => s.remove(a.id))
+      s.remapPages(shift)
+      return pages.filter((_, i) => !gone.has(i))
+    },
+    (s) => {
+      // Back to the old indices: the k-th kept page returns to its old position.
+      // (host.pages is still the shortened list here.)
+      const back = new Map<number, number>()
+      for (let old = 0, k = 0; old < list.length + host.pages.length; old++) {
+        if (!gone.has(old)) back.set(k++, old)
+      }
+      s.remapPages((p) => back.get(p) ?? p)
+      // In z-order: each add lands at the end of its page.
+      removed.forEach((a) => s.add(a))
+    },
+  )
+}
+
+/** One page to turn: its index, its file page's /Rotate and its unrotated user-space box. */
+export interface PageTurn {
+  i: number
+  fileRotation: number
+  pageBox?: Rect
+}
+
+/**
+ * Turns several pages by `delta` (±90) degrees in one step; see rotatePage
+ * for what happens to their text boxes and images.
+ */
+export function rotatePages(host: PageHost, turns: readonly PageTurn[], delta: number): Command | null {
+  if (turns.length === 0) return null
+  return pageCommand(
+    turns.length === 1 ? 'Rotate page' : 'Rotate pages',
+    host,
+    (s, pages) => {
+      let next = pages
+      for (const { i, fileRotation, pageBox } of turns) {
+        if (!next[i]) continue
+        next = rotateEntry(next, i, delta)
+        turnAnnotations(s, i, fileRotation + next[i].rotate, delta, pageBox)
       }
       return next
     },
     () => {},
   )
+}
+
+/** Re-wraps the text boxes and turns the image rects of page `i` after it turned by `delta` to `rotation`. */
+function turnAnnotations(s: AnnotationStore, i: number, rotation: number, delta: number, pageBox?: Rect): void {
+  for (const a of s.byPage(i)) {
+    if (a.kind === 'freetext') {
+      s.update(a.id, { ...a, lines: layoutLines(a.text, a.fontSize, frameSize(a.rect, rotation).width) })
+    } else if (a.kind === 'image' && normalizeRotation(delta) % 180 !== 0) {
+      s.update(a.id, { ...a, rect: turnedRect(a.rect, pageBox) })
+    }
+  }
 }

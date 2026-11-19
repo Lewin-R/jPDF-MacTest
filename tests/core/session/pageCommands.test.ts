@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { History } from '../../../src/core/session/history.svelte'
 import type { Annotation, FreeTextAnnotation, ImageAnnotation } from '../../../src/core/session/model'
 import {
-  deletePage, duplicatePage, insertBlankPage, rotatePage, type PageHost,
+  deletePage, deletePages, duplicatePage, duplicatePages, insertBlankPage, rotatePage, rotatePages, type PageHost,
 } from '../../../src/core/session/pageCommands'
 import { identityPages, type PageEntry } from '../../../src/core/session/pages'
 import { AnnotationStore } from '../../../src/core/session/store.svelte'
@@ -212,5 +212,76 @@ describe('rotatePage', () => {
     history.undo()
     expect(store.get('low')).toBe(low)
     expect(store.get('wide')).toBe(wide)
+  })
+})
+
+/** 5 pages; annotation `pN` on each page N. */
+function setup5() {
+  const store = new AnnotationStore()
+  store.load([0, 1, 2, 3, 4].map((p) => hl(`p${p}`, p, `${p}R`)))
+  const host: PageHost = { pages: identityPages(5) }
+  const history = new History(store)
+  return { store, host, history }
+}
+
+const sources = (host: PageHost) => host.pages.map((p) => (p.kind === 'source' ? p.source : -1))
+
+describe('duplicatePages', () => {
+  it('inserts copies in page order right after the last selected page', () => {
+    const { store, host, history } = setup5()
+    history.execute(duplicatePages(host, [3, 0, 1])!)
+    expect(sources(host)).toEqual([0, 1, 2, 3, 0, 1, 3, 4])
+    // The copies' annotations sit on the copies; later pages moved back by three.
+    expect(store.byPage(4).map((a) => a.id)).not.toContain('p0')
+    expect(store.byPage(4)).toHaveLength(1)
+    expect(store.byPage(6)).toHaveLength(1)
+    expect(store.byPage(7).map((a) => a.id)).toEqual(['p4'])
+    expect(store.byPage(4)[0].sourceRef).toBeNull()
+  })
+
+  it('undo restores the pages and annotations; redo repeats with the same copies', () => {
+    const { store, host, history } = setup5()
+    const before = host.pages
+    history.execute(duplicatePages(host, [1, 2])!)
+    const copyIds = store.byPage(3).map((a) => a.id)
+    history.undo()
+    expect(host.pages).toBe(before)
+    expect(layout(store)).toEqual(['p0@0', 'p1@1', 'p2@2', 'p3@3', 'p4@4'])
+    history.redo()
+    expect(store.byPage(3).map((a) => a.id)).toEqual(copyIds)
+    expect(sources(host)).toEqual([0, 1, 2, 1, 2, 3, 4])
+  })
+
+  it('is null without pages', () => {
+    expect(duplicatePages(setup5().host, [])).toBeNull()
+  })
+})
+
+describe('deletePages', () => {
+  it('deletes the pages and their annotations; undo restores them', () => {
+    const { store, host, history } = setup5()
+    const before = host.pages
+    history.execute(deletePages(host, [3, 1])!)
+    expect(sources(host)).toEqual([0, 2, 4])
+    expect(layout(store).sort()).toEqual(['p0@0', 'p2@1', 'p4@2'])
+    history.undo()
+    expect(host.pages).toBe(before)
+    expect(layout(store).sort()).toEqual(['p0@0', 'p1@1', 'p2@2', 'p3@3', 'p4@4'])
+    expect(store.get('p1')?.sourceRef).toBe('1R')
+  })
+
+  it('is null when it would delete every page', () => {
+    expect(deletePages(setup5().host, [0, 1, 2, 3, 4])).toBeNull()
+  })
+})
+
+describe('rotatePages', () => {
+  it('turns every listed page in one undo step', () => {
+    const { host, history } = setup5()
+    const before = host.pages
+    history.execute(rotatePages(host, [{ i: 0, fileRotation: 0 }, { i: 3, fileRotation: 90 }], -90)!)
+    expect(host.pages.map((p) => p.rotate)).toEqual([270, 0, 0, 270, 0])
+    history.undo()
+    expect(host.pages).toBe(before)
   })
 })

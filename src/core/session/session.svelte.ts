@@ -4,11 +4,14 @@ import {
 } from '../viewer/layout'
 import { loadPdf, type PdfDoc } from '../viewer/pdfEngine'
 import { renderCache } from '../viewer/renderCache'
+import { thumbnailCache } from '../viewer/thumbnails'
 import { frameSize, layoutLines, normalizeRotation } from '../geometry/textLayout'
 import { toasts } from '../../ui/toasts.svelte'
 import { History } from './history.svelte'
 import type { Annotation, Rect } from './model'
-import { deletePage, duplicatePage, insertBlankPage, rotatePage } from './pageCommands'
+import {
+  deletePage, deletePages, duplicatePage, duplicatePages, insertBlankPage, rotatePage, rotatePages, type PageTurn,
+} from './pageCommands'
 import { identityPages, isIdentity, pagePlan, pageSizesOf, type PageEntry, type PageSize, type PageSpec } from './pages'
 import { AnnotationStore } from './store.svelte'
 import { SessionToolState } from './toolState.svelte'
@@ -378,6 +381,48 @@ export class DocumentSession {
     this.history.execute(rotatePage(this, i, delta, fileRotation, box))
   }
 
+  /**
+   * Several pages at once (the document builder), one undo step each;
+   * `indices` are 0-based. Duplicates go right after the last of the pages,
+   * in page order; returns the indices of the copies.
+   */
+  duplicatePages(indices: readonly number[]): number[] {
+    this.commitPendingEdit()
+    const cmd = duplicatePages(this, indices)
+    if (!cmd) return []
+    const n = new Set(indices.filter((i) => this.pages[i])).size
+    const last = Math.max(...indices.filter((i) => this.pages[i]))
+    this.history.execute(cmd)
+    return Array.from({ length: n }, (_, k) => last + 1 + k)
+  }
+
+  /** Deletes the pages; false when nothing was deleted (it would leave no page). */
+  deletePages(indices: readonly number[]): boolean {
+    this.commitPendingEdit()
+    const cmd = deletePages(this, indices)
+    if (!cmd) return false
+    this.history.execute(cmd)
+    return true
+  }
+
+  /** Turns the pages by ±90 degrees. */
+  async rotatePages(indices: readonly number[], delta: 90 | -90): Promise<void> {
+    this.commitPendingEdit()
+    const pages = this.pages
+    const list = [...new Set(indices)].filter((i) => pages[i])
+    const turns: PageTurn[] = await Promise.all(
+      list.map(async (i) => ({
+        i,
+        fileRotation: await this.fileRotation(pages[i]),
+        pageBox: await this.userBox(pages[i]),
+      })),
+    )
+    // The list changed while waiting (undo, another operation): do nothing.
+    if (this.pages !== pages) return
+    const cmd = rotatePages(this, turns, delta)
+    if (cmd) this.history.execute(cmd)
+  }
+
   /** The unrotated user-space box of an entry's page (its crop box; [0 0 w h] for an empty page). */
   private async userBox(entry: PageEntry): Promise<Rect> {
     if (entry.kind === 'blank') return [0, 0, entry.width, entry.height]
@@ -442,6 +487,7 @@ export class DocumentSession {
     const old = this.doc
     const shown = this.pageSizes
     renderCache.evictPrefix(`${this.id}:`)
+    thumbnailCache.evictPrefix(`${this.id}:`)
     this.#doc = doc
     this.suppress(annotations.flatMap((a) => (a.sourceRef ? [a.sourceRef] : [])))
     this.store.load(annotations)
@@ -458,6 +504,7 @@ export class DocumentSession {
   dispose(): Promise<void> {
     this.disposed = true
     renderCache.evictPrefix(`${this.id}:`)
+    thumbnailCache.evictPrefix(`${this.id}:`)
     return this.doc.destroy()
   }
 }

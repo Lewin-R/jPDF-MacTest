@@ -31,6 +31,7 @@
   import { insertImage } from './app/insertImage'
   import { readClipboardImage, type ClipboardImage } from './core/ipc/clipboard'
   import type { PageMenuPoint } from './core/viewer/viewerMath'
+  import DocumentBuilder from './builder/DocumentBuilder.svelte'
 
   // Hold the right mouse button to erase with the drawing tools; the others
   // (select, hand, text-selection marker) open the page menu on right-click.
@@ -72,6 +73,25 @@
       router.stateOf(session).selection = [a.id]
     }
   }
+  /** The Document Builder replaces the viewer and toolbar while open (for the active tab). */
+  let builderOpen = $state(false)
+  $effect(() => {
+    if (!tabs.active) builderOpen = false
+  })
+
+  function toggleBuilder() {
+    if (builderOpen) return closeBuilder()
+    tabs.active?.commitPendingEdit()
+    closePageMenu()
+    builderOpen = true
+  }
+
+  /** Back to the viewer, at `page` (1-based) if given. */
+  function closeBuilder(page?: number) {
+    builderOpen = false
+    if (page !== undefined) tabs.active?.goToPage(page)
+  }
+
   /** The toolbar shows once the persisted layout is loaded (no flash of defaults). */
   let settingsLoaded = $state(false)
 
@@ -189,10 +209,14 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<div class="shell" class:fullscreen={fullscreen.active}>
+<div class="shell" class:fullscreen={fullscreen.active} class:building={builderOpen && tabs.active}>
   <div class="titlebar-region"><TitleBar /></div>
   <main class="viewer-region">
-    {#if tabs.active}
+    {#if tabs.active && builderOpen}
+      {#key tabs.active.id}
+        <DocumentBuilder session={tabs.active} onclose={closeBuilder} />
+      {/key}
+    {:else if tabs.active}
       {#key tabs.active.id}
         <Viewer
           session={tabs.active}
@@ -213,7 +237,9 @@
   <aside class="toolbar-region">
     {#if settingsLoaded}<Toolbar selected={selectedAnnotation} onEditSelected={editSelection} />{/if}
   </aside>
-  <div class="statusbar-region"><StatusBar session={tabs.active} /></div>
+  <div class="statusbar-region">
+    <StatusBar session={tabs.active} {builderOpen} ontogglebuilder={toggleBuilder} />
+  </div>
 </div>
 <ConfirmClose />
 <Toast />
@@ -246,6 +272,13 @@
   }
   .titlebar-region {
     grid-column: 1 / -1;
+  }
+  /* Document Builder: it takes the viewer's and the toolbar's place. */
+  .shell.building .viewer-region {
+    grid-column: 1 / -1;
+  }
+  .shell.building .toolbar-region {
+    display: none;
   }
   .viewer-region {
     min-width: 0;
