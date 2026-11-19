@@ -1303,3 +1303,18 @@ fn foreign_shape_with_zero_border_width_has_no_border() {
     assert_eq!(border.map(|b| b.width), Some(4.0), "/Border width without /BS");
     assert_eq!(rect, [12.0, 12.0, 48.0, 48.0]);
 }
+
+#[test]
+fn saved_annotation_moved_to_another_page_changes_pages() {
+    let orig = fixtures::simple_pdf(2);
+    let (out1, refs1) = write(&orig, &[ink("a", 0, [0.0; 3])], &[]);
+    let moved = with_ref(ink("a", 1, [0.0; 3]), &refs1["a"]);
+    let (out2, refs2) = write(&out1, &[moved], &[]);
+    assert_eq!(refs2["a"], refs1["a"], "the same object is reused");
+    let doc = Document::load_mem(&out2).unwrap();
+    assert!(page_annots(&doc, 0).is_empty(), "removed from its old page");
+    assert_eq!(refs_of(&page_annots(&doc, 1)).iter().map(|&id| juliepdf_ref(id)).collect::<Vec<_>>(), [refs1["a"].clone()]);
+    let got = read_annotations(&out2).unwrap();
+    assert_eq!(got.len(), 1);
+    assert_eq!(got, vec![with_ref(ink("a", 1, [0.0; 3]), &refs1["a"])]);
+}
