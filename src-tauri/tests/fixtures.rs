@@ -132,6 +132,62 @@ pub fn xref_stream_pdf() -> Vec<u8> {
     out
 }
 
+/// A slide-deck-like document for performance tests: every page has a few
+/// kilobytes of text and vector drawing plus its own `w` x `h` RGB image
+/// (gradient plus noise: 640x480 is about 400 KB compressed), all streams
+/// Flate-compressed.
+#[allow(dead_code)] // used by perf.rs only
+pub fn lecture_pdf(pages: usize, (w, h): (usize, usize)) -> Vec<u8> {
+    let mut seed: u32 = 0x1234_5678;
+    let mut next = move || {
+        seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        (seed >> 24) as u8
+    };
+    save(build(pages, |doc, page_ids| {
+        for (i, &page_id) in page_ids.iter().enumerate() {
+            let pixels: Vec<u8> = (0..w * h * 3)
+                .map(|k| ((k / 3 % w) as u8 / 4).wrapping_add(next() / 64))
+                .collect();
+            let mut img = Stream::new(
+                dictionary! {
+                    "Type" => "XObject",
+                    "Subtype" => "Image",
+                    "Width" => w as i64,
+                    "Height" => h as i64,
+                    "ColorSpace" => "DeviceRGB",
+                    "BitsPerComponent" => 8,
+                },
+                pixels,
+            );
+            img.compress().unwrap();
+            let img_id = doc.add_object(img);
+            let mut ops = String::from("q 300 0 0 225 250 480 cm /Im0 Do Q\n");
+            ops.push_str("BT /F1 11 Tf 72 440 Td 14 TL\n");
+            for line in 0..25 {
+                ops.push_str(&format!(
+                    "(Slide {} bullet {line}: lorem ipsum dolor sit amet, consectetur adipiscing) '\n",
+                    i + 1
+                ));
+            }
+            ops.push_str("ET\n0.2 0.4 0.8 RG 1 w\n");
+            for k in 0..200 {
+                let x = 72 + (k * 37) % 450;
+                let y = 60 + (k * 53) % 60;
+                ops.push_str(&format!("{x} {y} m {} {} l S\n", x + 20, y + 15));
+            }
+            let mut content = Stream::new(dictionary! {}, ops.into_bytes());
+            content.compress().unwrap();
+            let content_id = doc.add_object(content);
+            let page = doc.get_dictionary_mut(page_id).unwrap();
+            page.set("Contents", vec![page.get(b"Contents").unwrap().clone(), Object::Reference(content_id)]);
+            page.set("Resources", dictionary! {
+                "Font" => dictionary! { "F1" => dictionary! { "Type" => "Font", "Subtype" => "Type1", "BaseFont" => "Helvetica" } },
+                "XObject" => dictionary! { "Im0" => img_id },
+            });
+        }
+    }))
+}
+
 /// A document whose trailer carries an `/Encrypt` dictionary that the empty
 /// password does not open.
 pub fn encrypted_pdf() -> Vec<u8> {

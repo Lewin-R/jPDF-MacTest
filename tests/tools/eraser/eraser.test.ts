@@ -20,15 +20,16 @@ function setup(scale = 2) {
   const annos = [stroke('a', 10), stroke('b', 50), text]
   const executed: Command[] = []
   let hidden: string[] = []
+  let publishes = 0
   const ctx = {
     session: { store: { byPage: (p: number) => annos.filter((a) => a.page === p) } },
     execute: (c: Command) => executed.push(c),
-    hidden: { get ids() { return new Set(hidden) }, set: (ids: Iterable<string>) => (hidden = [...ids]) },
+    hidden: { get ids() { return new Set(hidden) }, set: (ids: Iterable<string>) => { publishes++; hidden = [...ids] } },
   } as unknown as ToolContext
   const ev = (x: number, y: number): PagePointerEvent => ({
     page: 0, pdf: [x, y], screen: [0, 0], vp: { scale } as never, native: {} as PointerEvent, toPdf: (a, b) => [a, b],
   })
-  return { handler: createEraserHandler(ctx), executed, ev, hidden: () => hidden, annos }
+  return { handler: createEraserHandler(ctx), executed, ev, hidden: () => hidden, publishes: () => publishes, annos }
 }
 
 describe('eraser', () => {
@@ -76,5 +77,16 @@ describe('eraser', () => {
       expect(hidden()).toEqual([])
       expect(executed).toHaveLength(0)
     }
+  })
+
+  it('publishes the hidden set only when it grows', () => {
+    const { handler, ev, hidden, publishes } = setup()
+    handler.onPointerDown!(ev(50, 10))
+    const afterDown = publishes()
+    for (let x = 51; x < 60; x++) handler.onPointerMove!(ev(x, 30))
+    expect(publishes()).toBe(afterDown)
+    handler.onPointerMove!(ev(60, 50))
+    expect(publishes()).toBe(afterDown + 1)
+    expect(hidden().sort()).toEqual(['a', 'b'])
   })
 })

@@ -1,7 +1,7 @@
 import { render } from '@testing-library/svelte'
 import { tick } from 'svelte'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fakeRenderDoc, stubCanvas } from './fakeDoc'
+import { fakeRenderDoc } from './fakeDoc'
 
 const mocks = vi.hoisted(() => ({ doc: null as unknown }))
 vi.mock('../../../src/core/ipc/api', () => ({
@@ -29,7 +29,6 @@ beforeEach(() => {
     })
   }
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
-  stubCanvas()
 })
 afterEach(() => {
   for (const prop of scrollProps) delete (HTMLElement.prototype as unknown as Record<string, unknown>)[prop]

@@ -3,15 +3,13 @@ import { AnnotationMode } from 'pdfjs-dist'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import PageView from '../../../src/core/viewer/PageView.svelte'
 import { renderCache } from '../../../src/core/viewer/renderCache'
-import { fakeRenderDoc, stubCanvas } from './fakeDoc'
+import { fakeRenderDoc } from './fakeDoc'
 
 let n = 0
-let canvasStub: ReturnType<typeof stubCanvas>
 let setSpy: ReturnType<typeof vi.spyOn>
 let errorSpy: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
-  canvasStub = stubCanvas()
   setSpy = vi.spyOn(renderCache, 'set')
   errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 })
@@ -20,11 +18,11 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-function mount(doc: ReturnType<typeof fakeRenderDoc>['doc'], scale = 1) {
+function mount(doc: ReturnType<typeof fakeRenderDoc>['doc'], scale = 1, cacheId = `pv${++n}`) {
   return render(PageView, {
     props: {
       doc,
-      cacheId: `pv${++n}`,
+      cacheId,
       pageNumber: 1,
       pageSize: { width: 600, height: 800 },
       scale,
@@ -32,6 +30,13 @@ function mount(doc: ReturnType<typeof fakeRenderDoc>['doc'], scale = 1) {
       top: 16,
     },
   })
+}
+
+/** The canvas a page shows (by identity: canvases of equal size compare equal). */
+const shownCanvas = (container: HTMLElement): Element | null => {
+  const all = container.querySelectorAll('.page > canvas')
+  expect(all.length).toBeLessThanOrEqual(1)
+  return all[0] ?? null
 }
 
 describe('PageView render lifecycle', () => {
@@ -42,25 +47,76 @@ describe('PageView render lifecycle', () => {
     expect(renders[0].annotationMode).toBe(AnnotationMode.ENABLE_STORAGE)
   })
 
-  it('caches and draws a completed render', async () => {
+  it('shows and caches the canvas it rendered into, without copying it', async () => {
     const { doc, renders } = fakeRenderDoc(1)
-    mount(doc)
+    const { container } = mount(doc)
     await vi.waitFor(() => expect(renders).toHaveLength(1))
+    const canvas = renders[0].canvas!
+    expect([canvas.width, canvas.height]).toEqual([600, 800])
+    expect(shownCanvas(container)).toBeNull()
     renders[0].finish()
-    await vi.waitFor(() => expect(canvasStub.bitmaps).toHaveLength(1))
-    canvasStub.bitmaps[0].resolve()
     await vi.waitFor(() => expect(setSpy).toHaveBeenCalledOnce())
-    expect(canvasStub.drawImage).toHaveBeenCalledWith(canvasStub.bitmaps[0].bmp, 0, 0)
+    expect(setSpy.mock.calls[0][1]).toBe(canvas)
+    expect(shownCanvas(container)).toBe(canvas)
+    // Under the text layer and the overlay.
+    expect(container.querySelector('.page')!.firstElementChild).toBe(canvas)
   })
 
-  it('cancels the in-flight render on unmount and caches nothing', async () => {
+  it('reuses a cached canvas on remount and keeps it when unmounted', async () => {
+    const { doc, renders } = fakeRenderDoc(1)
+    const first = mount(doc, 1, 'pv-reuse')
+    await vi.waitFor(() => expect(renders).toHaveLength(1))
+    renders[0].finish()
+    await vi.waitFor(() => expect(setSpy).toHaveBeenCalledOnce())
+    const canvas = renders[0].canvas!
+    first.unmount()
+    expect(canvas.width).toBe(600)
+    const second = mount(doc, 1, 'pv-reuse')
+    expect(shownCanvas(second.container)).toBe(canvas)
+    expect(renders).toHaveLength(1)
+    second.unmount()
+    renderCache.evictPrefix('pv-reuse:')
+    expect(canvas.width).toBe(0)
+  })
+
+  it('swaps in the new canvas on a scale change and frees the old one', async () => {
+    const { doc, renders } = fakeRenderDoc(1)
+    const { container, rerender } = mount(doc, 1)
+    await vi.waitFor(() => expect(renders).toHaveLength(1))
+    renders[0].finish()
+    await vi.waitFor(() => expect(setSpy).toHaveBeenCalledOnce())
+    const old = renders[0].canvas!
+    await rerender({ scale: 2 })
+    await vi.waitFor(() => expect(renders).toHaveLength(2))
+    // The old canvas stays (CSS-scaled) until the new one is ready.
+    expect(shownCanvas(container)).toBe(old)
+    renders[1].finish()
+    await vi.waitFor(() => expect(setSpy).toHaveBeenCalledTimes(2))
+    expect(shownCanvas(container)).toBe(renders[1].canvas)
+    expect([old.width, old.height]).toEqual([0, 0])
+  })
+
+  it('frees a shown canvas the cache no longer holds on unmount', async () => {
+    const { doc, renders } = fakeRenderDoc(1)
+    const { unmount } = mount(doc, 1, 'pv-evicted')
+    await vi.waitFor(() => expect(renders).toHaveLength(1))
+    renders[0].finish()
+    await vi.waitFor(() => expect(setSpy).toHaveBeenCalledOnce())
+    const canvas = renders[0].canvas!
+    // On screen: eviction leaves it to the page.
+    renderCache.evictPrefix('pv-evicted:')
+    expect(canvas.width).toBe(600)
+    unmount()
+    expect(canvas.width).toBe(0)
+  })
+
+  it('cancels the in-flight render on unmount, frees its canvas and caches nothing', async () => {
     const { doc, renders } = fakeRenderDoc(1)
     const { unmount } = mount(doc)
     await vi.waitFor(() => expect(renders).toHaveLength(1))
     unmount()
     expect(renders[0].cancel).toHaveBeenCalledOnce()
-    await new Promise((r) => setTimeout(r, 0))
-    expect(canvasStub.createImageBitmap).not.toHaveBeenCalled()
+    await vi.waitFor(() => expect(renders[0].canvas!.width).toBe(0))
     expect(setSpy).not.toHaveBeenCalled()
     expect(errorSpy).not.toHaveBeenCalled()
   })
@@ -75,19 +131,6 @@ describe('PageView render lifecycle', () => {
     expect(renders[1].scale).toBe(2)
   })
 
-  it('closes a bitmap that arrives after cancellation', async () => {
-    const { doc, renders } = fakeRenderDoc(1)
-    const { unmount } = mount(doc)
-    await vi.waitFor(() => expect(renders).toHaveLength(1))
-    renders[0].finish()
-    await vi.waitFor(() => expect(canvasStub.bitmaps).toHaveLength(1))
-    unmount()
-    canvasStub.bitmaps[0].resolve()
-    const { bmp } = canvasStub.bitmaps[0]
-    await vi.waitFor(() => expect(bmp.close).toHaveBeenCalledOnce())
-    expect(setSpy).not.toHaveBeenCalled()
-  })
-
   it('does not log failures of a destroyed doc', async () => {
     const { doc, renders } = fakeRenderDoc(1)
     mount(doc)
@@ -98,11 +141,58 @@ describe('PageView render lifecycle', () => {
     expect(errorSpy).not.toHaveBeenCalled()
   })
 
-  it('logs genuine render failures', async () => {
+  it('logs genuine render failures and frees the canvas', async () => {
     const { doc, renders } = fakeRenderDoc(1)
     mount(doc)
     await vi.waitFor(() => expect(renders).toHaveLength(1))
     renders[0].fail(new Error('broken page'))
     await vi.waitFor(() => expect(errorSpy).toHaveBeenCalledOnce())
+    expect(renders[0].canvas!.width).toBe(0)
+  })
+
+  it('renders again when the shown canvas comes back blank from a GPU reset', async () => {
+    const { doc, renders } = fakeRenderDoc(1)
+    const { container } = mount(doc)
+    await vi.waitFor(() => expect(renders).toHaveLength(1))
+    renders[0].finish()
+    await vi.waitFor(() => expect(setSpy).toHaveBeenCalledOnce())
+    const blank = renders[0].canvas!
+    blank.dispatchEvent(new Event('contextrestored'))
+    expect(renderCache.holds(blank)).toBe(false)
+    await vi.waitFor(() => expect(renders).toHaveLength(2))
+    renders[1].finish()
+    await vi.waitFor(() => expect(shownCanvas(container)).toBe(renders[1].canvas))
+    expect(blank.width).toBe(0)
+  })
+
+  it('cleans up the pdf.js page on unmount', async () => {
+    const { doc, renders } = fakeRenderDoc(1)
+    const { unmount } = mount(doc)
+    await vi.waitFor(() => expect(renders).toHaveLength(1))
+    const page = await doc.getPage(1)
+    expect(page.cleanup).not.toHaveBeenCalled()
+    unmount()
+    await vi.waitFor(() => expect(page.cleanup).toHaveBeenCalledOnce())
+  })
+
+  it('re-renders at the new device pixel ratio when it changes', async () => {
+    const listeners: (() => void)[] = []
+    vi.stubGlobal('devicePixelRatio', 1)
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({
+        addEventListener: (_: string, l: () => void) => listeners.push(l),
+        removeEventListener: (_: string, l: () => void) => listeners.splice(listeners.indexOf(l), 1),
+      })),
+    )
+    const { doc, renders } = fakeRenderDoc(1)
+    mount(doc)
+    await vi.waitFor(() => expect(renders).toHaveLength(1))
+    expect(renders[0].scale).toBe(1)
+    vi.stubGlobal('devicePixelRatio', 2)
+    listeners.forEach((l) => l())
+    await vi.waitFor(() => expect(renders).toHaveLength(2))
+    expect(renders[1].scale).toBe(2)
+    expect(window.matchMedia).toHaveBeenLastCalledWith('(resolution: 2dppx)')
   })
 })

@@ -12,10 +12,13 @@ const erasable = (a: Annotation): boolean => a.kind === 'ink' || a.kind === 'hig
 export function createEraserHandler(ctx: ToolContext): ToolHandler {
   let erased: Map<string, Annotation> | null = null
   let prev: Point | null = null
+  /** erased.size at the last publish: most moves erase nothing new. */
+  let published = 0
 
   function reset() {
     erased = null
     prev = null
+    published = 0
     ctx.hidden.set([])
   }
 
@@ -39,7 +42,9 @@ export function createEraserHandler(ctx: ToolContext): ToolHandler {
   }
 
   function publish() {
-    if (erased) ctx.hidden.set(erased.keys())
+    if (!erased || erased.size === published) return
+    published = erased.size
+    ctx.hidden.set(erased.keys())
   }
 
   return {

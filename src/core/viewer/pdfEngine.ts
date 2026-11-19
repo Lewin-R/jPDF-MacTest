@@ -2,6 +2,7 @@ import {
   getDocument,
   GlobalWorkerOptions,
   PasswordException,
+  PDFWorker,
   type PDFDocumentLoadingTask,
   type PDFDocumentProxy,
   type PDFPageProxy,
@@ -9,6 +10,23 @@ import {
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 
 GlobalWorkerOptions.workerSrc = workerUrl
+
+let sharedWorker: PDFWorker | null = null
+
+/**
+ * The pdf.js worker all documents share. Starting a worker (loading and
+ * compiling its 1.3 MB script) costs tens of milliseconds, so it is started
+ * once (see warmUpPdfWorker) instead of per opened file.
+ */
+function pdfWorker(): PDFWorker {
+  if (!sharedWorker || sharedWorker.destroyed) sharedWorker = new PDFWorker()
+  return sharedWorker
+}
+
+/** Starts the shared pdf.js worker ahead of the first open. */
+export function warmUpPdfWorker(): void {
+  pdfWorker()
+}
 
 export interface PdfDoc {
   numPages: number
@@ -49,21 +67,30 @@ class PdfJsDoc implements PdfDoc {
 
   destroy(): Promise<void> {
     this.destroyed = true
-    // Destroying the loading task tears down the worker and the document.
+    // Tears down the document in the shared worker.
     return this.task.destroy()
   }
 }
 
-/** Loads a PDF. Throws `{code:'Encrypted'|'InvalidPdf', message}` on failure. */
+/**
+ * Loads a PDF. Throws `{code:'Encrypted'|'InvalidPdf', message}` on failure.
+ * Takes ownership of `data`: pdf.js transfers (detaches) it to its worker,
+ * which saves copying a whole file on the way to the first page.
+ */
 export async function loadPdf(data: ArrayBuffer): Promise<PdfDoc> {
-  // pdf.js transfers (detaches) the buffer it is given, so hand it a copy.
   const task = getDocument({
-    data: new Uint8Array(data.slice(0)),
+    data: new Uint8Array(data),
     cMapUrl: '/pdfjs/cmaps/',
     cMapPacked: true,
     standardFontDataUrl: '/pdfjs/standard_fonts/',
     iccUrl: '/pdfjs/iccs/',
     wasmUrl: '/pdfjs/wasm/',
+    // GPU canvases: about twice as fast to paint a full page at high DPI as
+    // pdf.js' default software canvases, and less memory in the GPU process
+    // (PageView re-renders a page whose canvas lost its GPU context).
+    enableHWA: true,
+    // Not owned by the loading task: destroying a document keeps the worker.
+    worker: pdfWorker(),
   })
   try {
     return new PdfJsDoc(task, await task.promise)

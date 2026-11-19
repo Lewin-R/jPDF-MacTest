@@ -2089,6 +2089,7 @@ name = "juliepdf"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "flate2",
  "lopdf",
  "serde",
  "serde_json",

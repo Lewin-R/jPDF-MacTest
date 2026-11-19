@@ -28,6 +28,7 @@ lopdf = "0.47.0"
 tempfile = "3.27.0"
 chrono = "0.4.45"
 uuid = { version = "1.29.3", features = ["v4"] }
+flate2 = "1.1.11"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

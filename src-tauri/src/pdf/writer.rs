@@ -478,9 +478,24 @@ fn appearance_stream(ap: &Appearance) -> Result<Stream, AppError> {
         "Matrix" => nums(&matrix),
         "Resources" => resources,
     };
-    let mut stream = Stream::new(dict, ap.content.clone());
-    stream.compress().map_err(|e| AppError::Io(e.to_string()))?;
-    Ok(stream)
+    compressed_stream(dict, &ap.content)
+}
+
+/// A Flate-compressed stream (uncompressed if that is not smaller). Uses the
+/// fast level: lopdf's `Stream::compress` uses the best level, which costs
+/// about 0.25 ms per pen-stroke appearance for a few percent of size.
+fn compressed_stream(mut dict: Dictionary, content: &[u8]) -> Result<Stream, AppError> {
+    use flate2::{Compression, write::ZlibEncoder};
+    use std::io::Write;
+    let mut enc = ZlibEncoder::new(Vec::with_capacity(content.len() / 2), Compression::fast());
+    enc.write_all(content).map_err(|e| AppError::Io(e.to_string()))?;
+    let packed = enc.finish().map_err(|e| AppError::Io(e.to_string()))?;
+    if packed.len() < content.len() {
+        dict.set("Filter", "FlateDecode");
+        Ok(Stream::new(dict, packed))
+    } else {
+        Ok(Stream::new(dict, content.to_vec()))
+    }
 }
 
 #[cfg(test)]
