@@ -77,12 +77,73 @@ pub fn ink_appearance(strokes: &[Vec<[f64; 2]>], color: [f64; 3], width: f64, op
     Appearance { bbox, content: c.into_bytes(), opacity, multiply, uses_helvetica: false, matrix: None }
 }
 
+/// One filled path per quad (QuadPoints order TL, TR, BL, BR; drawn TL→TR→BR→BL),
+/// multiply-blended. `bbox` = union of the quads (zero if there are none).
+pub fn highlight_appearance(quads: &[[f64; 8]], color: [f64; 3], opacity: f64) -> Appearance {
+    let (mut x1, mut y1, mut x2, mut y2) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+    for q in quads {
+        for p in q.chunks_exact(2) {
+            x1 = x1.min(p[0]);
+            y1 = y1.min(p[1]);
+            x2 = x2.max(p[0]);
+            y2 = y2.max(p[1]);
+        }
+    }
+    let bbox = if quads.is_empty() { [0.0; 4] } else { [x1, y1, x2, y2] };
+
+    let mut c = format!(
+        "q\n{} {} {} rg\n/GS0 gs\n",
+        fmt_num(color[0]),
+        fmt_num(color[1]),
+        fmt_num(color[2])
+    );
+    for q in quads {
+        c.push_str(&format!(
+            "{} m\n{} l\n{} l\n{} l\nh\nf\n",
+            pt([q[0], q[1]]),
+            pt([q[2], q[3]]),
+            pt([q[6], q[7]]),
+            pt([q[4], q[5]])
+        ));
+    }
+    c.push_str("Q\n");
+
+    Appearance { bbox, content: c.into_bytes(), opacity, multiply: true, uses_helvetica: false, matrix: None }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn text(a: &Appearance) -> String {
         String::from_utf8(a.content.clone()).unwrap()
+    }
+
+    #[test]
+    fn highlight_appearance_uses_multiply() {
+        let a = highlight_appearance(&[[0.0, 10.0, 10.0, 10.0, 0.0, 0.0, 10.0, 0.0]], [1.0, 0.5, 0.0], 0.4);
+        assert!(a.multiply);
+        assert_eq!(a.opacity, 0.4);
+        assert!(!a.uses_helvetica);
+        assert!(a.matrix.is_none());
+        assert!(text(&a).contains("/GS0 gs\n"));
+    }
+
+    #[test]
+    fn highlight_appearance_fills_each_quad_tl_tr_br_bl() {
+        let a = highlight_appearance(
+            &[
+                [1.0, 20.0, 30.0, 20.0, 1.0, 10.0, 30.0, 10.0],
+                [5.0, 8.0, 15.0, 8.0, 5.0, -2.0, 15.0, -2.0],
+            ],
+            [1.0, 0.5, 0.0],
+            0.4,
+        );
+        assert_eq!(
+            text(&a),
+            "q\n1 0.5 0 rg\n/GS0 gs\n1 20 m\n30 20 l\n30 10 l\n1 10 l\nh\nf\n5 8 m\n15 8 l\n15 -2 l\n5 -2 l\nh\nf\nQ\n"
+        );
+        assert_eq!(a.bbox, [1.0, -2.0, 30.0, 20.0]);
     }
 
     #[test]

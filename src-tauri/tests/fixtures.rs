@@ -85,7 +85,7 @@ pub fn rotated_pdf() -> Vec<u8> {
 }
 
 /// Page 0 has a direct `/Annots` array with an `/Ink` lacking `/AP` and `/JuliePDF`
-/// (from "another tool") and a `/Link`.
+/// (from "another tool", with keys JuliePDF does not own such as `/Contents`) and a `/Link`.
 pub fn pdf_with_foreign_annots() -> Vec<u8> {
     save(build(1, |doc, pages| {
         let ink = doc.add_object(dictionary! {
@@ -97,6 +97,10 @@ pub fn pdf_with_foreign_annots() -> Vec<u8> {
             "NM" => Object::string_literal("foreign-ink"),
             "T" => Object::string_literal("Drawboard"),
             "M" => Object::string_literal("D:20260102030405+01'00'"),
+            "Contents" => Object::string_literal("a reviewer note"),
+            "CreationDate" => Object::string_literal("D:20260101000000Z"),
+            "RC" => Object::string_literal("<body><p>a reviewer note</p></body>"),
+            "StructParent" => 7,
         });
         let link = link_annot(doc, pages[0]);
         doc.get_dictionary_mut(pages[0]).unwrap().set(

@@ -6,6 +6,8 @@
   import type { Annotation, Point } from '../session/model'
   import type { PagePointerEvent, ToolHandler } from '../registry/tools'
   import { annotationKinds } from '../registry/annotationKinds'
+  import { pageHasText } from './textContent'
+  import { clientToPdf as mapClientToPdf } from './viewerMath'
 
   let {
     doc,
@@ -38,6 +40,13 @@
 
   let loaded = $state<PageViewport | null>(null)
   const vp = $derived(viewport ?? loaded)
+  /** Whether the page has selectable text; null until known. */
+  let hasText = $state<boolean | null>(null)
+  /**
+   * A text-selecting tool (marker text mode) on a page that has, or may have,
+   * text: pointer input goes through to the text layer underneath.
+   */
+  const passThrough = $derived(!!tool?.textSelection?.() && hasText !== false)
 
   $effect(() => {
     if (viewport || !doc) return
@@ -45,9 +54,12 @@
     let cancelled = false
     doc
       .getPage(pageNumber)
-      .then((page) => {
+      .then(async (page) => {
         // getViewport applies the page's own rotation by default.
         if (!cancelled) loaded = page.getViewport({ scale: s })
+        // Unreadable text content: treat as a page without text (freehand fallback).
+        const text = await pageHasText(page).catch(() => false)
+        if (!cancelled) hasText = text
       })
       .catch((e: unknown) => {
         // Cancelled loads and loads of a closed tab's doc reject by design.
@@ -69,12 +81,7 @@
 
   /** Client coordinates → PDF user space. */
   function clientToPdf(clientX: number, clientY: number, v: PageViewport): Point {
-    const r = el.getBoundingClientRect()
-    // The box can be CSS-scaled (zoom preview) relative to the viewport units.
-    const kx = r.width > 0 ? v.width / r.width : 1
-    const ky = r.height > 0 ? v.height / r.height : 1
-    const [px, py] = v.convertToPdfPoint((clientX - r.left) * kx, (clientY - r.top) * ky)
-    return [px, py]
+    return mapClientToPdf(clientX, clientY, el.getBoundingClientRect(), v)
   }
 
   function toPageEvent(e: PointerEvent, v: PageViewport): PagePointerEvent {
@@ -102,7 +109,7 @@
   }
 
   function onPointerDown(e: PointerEvent) {
-    if (!tool || !vp || e.button !== 0 || gesture) return
+    if (!tool || passThrough || !vp || e.button !== 0 || gesture) return
     const pe = toPageEvent(e, vp)
     gesture = { pointerId: e.pointerId, tool, last: pe }
     el.setPointerCapture?.(e.pointerId)
@@ -163,7 +170,7 @@
 <svg
   bind:this={el}
   class="overlay"
-  class:interactive={tool}
+  class:interactive={tool && !passThrough}
   style:cursor={tool ? cursor : undefined}
   onpointerdown={onPointerDown}
   onpointermove={onPointerMove}

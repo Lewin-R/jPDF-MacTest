@@ -39,6 +39,9 @@
   let wheelAnchor = { x: 0, y: 0 }
   let commitTimer: ReturnType<typeof setTimeout> | undefined
 
+  /** Marker text mode: tint for the native selection in the text layers. */
+  const selectionColor = $derived(tool?.textSelection?.()?.color ?? null)
+
   const layout = $derived(session.layout)
   const width = $derived(contentWidth(layout, session.viewportW))
   const range = $derived(visibleRange(layout, session.scrollTop, session.viewportH, 1))
@@ -209,6 +212,7 @@
           scale={session.scale}
           left={pageLeft(layout, i, session.viewportW)}
           top={layout.tops[i]}
+          {selectionColor}
         >
           <Overlay
             doc={session.doc}

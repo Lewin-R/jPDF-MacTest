@@ -3,22 +3,31 @@ import Icon from './Icon.svelte'
 import Options from './Options.svelte'
 import { createFreehandHandler, straightLine } from './freehand'
 import { MARKER_PRESETS, type MarkerSettings } from './settings'
+import { listenForTextSelection, noteFreehandFallback } from './textMode'
 
 export { MARKER_PRESETS, straightLine, type MarkerSettings }
 
 /**
- * Picks a sub-handler per gesture from the current mode. Text mode arrives in
- * Task 19; until then it behaves as freehand.
+ * Picks a sub-handler per gesture from the current mode. In text mode the
+ * native selection on the text layer is committed as highlights on pointerup
+ * (see textMode.ts); the overlay only forwards pointer input in text mode on
+ * pages without text, where the gesture falls back to freehand.
  */
 export function createMarkerHandler(ctx: ToolContext, settings: () => MarkerSettings): ToolHandler {
   const freehand = createFreehandHandler(ctx, settings)
+  const stopTextSelection = listenForTextSelection(ctx, settings)
   let active: ToolHandler | null = null
 
   function pick(): ToolHandler {
+    if (settings().mode === 'text') noteFreehandFallback()
     return freehand
   }
 
   return {
+    textSelection() {
+      const s = settings()
+      return s.mode === 'text' ? { color: s.color } : null
+    },
     onPointerDown(e: PagePointerEvent) {
       active?.onPointerCancel?.(e)
       active = pick()
@@ -38,6 +47,7 @@ export function createMarkerHandler(ctx: ToolContext, settings: () => MarkerSett
       h?.onPointerCancel?.(e)
     },
     onDeactivate() {
+      stopTextSelection()
       const h = active
       active = null
       h?.onDeactivate?.()

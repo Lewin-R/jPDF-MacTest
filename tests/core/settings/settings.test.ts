@@ -39,6 +39,16 @@ describe('SettingsStore', () => {
     expect(new Set(tb.map((i) => i.instanceId)).size).toBe(6)
   })
 
+  it('setHint records the flag and saves it', async () => {
+    const { store, save } = make(null)
+    await store.load()
+    store.setHint('markerFallback')
+    expect(store.data.hints.markerFallback).toBe(true)
+    await vi.advanceTimersByTimeAsync(500)
+    expect(save).toHaveBeenCalledOnce()
+    expect((save.mock.calls[0][0] as { hints: Record<string, boolean> }).hints).toEqual({ markerFallback: true })
+  })
+
   it('load with corrupt/unknown version falls back to defaults', async () => {
     for (const bad of ['garbage', { version: 2, toolbar: [] }, { version: 1, toolbar: 'x' }, 42]) {
       const { store } = make(bad)

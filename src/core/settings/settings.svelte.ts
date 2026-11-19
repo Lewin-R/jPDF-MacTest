@@ -136,6 +136,12 @@ export class SettingsStore {
     this.scheduleSave()
   }
 
+  /** Records a one-time hint flag (e.g. a tip was shown) and persists it. */
+  setHint(key: string, value = true): void {
+    this.data.hints[key] = value
+    this.scheduleSave()
+  }
+
   /** Saves immediately if a save is pending; resolves once no save is in flight. */
   async flush(): Promise<void> {
     if (this.timer === null) return this.saving

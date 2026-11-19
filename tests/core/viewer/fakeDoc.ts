@@ -24,6 +24,7 @@ export function fakeRenderDoc(numPages: number, size = { width: 600, height: 800
     numPages,
     destroyed: false,
     getPage: vi.fn(async (page: number) => ({
+      getTextContent: async () => ({ items: [], styles: {} }),
       getViewport: ({ scale }: { scale: number }) => ({
         width: size.width * scale,
         height: size.height * scale,

@@ -1,4 +1,23 @@
+import type { PageViewport } from 'pdfjs-dist'
+import type { Point } from '../session/model'
 import { clampScale } from './layout'
+
+/**
+ * Client coordinates → PDF user space for a page box at `box` (client rect of
+ * the element covering the page) drawn with viewport `v`. The box can be
+ * CSS-scaled (zoom preview) relative to the viewport units.
+ */
+export function clientToPdf(
+  clientX: number,
+  clientY: number,
+  box: { left: number; top: number; width: number; height: number },
+  v: PageViewport,
+): Point {
+  const kx = box.width > 0 ? v.width / box.width : 1
+  const ky = box.height > 0 ? v.height / box.height : 1
+  const [px, py] = v.convertToPdfPoint((clientX - box.left) * kx, (clientY - box.top) * ky)
+  return [px, py]
+}
 
 /** Largest canvas we render (width * height in device pixels). */
 export const MAX_CANVAS_PIXELS = 16_777_216

@@ -1,7 +1,7 @@
 import type { PageViewport } from 'pdfjs-dist'
 import type { Component } from 'svelte'
 import type { Command } from '../session/history.svelte'
-import type { Annotation, Point } from '../session/model'
+import type { Annotation, Point, RGB } from '../session/model'
 import type { DocumentSession } from '../session/session.svelte'
 
 export interface PagePointerEvent {
@@ -23,6 +23,13 @@ export interface ToolHandler {
   onPointerCancel?(e: PagePointerEvent): void
   onKeyDown?(e: KeyboardEvent): boolean
   onDeactivate?(): void
+  /**
+   * Non-null while the tool selects text natively (marker text mode): on pages
+   * that have text, the overlay lets pointer input through to the text layer,
+   * whose selection is tinted with `color`; the handler then receives pointer
+   * input only on pages without text. Read reactively by the viewer.
+   */
+  textSelection?(): { color: RGB } | null
 }
 
 export interface ToolContext {

@@ -104,7 +104,7 @@ describe('marker freehand handler', () => {
     }
   })
 
-  it('marker handler (text mode for now) draws freehand', () => {
+  it('marker handler in freehand mode draws freehand', () => {
     const { handler, committed } = setup(createMarkerHandler)
     handler.onPointerDown!(ev([0, 0]))
     handler.onPointerMove!(ev([5, 5]))

@@ -8,7 +8,7 @@ use lopdf::{
     text_string,
 };
 
-use super::appearance::{Appearance, ink_appearance};
+use super::appearance::{Appearance, highlight_appearance, ink_appearance};
 use super::date::pdf_date;
 use super::dto::{AnnotationDto, Blend, Common, InkRole};
 use super::{format_source_ref, load_document, parse_source_ref};
@@ -182,7 +182,13 @@ impl Writer {
                 if self.page_containing(id) != Some(page_id) {
                     self.detach(id);
                 }
-                self.inc.new_document.set_object(id, annot);
+                // Keep keys JuliePDF does not own (/Contents, /Popup, /RC,
+                // /CreationDate, /StructParent, …): overwrite only ours.
+                let mut merged = self.prev().get_dictionary(id).cloned().unwrap_or_default();
+                for (k, v) in annot {
+                    merged.set(k, v);
+                }
+                self.inc.new_document.set_object(id, merged);
                 id
             }
             None => self.inc.new_document.add_object(annot),
@@ -235,6 +241,8 @@ fn common_of(dto: &AnnotationDto) -> &Common {
 }
 
 /// Subtype-specific keys plus the appearance. `None` = nothing to draw.
+/// Every key set here (and in `upsert`/`common_entries`) is owned by JuliePDF:
+/// updating an existing annotation overwrites exactly these and keeps the rest.
 /// Adding a kind = one match arm calling its appearance builder.
 fn build_annotation(dto: &AnnotationDto) -> Result<Option<(Dictionary, Appearance)>, AppError> {
     match dto {
@@ -278,7 +286,26 @@ fn build_annotation(dto: &AnnotationDto) -> Result<Option<(Dictionary, Appearanc
             };
             Ok(Some((d, ap)))
         }
-        AnnotationDto::Highlight { .. } => Err(unsupported("highlight")),
+        AnnotationDto::Highlight {
+            quads,
+            color,
+            opacity,
+            ..
+        } => {
+            check_finite(quads.iter().flatten().chain(color).chain([opacity]))?;
+            if quads.is_empty() {
+                return Ok(None);
+            }
+            let ap = highlight_appearance(quads, *color, *opacity);
+            let d = dictionary! {
+                "Subtype" => "Highlight",
+                "C" => nums(color),
+                "CA" => num(*opacity),
+                "QuadPoints" => nums(&quads.concat()),
+                "JuliePDF" => dictionary! { "v" => 1 },
+            };
+            Ok(Some((d, ap)))
+        }
         AnnotationDto::Freetext { .. } => Err(unsupported("freetext")),
     }
 }
@@ -311,7 +338,8 @@ fn common_entries(d: &mut Dictionary, c: &Common) {
         "M",
         Object::String(pdf_date(&c.modified_at).into_bytes(), StringFormat::Literal),
     );
-    d.set("T", text_string(&c.author));
+    let author = if c.author.is_empty() { "JuliePDF" } else { &c.author };
+    d.set("T", text_string(author));
     d.set("F", 4);
 }
 

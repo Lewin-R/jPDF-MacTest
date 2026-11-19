@@ -1,7 +1,9 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
   import { AnnotationMode, type RenderTask } from 'pdfjs-dist'
+  import type { RGB } from '../session/model'
   import type { PdfDoc } from './pdfEngine'
+  import TextLayer from './TextLayer.svelte'
   import { renderCache } from './renderCache'
   import { renderScale } from './viewerMath'
 
@@ -13,6 +15,7 @@
     scale,
     left,
     top,
+    selectionColor = null,
     children,
   }: {
     doc: PdfDoc
@@ -25,7 +28,9 @@
     scale: number
     left: number
     top: number
-    /** Later layers (text layer, annotation overlay) stacked above the canvas. */
+    /** Tints text selection in the text layer (marker text mode); null = default. */
+    selectionColor?: RGB | null
+    /** Later layers (annotation overlay) stacked above the canvas and text layer. */
     children?: Snippet
   } = $props()
 
@@ -88,6 +93,7 @@
   style:height="{pageSize.height * scale}px"
 >
   <canvas bind:this={canvas}></canvas>
+  <TextLayer {doc} {pageNumber} {scale} {selectionColor} />
   {@render children?.()}
 </div>
 

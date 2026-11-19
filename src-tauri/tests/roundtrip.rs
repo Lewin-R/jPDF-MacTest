@@ -30,6 +30,18 @@ fn ink(id: &str, page: u32, color: [f64; 3]) -> AnnotationDto {
     }
 }
 
+fn highlight(id: &str, page: u32) -> AnnotationDto {
+    AnnotationDto::Highlight {
+        common: common(&ink(id, page, [0.0; 3])).clone(),
+        quads: vec![
+            [72.0, 790.0, 200.5, 790.0, 72.0, 766.0, 200.5, 766.0],
+            [72.0, 760.0, 150.0, 760.0, 72.0, 740.25, 150.0, 740.25],
+        ],
+        color: [1.0, 0.922, 0.231],
+        opacity: 0.4,
+    }
+}
+
 fn common(a: &AnnotationDto) -> &Common {
     match a {
         AnnotationDto::Ink { common, .. }
@@ -122,6 +134,105 @@ fn ink_roundtrip() {
     let (out, refs) = write(&orig, std::slice::from_ref(&a), &[]);
     let got = read_annotations(&out).unwrap();
     assert_eq!(got, vec![with_ref(a, &refs["a"])]);
+}
+
+#[test]
+fn highlight_roundtrip() {
+    let orig = fixtures::simple_pdf(2);
+    let a = highlight("h", 1);
+    let (out, refs) = write(&orig, std::slice::from_ref(&a), &[]);
+    assert_eq!(&out[..orig.len()], &orig[..]);
+    let got = read_annotations(&out).unwrap();
+    assert_eq!(got, vec![with_ref(a, &refs["h"])]);
+
+    let doc = Document::load_mem(&out).unwrap();
+    let annot = doc.get_dictionary(lopdf_id(&refs["h"])).unwrap();
+    assert_eq!(annot.get(b"Subtype").unwrap().as_name().unwrap(), b"Highlight");
+    assert_eq!(annot.get(b"QuadPoints").unwrap().as_array().unwrap().len(), 16);
+    let rect: Vec<f32> = annot
+        .get(b"Rect")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|o| o.as_float().unwrap())
+        .collect();
+    assert_eq!(rect, [72.0, 740.25, 200.5, 790.0], "rect = union of the quads");
+    let private = annot.get(b"JuliePDF").unwrap().as_dict().unwrap();
+    assert_eq!(private.get(b"v").unwrap().as_i64().unwrap(), 1);
+    let ap = annot.get(b"AP").unwrap().as_dict().unwrap().get(b"N").unwrap().as_reference().unwrap();
+    let stream = doc.get_object(ap).unwrap().as_stream().unwrap();
+    let content = String::from_utf8(stream.decompressed_content().unwrap()).unwrap();
+    assert!(
+        content.contains("72 790 m\n200.5 790 l\n200.5 766 l\n72 766 l\nh\nf\n"),
+        "{content}"
+    );
+    let gs = stream
+        .dict
+        .get(b"Resources")
+        .unwrap()
+        .as_dict()
+        .unwrap()
+        .get(b"ExtGState")
+        .unwrap()
+        .as_dict()
+        .unwrap()
+        .get(b"GS0")
+        .unwrap()
+        .as_dict()
+        .unwrap();
+    assert_eq!(gs.get(b"BM").unwrap().as_name().unwrap(), b"Multiply");
+}
+
+#[test]
+fn highlight_edit_after_save_keeps_object() {
+    let orig = fixtures::simple_pdf(1);
+    let (out1, refs1) = write(&orig, &[highlight("h", 0)], &[]);
+    let mut edited = with_ref(highlight("h", 0), &refs1["h"]);
+    if let AnnotationDto::Highlight { color, .. } = &mut edited {
+        *color = [0.094, 1.0, 1.0];
+    }
+    let (out2, refs2) = write(&out1, std::slice::from_ref(&edited), &[]);
+    assert_eq!(refs2["h"], refs1["h"]);
+    assert_eq!(read_annotations(&out2).unwrap(), vec![edited]);
+}
+
+#[test]
+fn update_keeps_foreign_keys_and_overwrites_owned_ones() {
+    let orig = fixtures::pdf_with_foreign_annots();
+    let AnnotationDto::Ink { common: c, .. } = read_annotations(&orig).unwrap().remove(0) else {
+        panic!("expected the foreign ink")
+    };
+    let mut edited = ink("foreign-ink", 0, [0.0, 1.0, 0.0]);
+    if let AnnotationDto::Ink { common, .. } = &mut edited {
+        common.source_ref = c.source_ref.clone();
+    }
+    let (out, refs) = write(&orig, &[edited], &[]);
+    assert_eq!(Some(&refs["foreign-ink"]), c.source_ref.as_ref());
+    let doc = Document::load_mem(&out).unwrap();
+    let d = doc.get_dictionary(lopdf_id(&refs["foreign-ink"])).unwrap();
+    let text = |k: &[u8]| lopdf::decode_text_string(d.get(k).unwrap()).unwrap();
+    assert_eq!(text(b"Contents"), "a reviewer note");
+    assert_eq!(text(b"CreationDate"), "D:20260101000000Z");
+    assert_eq!(text(b"RC"), "<body><p>a reviewer note</p></body>");
+    assert_eq!(d.get(b"StructParent").unwrap().as_i64().unwrap(), 7);
+    assert_eq!(text(b"T"), "Jülie", "owned keys are overwritten");
+    assert!(d.get(b"AP").is_ok() && d.get(b"JuliePDF").is_ok());
+    let c: Vec<f32> = d.get(b"C").unwrap().as_array().unwrap().iter().map(|o| o.as_float().unwrap()).collect();
+    assert_eq!(c, [0.0, 1.0, 0.0]);
+}
+
+#[test]
+fn empty_author_is_written_as_juliepdf() {
+    let orig = fixtures::simple_pdf(1);
+    let mut a = ink("a", 0, [0.0; 3]);
+    if let AnnotationDto::Ink { common, .. } = &mut a {
+        common.author = String::new();
+    }
+    let (out, refs) = write(&orig, &[a], &[]);
+    let doc = Document::load_mem(&out).unwrap();
+    let d = doc.get_dictionary(lopdf_id(&refs["a"])).unwrap();
+    assert_eq!(lopdf::decode_text_string(d.get(b"T").unwrap()).unwrap(), "JuliePDF");
 }
 
 #[test]
@@ -394,15 +505,18 @@ fn lopdf_id(r: &str) -> ObjectId {
 #[test]
 fn unsupported_kind_and_bad_page_are_invalid() {
     let orig = fixtures::simple_pdf(1);
-    let hl = AnnotationDto::Highlight {
-        common: common(&ink("h", 0, [0.0; 3])).clone(),
-        quads: vec![[0.0, 10.0, 10.0, 10.0, 0.0, 0.0, 10.0, 0.0]],
-        color: [1.0, 1.0, 0.0],
-        opacity: 0.4,
+    let ft = AnnotationDto::Freetext {
+        common: common(&ink("f", 0, [0.0; 3])).clone(),
+        rect: [0.0, 0.0, 10.0, 10.0],
+        text: "x".into(),
+        lines: vec!["x".into()],
+        font_size: 12.0,
+        text_color: [0.0; 3],
+        background: None,
     };
-    let err = write_incremental(&orig, &[hl], &[]).unwrap_err();
+    let err = write_incremental(&orig, &[ft], &[]).unwrap_err();
     assert!(
-        matches!(&err, AppError::InvalidPdf(m) if m == "unsupported annotation kind: highlight"),
+        matches!(&err, AppError::InvalidPdf(m) if m == "unsupported annotation kind: freetext"),
         "{err:?}"
     );
     let err = write_incremental(&orig, &[ink("a", 5, [0.0; 3])], &[]).unwrap_err();
