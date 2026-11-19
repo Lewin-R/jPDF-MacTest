@@ -188,4 +188,29 @@ describe('rotatePage', () => {
     history.undo()
     expect(store.get('im')).toBe(im)
   })
+
+  it('keeps a turned image inside the page box: shifted, or scaled down if it cannot fit', () => {
+    const store = new AnnotationStore()
+    // 80 x 20 at the bottom edge of a 600 x 800 page.
+    const low: ImageAnnotation = { ...image('low', 0), rect: [100, 0, 180, 20] }
+    // 300 x 100 on a page only 200 tall once turned.
+    const wide: ImageAnnotation = { ...image('wide', 1), rect: [0, 0, 300, 100] }
+    store.load([low, wide])
+    const host: PageHost = { pages: identityPages(2) }
+    const history = new History(store)
+    history.execute(rotatePage(host, 0, 90, 0, [0, 0, 600, 800]))
+    // Turned about its centre it would be [130, -30, 150, 50]: shifted up by 30.
+    expect((store.get('low') as ImageAnnotation).rect).toEqual([130, 0, 150, 80])
+    history.execute(rotatePage(host, 1, 90, 0, [0, 0, 400, 200]))
+    // 100 x 300 does not fit 200 tall: scaled to 66.67 x 200, kept inside.
+    const r = (store.get('wide') as ImageAnnotation).rect
+    expect(r[3] - r[1]).toBeCloseTo(200)
+    expect((r[3] - r[1]) / (r[2] - r[0])).toBeCloseTo(3)
+    expect(r[1]).toBeCloseTo(0)
+    expect(r[0]).toBeGreaterThanOrEqual(0)
+    history.undo()
+    history.undo()
+    expect(store.get('low')).toBe(low)
+    expect(store.get('wide')).toBe(wide)
+  })
 })

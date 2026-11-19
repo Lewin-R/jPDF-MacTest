@@ -262,6 +262,19 @@ describe('select tool', () => {
     expect((t.store.get('im') as ImageAnnotation).rect).toEqual([20, 0, 100, 40])
   })
 
+  it('an image sticking out of the page is not shrunk or mirrored by a corner drag', () => {
+    // Page is 200 pt wide; the image reaches 20 pt past the right edge.
+    const t = setup([{ ...base, id: 'im', kind: 'image', rect: [180, 20, 220, 40], image: { width: 4, height: 2, png: 'AA==' } } as ImageAnnotation])
+    t.click([190, 30])
+    // ne corner (220, 40) dragged up: the pointer is clamped to the page edge.
+    t.drag([220, 40], [230, 50])
+    const r = (t.store.get('im') as ImageAnnotation).rect
+    expect(r[0]).toBe(180)
+    expect(r[1]).toBe(20)
+    expect(r[2] - r[0]).toBeGreaterThanOrEqual(40)
+    expect((r[2] - r[0]) / (r[3] - r[1])).toBeCloseTo(2)
+  })
+
   it('an image edge handle stretches it freely', () => {
     const t = setup([{ ...base, id: 'im', kind: 'image', rect: [20, 20, 60, 40], image: { width: 4, height: 2, png: 'AA==' } } as ImageAnnotation])
     t.click([40, 30])

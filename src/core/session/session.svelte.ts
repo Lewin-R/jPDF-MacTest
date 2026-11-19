@@ -7,7 +7,7 @@ import { renderCache } from '../viewer/renderCache'
 import { frameSize, layoutLines, normalizeRotation } from '../geometry/textLayout'
 import { toasts } from '../../ui/toasts.svelte'
 import { History } from './history.svelte'
-import type { Annotation } from './model'
+import type { Annotation, Rect } from './model'
 import { deletePage, duplicatePage, insertBlankPage, rotatePage } from './pageCommands'
 import { identityPages, isIdentity, pagePlan, pageSizesOf, type PageEntry, type PageSize, type PageSpec } from './pages'
 import { AnnotationStore } from './store.svelte'
@@ -373,8 +373,19 @@ export class DocumentSession {
     if (!entry) return
     this.commitPendingEdit()
     const fileRotation = await this.fileRotation(entry)
+    const box = await this.userBox(entry)
     if (this.pages[i] !== entry) return
-    this.history.execute(rotatePage(this, i, delta, fileRotation))
+    this.history.execute(rotatePage(this, i, delta, fileRotation, box))
+  }
+
+  /** The unrotated user-space box of an entry's page (its crop box; [0 0 w h] for an empty page). */
+  private async userBox(entry: PageEntry): Promise<Rect> {
+    if (entry.kind === 'blank') return [0, 0, entry.width, entry.height]
+    const page = await this.doc.getPage(entry.source + 1)
+    const view = (page as { view?: number[] }).view
+    if (view?.length === 4) return [view[0], view[1], view[2], view[3]]
+    const { width, height } = page.getViewport({ scale: 1, rotation: 0 })
+    return [0, 0, width, height]
   }
 
   /**

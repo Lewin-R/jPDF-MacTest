@@ -143,7 +143,7 @@ export function createSelectHandler(ctx: ToolContext): ToolHandler {
     const min = (INK_MIN_SIZE + 2 * pad) * vp.scale
     let r = resizeRect(box, handle, dx, dy, min)
     // Image corners keep the aspect ratio (edges stretch).
-    if (a.kind === 'image') r = keepAspect(box, r, handle, [0, 0, vp.width, vp.height])
+    if (a.kind === 'image') r = keepAspect(box, r, handle, [0, 0, vp.width, vp.height], min)
     const to = toPdfRect(r, vp)
     return { ...kind.scale(a, inset(kind.bounds(a), pad), inset(to, pad)), modifiedAt: now() }
   }

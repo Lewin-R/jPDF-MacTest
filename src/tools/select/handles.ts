@@ -61,11 +61,14 @@ export function resizeRect(r: Rect, h: Handle, dx: number, dy: number, minSize: 
 
 /**
  * `r`, the result of dragging corner handle `h` of `box` (both y-down), with
- * the aspect ratio of `box`: scaled by the larger of the two factors, at most
- * as far as fits in `bounds`, anchored at the opposite corner. Edge handles
- * return `r` unchanged.
+ * the aspect ratio of `box`: scaled by the larger of the two factors, anchored
+ * at the opposite corner, and at least `minSize` on both sides. Growing stops
+ * where the box would leave `bounds`; that limit never forces it below its
+ * current size (a box already reaching past an edge keeps its size), and it
+ * does not apply when the anchor corner itself lies beyond that edge. Edge
+ * handles return `r` unchanged.
  */
-export function keepAspect(box: Rect, r: Rect, h: Handle, bounds: Rect): Rect {
+export function keepAspect(box: Rect, r: Rect, h: Handle, bounds: Rect, minSize: number): Rect {
   if (h.length !== 2) return r
   const w0 = box[2] - box[0]
   const h0 = box[3] - box[1]
@@ -74,9 +77,12 @@ export function keepAspect(box: Rect, r: Rect, h: Handle, bounds: Rect): Rect {
   const north = h.includes('n')
   const ax = west ? box[2] : box[0]
   const ay = north ? box[3] : box[1]
-  const roomX = (west ? ax - bounds[0] : bounds[2] - ax) / w0
-  const roomY = (north ? ay - bounds[1] : bounds[3] - ay) / h0
-  const k = Math.min(Math.max((r[2] - r[0]) / w0, (r[3] - r[1]) / h0), roomX, roomY)
+  /** Largest factor the room `d` (px) beyond the anchor allows. */
+  const limit = (d: number, size: number) => (d <= 0 ? Infinity : Math.max(d / size, 1))
+  const roomX = limit(west ? ax - bounds[0] : bounds[2] - ax, w0)
+  const roomY = limit(north ? ay - bounds[1] : bounds[3] - ay, h0)
+  const kMin = minSize / Math.min(w0, h0)
+  const k = Math.max(kMin, Math.min(Math.max((r[2] - r[0]) / w0, (r[3] - r[1]) / h0), roomX, roomY))
   const w = w0 * k
   const hh = h0 * k
   const x1 = west ? ax - w : ax

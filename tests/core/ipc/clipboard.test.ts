@@ -38,6 +38,18 @@ describe('readClipboardImage', () => {
     err.mockRestore()
   })
 
+  it('logs unrelated errors that merely mention "empty" or "not available"', async () => {
+    for (const msg of ['clipboard history is empty', 'Clipboard not available: X11 server unreachable']) {
+      h.readImage.mockImplementation(async () => {
+        throw msg
+      })
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+      expect(await readClipboardImage()).toBeNull()
+      expect(err).toHaveBeenCalled()
+      err.mockRestore()
+    }
+  })
+
   it('is null for an empty or inconsistent image', async () => {
     h.readImage.mockResolvedValue({ size: async () => ({ width: 0, height: 0 }), rgba: async () => new Uint8Array(), close: async () => {} })
     expect(await readClipboardImage()).toBeNull()

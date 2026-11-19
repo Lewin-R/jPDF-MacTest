@@ -328,6 +328,22 @@ describe('DocumentSession page operations', () => {
     expect(session.dirty).toBe(false)
   })
 
+  it('rotating keeps pasted images inside the page', async () => {
+    const session = await open()
+    session.store.add({
+      id: 'im', page: 0, sourceRef: null, modifiedAt: '', author: '', kind: 'image',
+      rect: [500, 700, 600, 720], image: { width: 5, height: 1, png: 'AA==' },
+    })
+    await session.rotatePage(0, 90)
+    // Turned about its centre: [540, 660, 560, 760]; the 600 x 800 page holds it.
+    expect(session.store.get('im')).toMatchObject({ rect: [540, 660, 560, 760] })
+    session.history.undo()
+    session.store.update('im', { ...session.store.get('im')!, rect: [0, 0, 100, 20] } as never)
+    await session.rotatePage(0, 90)
+    // [40, -40, 60, 60] is shifted up onto the page.
+    expect(session.store.get('im')).toMatchObject({ rect: [40, 0, 60, 100] })
+  })
+
   it('pageRotation adds the file rotation', async () => {
     const session = await open()
     await session.rotatePage(1, 90)

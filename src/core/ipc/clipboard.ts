@@ -5,11 +5,11 @@ import type { RgbaImage } from '../../annotations/image/encode'
 export type ClipboardImage = RgbaImage
 
 /**
- * The plugin rejects when the clipboard holds no image (arboard's
- * "ContentNotAvailable": "…not available in the requested format or the
- * clipboard is empty").
+ * How the plugin rejects when the clipboard holds no image: the text of
+ * arboard's `Error::ContentNotAvailable` (arboard 3.x, forwarded as is by
+ * tauri-plugin-clipboard-manager).
  */
-const NO_IMAGE = /not available|empty/i
+const NO_IMAGE = 'The clipboard contents were not available in the requested format or the clipboard is empty.'
 
 /** The image on the clipboard; null when there is none or it cannot be read (logged). */
 export async function readClipboardImage(): Promise<ClipboardImage | null> {
@@ -21,7 +21,7 @@ export async function readClipboardImage(): Promise<ClipboardImage | null> {
     if (width <= 0 || height <= 0 || rgba.length !== width * height * 4) return null
     return { width, height, rgba }
   } catch (e) {
-    if (!NO_IMAGE.test(String(e))) console.error('Could not read the clipboard image', e)
+    if (String(e).trim() !== NO_IMAGE) console.error('Could not read the clipboard image', e)
     return null
   } finally {
     image?.close().catch(() => {})

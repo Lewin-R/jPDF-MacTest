@@ -102,13 +102,23 @@ export function insertBlankPage(
   )
 }
 
-/** `r` turned a quarter about its centre (width and height swapped). */
-function turnedRect(r: Rect): Rect {
+/**
+ * `r` turned a quarter about its centre (width and height swapped), then
+ * kept inside `box` when given: scaled down about its centre (keeping the
+ * aspect ratio) only if it is larger than the box, then shifted in.
+ */
+export function turnedRect(r: Rect, box?: Rect): Rect {
   const cx = (r[0] + r[2]) / 2
   const cy = (r[1] + r[3]) / 2
-  const hw = (r[3] - r[1]) / 2
-  const hh = (r[2] - r[0]) / 2
-  return [cx - hw, cy - hh, cx + hw, cy + hh]
+  let w = r[3] - r[1]
+  let h = r[2] - r[0]
+  if (!box) return [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2]
+  const k = Math.min(1, (box[2] - box[0]) / w, (box[3] - box[1]) / h)
+  w *= k
+  h *= k
+  const x1 = Math.min(Math.max(cx - w / 2, box[0]), box[2] - w)
+  const y1 = Math.min(Math.max(cy - h / 2, box[1]), box[3] - h)
+  return [x1, y1, x1 + w, y1 + h]
 }
 
 /**
@@ -116,9 +126,10 @@ function turnedRect(r: Rect): Rect {
  * its file page (0 for an empty page, whose rotation is absolute): text boxes
  * on the page stay upright on screen, so they are wrapped again to their
  * width at the new rotation; pasted images stay upright and keep their shape
- * on screen, so their rect turns a quarter about its centre.
+ * on screen, so their rect turns a quarter about its centre, kept inside
+ * `pageBox` (the page's unrotated user-space box) when given.
  */
-export function rotatePage(host: PageHost, i: number, delta: number, fileRotation: number): Command {
+export function rotatePage(host: PageHost, i: number, delta: number, fileRotation: number, pageBox?: Rect): Command {
   return pageCommand(
     'Rotate page',
     host,
@@ -129,7 +140,7 @@ export function rotatePage(host: PageHost, i: number, delta: number, fileRotatio
         if (a.kind === 'freetext') {
           s.update(a.id, { ...a, lines: layoutLines(a.text, a.fontSize, frameSize(a.rect, rotation).width) })
         } else if (a.kind === 'image' && normalizeRotation(delta) % 180 !== 0) {
-          s.update(a.id, { ...a, rect: turnedRect(a.rect) })
+          s.update(a.id, { ...a, rect: turnedRect(a.rect, pageBox) })
         }
       }
       return next
