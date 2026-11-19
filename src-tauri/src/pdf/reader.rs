@@ -107,18 +107,26 @@ fn map_annotation(doc: &Document, d: &Dictionary, common: Common) -> Option<Anno
             } else {
                 [0.0; 4]
             };
-            let (font_size, text_color) = parse_da(&text(doc, d, b"DA").unwrap_or_default());
+            let (da_size, da_color) = parse_da(&text(doc, d, b"DA").unwrap_or_default());
             let c = color_of(doc, d.get(b"C").ok());
-            // JuliePDF keeps /CA at 1 and the background opacity in /JuliePDF.
+            // JuliePDF keeps /CA at 1 and font size, text colour and background
+            // opacity in /JuliePDF (exact, unlike the rounded /DA).
+            let private_num = |key: &[u8]| private.and_then(|p| number(doc, p.get(key).ok()));
             let private_bool =
                 |key: &[u8]| private.and_then(|p| p.get_deref(key, doc).and_then(Object::as_bool).ok());
-            let background = match (private_bool(b"hasBg"), private) {
-                (Some(false), _) => None,
-                (Some(true), Some(p)) => Some(Background {
-                    color: c.unwrap_or(BLACK),
-                    opacity: number(doc, p.get(b"bgOpacity").ok()).unwrap_or(1.0),
+            let font_size = private_num(b"fontSize").filter(|s| *s > 0.0).unwrap_or(da_size);
+            let text_color = private
+                .and_then(|p| components_to_rgb(&numbers(doc, p.get(b"textColor").ok())))
+                .map(snap_rgb)
+                .unwrap_or(da_color);
+            let background = match private_bool(b"hasBg") {
+                Some(false) => None,
+                // A background without a colour cannot be drawn: none.
+                Some(true) => c.map(|color| Background {
+                    color: snap_rgb(color),
+                    opacity: private_num(b"bgOpacity").unwrap_or(1.0),
                 }),
-                _ => c.map(|color| Background { color, opacity }),
+                None => c.map(|color| Background { color, opacity }),
             };
             Some(AnnotationDto::Freetext {
                 common,
@@ -178,6 +186,18 @@ fn components_to_rgb(c: &[f64]) -> Option<[f64; 3]> {
         ]),
         _ => None,
     }
+}
+
+/// PDF reals carry about 7 significant digits (lopdf stores them as f32), so
+/// a colour picked as `k/255` (e.g. 32/255) comes back as 0.1254902. Snaps
+/// components that are that close to the `k/255` grid back onto it; other
+/// values (presets such as 0.898) are left alone.
+fn snap_rgb(c: [f64; 3]) -> [f64; 3] {
+    c.map(|v| {
+        let k = (v * 255.0).round();
+        let exact = k / 255.0;
+        if (v - exact).abs() <= 1e-6 { exact } else { v }
+    })
 }
 
 /// Font size and fill colour from a default appearance string such as

@@ -26,6 +26,17 @@ describe('wrapText', () => {
     expect(wrapText('abc', 10, 2, half)).toEqual(['a', 'b', 'c'])
   })
 
+  it('breaks after a hyphen, keeping it on the first line (like the textarea)', () => {
+    expect(wrapText('well-known', 10, 30, half)).toEqual(['well-', 'known'])
+    expect(wrapText('a well-known', 10, 50, half)).toEqual(['a well-', 'known'])
+    expect(wrapText('well-known', 10, 100, half)).toEqual(['well-known'])
+  })
+
+  it('spaces at a wrap boundary hang on the line: no leading space on the next line', () => {
+    expect(wrapText('aaaaaa  bb', 10, 30, half)).toEqual(['aaaaaa', 'bb'])
+    expect(wrapText('aaaa  bb', 10, 30, half)).toEqual(['aaaa', 'bb'])
+  })
+
   it('keeps leading and inner spaces', () => {
     expect(wrapText('  a  b', 10, 1000, half)).toEqual(['  a  b'])
   })

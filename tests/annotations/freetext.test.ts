@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { PageViewport } from 'pdfjs-dist'
 import '../../src/annotations'
 import { freetextKind } from '../../src/annotations/freetext'
+import { EDITOR_BASELINE_SHIFT, editorInsets } from '../../src/annotations/freetext/screen'
 import type { TextEdit } from '../../src/core/registry/tools'
 import type { FreeTextAnnotation } from '../../src/core/session/model'
 import { AnnotationStore } from '../../src/core/session/store.svelte'
@@ -60,6 +61,19 @@ describe('freetext kind', () => {
   })
 })
 
+describe('editor insets (baseline parity with the committed box)', () => {
+  it('lifts Arial text by 0.146 em so the baseline sits at top + pad + 0.8 em', () => {
+    // Arial in a 1.2 line box: baseline 0.0415 + 0.905 = 0.9465 em below the line top.
+    expect(EDITOR_BASELINE_SHIFT).toBeCloseTo((1.2 - (0.905 + 0.212)) / 2 + 0.905 - 0.8, 3)
+    expect(editorInsets(10, 2)).toEqual({ offsetTop: 0, paddingTop: 5.08, paddingBottom: 10.92, minHeight: 40 })
+  })
+
+  it('moves the box up when the lift exceeds the top padding, keeping the bottom edge', () => {
+    // 40pt at scale 1: lift 5.84 > padding 4.
+    expect(editorInsets(40, 1)).toEqual({ offsetTop: 1.84, paddingTop: 0, paddingBottom: 9.84, minHeight: 57.84 })
+  })
+})
+
 describe('text box editor in the overlay', () => {
   function mountEditor() {
     const edit: TextEdit = { draft: ft({ text: 'hi', background: null }), rotation: 0, setText: vi.fn(), commit: vi.fn() }
@@ -77,7 +91,11 @@ describe('text box editor in the overlay', () => {
     expect(ta.style.top).toBe('20px')
     expect(ta.style.width).toBe('100px')
     expect(ta.style.fontSize).toBe('20px')
-    expect(ta.style.padding).toBe('8px')
+    expect(ta.style.paddingTop).toBe('5.08px')
+    expect(ta.style.paddingBottom).toBe('10.92px')
+    expect(ta.style.paddingLeft).toBe('8px')
+    expect(ta.style.paddingRight).toBe('8px')
+    expect(ta.style.minHeight).toBe('40px')
     expect(ta.style.fontFamily).toContain('Arial')
     expect(ta.style.background).toBe('transparent')
   })

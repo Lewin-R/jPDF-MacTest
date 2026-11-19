@@ -2,8 +2,8 @@
   import { onDestroy, onMount } from 'svelte'
   import type { PageViewport } from 'pdfjs-dist'
   import type { TextEdit } from '../../core/registry/tools'
-  import { LINE_HEIGHT, TEXT_PADDING } from '../../core/geometry/textLayout'
-  import { cssColor, FREETEXT_FONT, screenBox } from './screen'
+  import { TEXT_PADDING } from '../../core/geometry/textLayout'
+  import { cssColor, editorInsets, FREETEXT_FONT, screenBox } from './screen'
 
   let { edit, vp }: { edit: TextEdit; vp: PageViewport } = $props()
 
@@ -11,11 +11,14 @@
   const a = $derived(edit.draft)
   const box = $derived(screenBox(a.rect, vp))
   const s = $derived(vp.scale)
-  const background = $derived(
-    a.background
-      ? `rgba(${a.background.color.map((v) => Math.round(v * 255)).join(',')},${a.background.opacity})`
-      : 'transparent',
-  )
+  const insets = $derived(editorInsets(a.fontSize, s))
+  // Starts at the box top even when the textarea is lifted above it.
+  const background = $derived.by(() => {
+    if (!a.background) return 'transparent'
+    const fill = `rgba(${a.background.color.map((v) => Math.round(v * 255)).join(',')},${a.background.opacity})`
+    const off = insets.offsetTop
+    return off > 0 ? `linear-gradient(transparent ${off}px, ${fill} ${off}px)` : fill
+  })
 
   /** Grows the textarea with its content (never below one line). */
   function grow() {
@@ -59,10 +62,10 @@
   spellcheck="false"
   rows="1"
   style:left="{box.left}px"
-  style:top="{box.top}px"
+  style:top="{box.top - insets.offsetTop}px"
   style:width="{box.width}px"
-  style:min-height="{(a.fontSize * LINE_HEIGHT + 2 * TEXT_PADDING) * s}px"
-  style:padding="{TEXT_PADDING * s}px"
+  style:min-height="{insets.minHeight}px"
+  style:padding="{insets.paddingTop}px {TEXT_PADDING * s}px {insets.paddingBottom}px"
   style:font-family={FREETEXT_FONT}
   style:font-size="{a.fontSize * s}px"
   style:color={cssColor(a.textColor)}
@@ -82,8 +85,11 @@
     resize: none;
     overflow: hidden;
     line-height: 1.2;
+    /* Break like wrapText: at spaces (hanging), after hyphens, long words anywhere. */
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+    word-break: normal;
+    hyphens: manual;
     /* Typing, not drawing: no tool gestures from inside the box. */
     touch-action: auto;
     pointer-events: auto;

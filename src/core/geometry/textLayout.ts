@@ -62,9 +62,13 @@ function breakWord(word: string, fontSize: number, maxWidth: number, measure: (s
 }
 
 /**
- * Lines of `text` for a box whose text area is `maxWidth` wide: hard breaks
- * at '\n', then greedy word wrap at spaces; words longer than maxWidth are
- * broken by character. Spaces inside a line are kept.
+ * Lines of `text` for a box whose text area is `maxWidth` wide, broken the way
+ * the editor's textarea breaks (`white-space: pre-wrap`): hard breaks at
+ * '\n'; soft breaks at spaces and after hyphens (the hyphen stays on the
+ * first line); words longer than maxWidth broken by character. Spaces never
+ * cause a break: at a wrap they hang on (and are trimmed from the end of) the
+ * line, so the next line never starts with a space. Leading and inner spaces
+ * are kept.
  */
 export function wrapText(
   text: string,
@@ -73,24 +77,35 @@ export function wrapText(
   measure: (s: string, size: number) => number,
 ): string[] {
   const lines: string[] = []
+  const fits = (s: string) => measure(s, fontSize) <= maxWidth
   for (const paragraph of text.replace(/\r\n?/g, '\n').split('\n')) {
-    let line: string | null = null
-    for (const word of paragraph.split(' ')) {
-      const candidate: string = line === null ? word : `${line} ${word}`
-      if (measure(candidate, fontSize) <= maxWidth) {
-        line = candidate
-        continue
+    let line = ''
+    // Odd entries are runs of spaces, even entries words (possibly empty).
+    paragraph.split(/( +)/).forEach((token, i) => {
+      if (i % 2 === 1) {
+        line += token
+        return
       }
-      if (line !== null) lines.push(line)
-      if (measure(word, fontSize) <= maxWidth) {
-        line = word
-      } else {
-        const pieces = breakWord(word, fontSize, maxWidth, measure)
-        lines.push(...pieces.slice(0, -1))
-        line = pieces.at(-1) ?? ''
+      for (const part of token.split(/(?<=-)/)) {
+        if (part === '' || fits(line + part)) {
+          line += part
+          continue
+        }
+        // Only spaces so far (paragraph indent): they stay with the part.
+        if (line.trim() !== '') {
+          lines.push(line.replace(/ +$/, ''))
+          line = ''
+        }
+        if (fits(line + part)) {
+          line += part
+        } else {
+          const pieces = breakWord(line + part, fontSize, maxWidth, measure)
+          lines.push(...pieces.slice(0, -1))
+          line = pieces.at(-1) ?? ''
+        }
       }
-    }
-    lines.push(line ?? '')
+    })
+    lines.push(line)
   }
   return lines
 }

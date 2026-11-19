@@ -589,6 +589,37 @@ fn freetext_edit_removes_background_and_keeps_object() {
 }
 
 #[test]
+fn freetext_custom_colours_and_size_survive_exactly() {
+    // 32/255 has more digits than /DA (3 decimals) or a PDF real (f32) keep.
+    let k = 32.0 / 255.0;
+    let orig = fixtures::simple_pdf(1);
+    let mut a = freetext("c", 0, "dark", Some(Background { color: [k, 1.0, 0.898], opacity: 0.35 }));
+    if let AnnotationDto::Freetext { text_color, font_size, .. } = &mut a {
+        *text_color = [k, 0.898, 200.0 / 255.0];
+        *font_size = 13.5;
+    }
+    let (out, refs) = write(&orig, std::slice::from_ref(&a), &[]);
+    assert_eq!(read_annotations(&out).unwrap(), vec![with_ref(a, &refs["c"])]);
+    let doc = Document::load_mem(&out).unwrap();
+    let private = annot_dict(&doc, &refs["c"]).get(b"JuliePDF").unwrap().as_dict().unwrap();
+    assert_eq!(private.get(b"textColor").unwrap().as_array().unwrap().len(), 3);
+    assert_eq!(private.get(b"fontSize").unwrap().as_float().unwrap(), 13.5);
+}
+
+#[test]
+fn freetext_has_bg_without_colour_reads_as_transparent() {
+    let orig = fixtures::simple_pdf(1);
+    let a = freetext("b", 0, "x", Some(Background { color: [1.0, 0.0, 0.0], opacity: 0.5 }));
+    let (out, refs) = write(&orig, &[a], &[]);
+    let mut doc = Document::load_mem(&out).unwrap();
+    doc.get_dictionary_mut(lopdf_id(&refs["b"])).unwrap().remove(b"C");
+    let mut bytes = Vec::new();
+    doc.save_to(&mut bytes).unwrap();
+    let got = read_annotations(&bytes).unwrap();
+    assert!(matches!(&got[0], AnnotationDto::Freetext { background: None, .. }), "{got:?}");
+}
+
+#[test]
 fn freetext_umlauts_survive_and_emoji_replaced() {
     let orig = fixtures::simple_pdf(1);
     let a = freetext("u", 0, "Übung 😀", None);

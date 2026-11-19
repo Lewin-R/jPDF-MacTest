@@ -354,8 +354,9 @@ fn build_annotation(
 /// `/C` is the background colour; an empty array (transparent) when there is
 /// none, so an update also clears the colour of a previously saved version.
 /// `/CA` stays 1: the background opacity lives in the appearance's `GS0` (fill
-/// only), and `/CA` would also fade the text. `/JuliePDF` keeps the exact
-/// background opacity for the reader.
+/// only), and `/CA` would also fade the text. `/JuliePDF` keeps the font size,
+/// text colour and background opacity at full real precision for the reader
+/// (`/DA` numbers are rounded to 3 decimals).
 fn freetext_dict(text: &str, font_size: f64, color: [f64; 3], bg: Option<&Background>) -> Dictionary {
     let da = format!(
         "/Helv {} Tf {} {} {} rg",
@@ -382,6 +383,8 @@ fn freetext_dict(text: &str, font_size: f64, color: [f64; 3], bg: Option<&Backgr
         "BS" => dictionary! { "W" => 0 },
         "JuliePDF" => dictionary! {
             "v" => 1,
+            "fontSize" => num(font_size),
+            "textColor" => nums(&color),
             "hasBg" => bg.is_some(),
             "bgOpacity" => num(bg.map_or(1.0, |b| b.opacity)),
         },
