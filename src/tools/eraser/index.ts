@@ -7,7 +7,8 @@ import Icon from './Icon.svelte'
 /** Eraser radius in screen pixels. */
 export const ERASER_RADIUS_PX = 6
 
-const erasable = (a: Annotation): boolean => a.kind === 'ink' || a.kind === 'highlight' || a.kind === 'shape'
+const erasable = (a: Annotation): boolean =>
+  a.kind === 'ink' || a.kind === 'highlight' || a.kind === 'underline' || a.kind === 'strikeout' || a.kind === 'shape'
 
 export function createEraserHandler(ctx: ToolContext): ToolHandler {
   let erased: Map<string, Annotation> | null = null
@@ -80,7 +81,7 @@ export function createEraserHandler(ctx: ToolContext): ToolHandler {
 export const eraserTool: ToolDefinition<Record<string, never>> = {
   type: 'eraser',
   displayName: 'Eraser',
-  description: 'Erase strokes, highlights and shapes',
+  description: 'Erase strokes, text markup and shapes',
   shortcut: 'E',
   Icon,
   defaultSettings: {},

@@ -1,4 +1,4 @@
-import type { Annotation, HighlightAnnotation, InkAnnotation, Point, Quad, RGB } from '../session/model'
+import type { Annotation, InkAnnotation, Point, Quad, RGB, TextMarkupAnnotation } from '../session/model'
 import { distToSegment } from './hit'
 import { mergeLineRects, type ScreenRect } from './quads'
 
@@ -146,7 +146,7 @@ function connected<T>(fresh: T, candidates: T[], touch: (a: T, b: T) => boolean)
   return candidates.filter((c) => inGroup.has(c))
 }
 
-function highlightsTouch(a: HighlightAnnotation, b: HighlightAnnotation): boolean {
+function quadsTouch(a: TextMarkupAnnotation, b: TextMarkupAnnotation): boolean {
   const boxes = a.quads.map((q) => boxOf(q))
   return b.quads.some((q) => {
     const box = boxOf(q)
@@ -154,25 +154,31 @@ function highlightsTouch(a: HighlightAnnotation, b: HighlightAnnotation): boolea
   })
 }
 
+const isTextMarkup = (a: Annotation): a is TextMarkupAnnotation =>
+  a.kind === 'highlight' || a.kind === 'underline' || a.kind === 'strikeout'
+
+/** Same look: kind and colour, and for highlights opacity. */
+function sameStyle(a: TextMarkupAnnotation, b: TextMarkupAnnotation): boolean {
+  if (a.kind !== b.kind || !sameColor(a.color, b.color)) return false
+  return a.kind !== 'highlight' || close(a.opacity, (b as typeof a).opacity)
+}
+
 /**
- * Highlights among `pageAnnotations` (z-order) that `fresh` merges with: same
- * page, colour and opacity, connected to `fresh` through quads whose bounding
- * boxes overlap or touch (within HIGHLIGHT_TOUCH_PT), directly or via other
- * such highlights (new touches A, A touches C: both merge).
+ * Text markup among `pageAnnotations` (z-order) that `fresh` merges with:
+ * same page, kind and colour (highlights: and opacity), connected to `fresh`
+ * through quads whose bounding boxes overlap or touch (within
+ * HIGHLIGHT_TOUCH_PT), directly or via other such annotations (new touches A,
+ * A touches C: both merge). Highlights merge so no area is darkened twice;
+ * underlines and strike-outs so text marked twice stays one annotation.
  */
-export function findMergeableHighlights(
+export function findMergeableTextMarkup<T extends TextMarkupAnnotation>(
   pageAnnotations: readonly Annotation[],
-  fresh: HighlightAnnotation,
-): HighlightAnnotation[] {
+  fresh: T,
+): T[] {
   const candidates = pageAnnotations.filter(
-    (a): a is HighlightAnnotation =>
-      a.kind === 'highlight' &&
-      a.id !== fresh.id &&
-      a.page === fresh.page &&
-      sameColor(a.color, fresh.color) &&
-      close(a.opacity, fresh.opacity),
+    (a): a is T => isTextMarkup(a) && a.id !== fresh.id && a.page === fresh.page && sameStyle(a, fresh),
   )
-  return connected(fresh, candidates, highlightsTouch)
+  return connected(fresh, candidates, quadsTouch)
 }
 
 function cross(o: Point, a: Point, b: Point): number {
@@ -231,4 +237,54 @@ export function findMergeableMarkerStrokes(
   const touch = (a: InkAnnotation, b: InkAnnotation) =>
     a.strokes.some((s) => b.strokes.some((t) => strokesWithin(s, t, fresh.width)))
   return connected(fresh, candidates, touch)
+}
+
+/** Pieces of a quad narrower than this (pt) left over by a cut are dropped. */
+export const CUT_MIN_WIDTH_PT = 0.5
+
+/** Same line: the vertical overlap is at least this fraction of the lower rect's height. */
+const CUT_LINE_OVERLAP = 0.5
+
+const sameLine = (a: ScreenRect, b: ScreenRect) =>
+  Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) >=
+  CUT_LINE_OVERLAP * Math.min(a.bottom - a.top, b.bottom - b.top)
+
+/**
+ * `quads` with the parts under `cuts` removed (unmarking selected text):
+ * on each line, the cut's extent along the text is taken out of the quads of
+ * the same orientation (a quad may split in two); pieces narrower than
+ * CUT_MIN_WIDTH_PT are dropped. Quads that are not axis-aligned cannot be
+ * cut partly: any cut touching one removes it whole.
+ */
+export function cutQuads(quads: Quad[], cuts: Quad[]): Quad[] {
+  const framedCuts = cuts.map((c) => frame(c)).filter((f): f is Framed => f !== null)
+  const cutBoxes = cuts.map((c) => boxOf(c))
+  const out: Quad[] = []
+  for (const q of quads) {
+    const f = frame(q)
+    if (!f) {
+      const box = boxOf(q)
+      if (!cutBoxes.some((c) => boxesTouch(c, box, 0))) out.push(q)
+      continue
+    }
+    let pieces: [number, number][] = [[f.rect.left, f.rect.right]]
+    for (const c of framedCuts) {
+      if (c.key !== f.key || !sameLine(c.rect, f.rect)) continue
+      pieces = pieces.flatMap(([l, r]): [number, number][] => {
+        if (c.rect.right <= l || c.rect.left >= r) return [[l, r]]
+        const kept: [number, number][] = []
+        if (c.rect.left > l) kept.push([l, c.rect.left])
+        if (c.rect.right < r) kept.push([c.rect.right, r])
+        return kept
+      })
+    }
+    if (pieces.length === 1 && pieces[0][0] === f.rect.left && pieces[0][1] === f.rect.right) {
+      out.push(q)
+      continue
+    }
+    for (const [l, r] of pieces) {
+      if (r - l >= CUT_MIN_WIDTH_PT) out.push(unframe(f, { ...f.rect, left: l, right: r }))
+    }
+  }
+  return out
 }

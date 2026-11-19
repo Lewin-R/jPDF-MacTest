@@ -1,8 +1,10 @@
 /**
  * What holding the right mouse button does for the active tool: with tools
  * that draw or erase (pen, text box, shape, freehand marker, eraser) a right
- * drag erases; with the others (select, hand, text-selection marker, no tool)
- * a right click opens the page menu instead.
+ * drag erases; with the others (select, hand, text-selecting tools, no tool)
+ * a right click opens the page menu instead. Text-selecting tools (marker
+ * text mode, underline, strike-out) unmark text with a right drag over it
+ * (tools/shared/unmark.ts).
  */
 const ERASING_TOOLS = new Set(['pen', 'text', 'shape', 'eraser'])
 

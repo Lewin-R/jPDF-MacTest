@@ -12,6 +12,8 @@ import type { Annotation } from './model'
 export class SessionToolState {
   selection = $state<string[]>([])
   preview = $state.raw<Annotation | null>(null)
+  /** Live annotations, at most one per page (see ToolContext.pagePreviews). */
+  pagePreviews = $state.raw<readonly Annotation[]>([])
   hidden = $state.raw<ReadonlySet<string>>(new Set())
   cursor = $state<string | null>(null)
   textEdit = $state.raw<TextEdit | null>(null)

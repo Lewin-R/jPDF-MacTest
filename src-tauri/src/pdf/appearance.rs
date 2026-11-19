@@ -181,6 +181,96 @@ pub fn highlight_appearance(quads: &[[f64; 8]], color: [f64; 3], opacity: f64) -
     }
 }
 
+/// Which line a text-line annotation draws.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum TextLine {
+    Underline,
+    StrikeOut,
+}
+
+/// Line thickness (fraction of the quad height), thinnest line (pt), and line
+/// centres (fraction of the quad height above its bottom edge); identical to
+/// the TS `textLines.ts`.
+const TEXT_LINE_THICKNESS: f64 = 1.0 / 14.0;
+const TEXT_LINE_MIN_THICKNESS: f64 = 0.5;
+const UNDERLINE_POSITION: f64 = 0.12;
+const STRIKEOUT_POSITION: f64 = 0.42;
+
+/// The band the line covers inside quad `q` (QuadPoints order TL, TR, BL, BR,
+/// any orientation), in the same order; a quad without height yields itself.
+pub fn text_line_band(q: &[f64; 8], kind: TextLine) -> [f64; 8] {
+    let [tlx, tly, trx, try_, blx, bly, brx, bry] = *q;
+    let (lx, ly, rx, ry) = (tlx - blx, tly - bly, trx - brx, try_ - bry);
+    let h = lx.hypot(ly);
+    if h == 0.0 {
+        return *q;
+    }
+    let thickness = h.min(TEXT_LINE_MIN_THICKNESS.max(h * TEXT_LINE_THICKNESS)) / h;
+    let centre = match kind {
+        TextLine::Underline => UNDERLINE_POSITION,
+        TextLine::StrikeOut => STRIKEOUT_POSITION,
+    };
+    let lo = (centre - thickness / 2.0).max(0.0);
+    let hi = (lo + thickness).min(1.0);
+    [
+        blx + lx * hi,
+        bly + ly * hi,
+        brx + rx * hi,
+        bry + ry * hi,
+        blx + lx * lo,
+        bly + ly * lo,
+        brx + rx * lo,
+        bry + ry * lo,
+    ]
+}
+
+/// One filled band per quad (see `text_line_band`), opaque and normal-blended,
+/// so no transparency group is needed. `bbox` = union of the quads (zero if
+/// there are none), which contains every band.
+pub fn text_line_appearance(quads: &[[f64; 8]], kind: TextLine, color: [f64; 3]) -> Appearance {
+    let (mut x1, mut y1, mut x2, mut y2) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+    for q in quads {
+        for p in q.chunks_exact(2) {
+            x1 = x1.min(p[0]);
+            y1 = y1.min(p[1]);
+            x2 = x2.max(p[0]);
+            y2 = y2.max(p[1]);
+        }
+    }
+    let bbox = if quads.is_empty() { [0.0; 4] } else { [x1, y1, x2, y2] };
+
+    let mut c = format!(
+        "q\n{} {} {} rg\n",
+        fmt_num(color[0]),
+        fmt_num(color[1]),
+        fmt_num(color[2])
+    );
+    for q in quads {
+        let b = text_line_band(q, kind);
+        c.push_str(&format!(
+            "{} m\n{} l\n{} l\n{} l\nh\n",
+            pt([b[0], b[1]]),
+            pt([b[2], b[3]]),
+            pt([b[6], b[7]]),
+            pt([b[4], b[5]])
+        ));
+    }
+    // One fill for all bands.
+    c.push_str("f\nQ\n");
+
+    Appearance {
+        bbox,
+        content: c.into_bytes(),
+        opacity: 1.0,
+        multiply: false,
+        uses_helvetica: false,
+        matrix: None,
+        gstates: Vec::new(),
+        group: None,
+        image: false,
+    }
+}
+
 /// Inner box padding, line height factor and first-baseline offset (fraction of
 /// the font size below the padding); identical to the TS `textLayout` and the
 /// overlay's FreeText rendering.
@@ -392,6 +482,38 @@ pub fn shape_appearance(shape: ShapeKind, rect: [f64; 4], border: Option<&Stroke
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn text_line_band_sits_under_the_baseline_or_through_the_middle() {
+        // 14pt tall quad from y=0 to y=14: thickness 1pt.
+        let q = [0.0, 14.0, 20.0, 14.0, 0.0, 0.0, 20.0, 0.0];
+        let u = super::text_line_band(&q, super::TextLine::Underline);
+        let close = |a: f64, b: f64| (a - b).abs() < 1e-9;
+        assert!(close(u[1], 14.0 * 0.12 + 0.5) && close(u[5], 14.0 * 0.12 - 0.5), "{u:?}");
+        assert!(close(u[0], 0.0) && close(u[2], 20.0), "{u:?}");
+        let s = super::text_line_band(&q, super::TextLine::StrikeOut);
+        assert!(close(s[1], 14.0 * 0.42 + 0.5) && close(s[5], 14.0 * 0.42 - 0.5), "{s:?}");
+        // Small text keeps a 0.5pt line; rotated quads (text running up) stay parallel.
+        let small = super::text_line_band(&[0.0, 2.0, 5.0, 2.0, 0.0, 0.0, 5.0, 0.0], super::TextLine::Underline);
+        assert!(close(small[1] - small[5], 0.5), "{small:?}");
+        let up = super::text_line_band(&[0.0, 0.0, 0.0, 20.0, 14.0, 0.0, 14.0, 20.0], super::TextLine::Underline);
+        assert!(close(up[0], up[2]) && close(up[4], up[6]) && close(up[4] - up[0], 1.0), "{up:?}");
+    }
+
+    #[test]
+    fn text_line_appearance_fills_all_bands_once_without_a_group() {
+        let a = super::text_line_appearance(
+            &[[0.0, 14.0, 20.0, 14.0, 0.0, 0.0, 20.0, 0.0], [0.0, 34.0, 10.0, 34.0, 0.0, 20.0, 10.0, 20.0]],
+            super::TextLine::StrikeOut,
+            [1.0, 0.0, 0.0],
+        );
+        let c = String::from_utf8(a.content.clone()).unwrap();
+        assert!(c.starts_with("q\n1 0 0 rg\n"), "{c}");
+        assert_eq!(c.matches(" m\n").count(), 2, "{c}");
+        assert_eq!(c.matches("f\n").count(), 1, "{c}");
+        assert!(a.group.is_none() && !a.multiply && a.opacity == 1.0);
+        assert_eq!(a.bbox, [0.0, 0.0, 20.0, 34.0]);
+    }
+
     use super::*;
 
     #[test]

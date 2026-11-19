@@ -4,6 +4,7 @@ import Options from './Options.svelte'
 import { createFreehandHandler, straightLine } from './freehand'
 import { MARKER_PRESETS, type MarkerSettings } from './settings'
 import { listenForTextSelection, noteFreehandFallback } from './textMode'
+import { listenForUnmark } from '../shared/unmark'
 
 export { MARKER_PRESETS, straightLine, type MarkerSettings }
 
@@ -16,6 +17,8 @@ export { MARKER_PRESETS, straightLine, type MarkerSettings }
 export function createMarkerHandler(ctx: ToolContext, settings: () => MarkerSettings): ToolHandler {
   const freehand = createFreehandHandler(ctx, settings)
   const stopTextSelection = listenForTextSelection(ctx, settings)
+  // Text mode: a right-button drag unmarks highlights (freehand mode erases instead).
+  const stopUnmark = listenForUnmark(ctx, () => (settings().mode === 'text' ? 'highlight' : null))
   let active: ToolHandler | null = null
 
   function pick(): ToolHandler {
@@ -48,6 +51,7 @@ export function createMarkerHandler(ctx: ToolContext, settings: () => MarkerSett
     },
     onDeactivate() {
       stopTextSelection()
+      stopUnmark()
       const h = active
       active = null
       h?.onDeactivate?.()

@@ -9,8 +9,8 @@ use lopdf::{
 };
 
 use super::appearance::{
-    Appearance, freetext_appearance, highlight_appearance, image_appearance, ink_appearance,
-    shape_appearance,
+    Appearance, TextLine, freetext_appearance, highlight_appearance, image_appearance, ink_appearance,
+    shape_appearance, text_line_appearance,
 };
 use super::date::pdf_date;
 use super::dto::{
@@ -495,6 +495,8 @@ fn common_of(dto: &AnnotationDto) -> &Common {
     match dto {
         AnnotationDto::Ink { common, .. }
         | AnnotationDto::Highlight { common, .. }
+        | AnnotationDto::Underline { common, .. }
+        | AnnotationDto::Strikeout { common, .. }
         | AnnotationDto::Freetext { common, .. }
         | AnnotationDto::Shape { common, .. }
         | AnnotationDto::Image { common, .. } => common,
@@ -570,6 +572,24 @@ fn build_annotation(
                 "JuliePDF" => dictionary! { "v" => 1 },
             };
             Ok(Some((d, ap)))
+        }
+        AnnotationDto::Underline { quads, color, .. } | AnnotationDto::Strikeout { quads, color, .. } => {
+            check_finite(quads.iter().flatten().chain(color))?;
+            if quads.is_empty() {
+                return Ok(None);
+            }
+            let (kind, subtype) = match dto {
+                AnnotationDto::Underline { .. } => (TextLine::Underline, "Underline"),
+                _ => (TextLine::StrikeOut, "StrikeOut"),
+            };
+            let d = dictionary! {
+                "Subtype" => subtype,
+                "C" => nums(color),
+                "CA" => 1,
+                "QuadPoints" => nums(&quads.concat()),
+                "JuliePDF" => dictionary! { "v" => 1 },
+            };
+            Ok(Some((d, text_line_appearance(quads, kind, *color))))
         }
         AnnotationDto::Freetext {
             rect,

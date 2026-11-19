@@ -4,8 +4,11 @@ import { highlightKind } from './highlight'
 import { imageKind } from './image'
 import { inkKind } from './ink'
 import { shapeKind } from './shape'
+import { strikeoutKind, underlineKind } from './textline'
 
 annotationKinds.register(highlightKind)
+annotationKinds.register(underlineKind)
+annotationKinds.register(strikeoutKind)
 annotationKinds.register(inkKind)
 annotationKinds.register(freetextKind)
 annotationKinds.register(shapeKind)

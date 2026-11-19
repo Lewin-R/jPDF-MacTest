@@ -30,12 +30,14 @@ export interface ToolHandler {
   onKeyDown?(e: KeyboardEvent): boolean
   onDeactivate?(): void
   /**
-   * Non-null while the tool selects text natively (marker text mode): on pages
-   * that have text, the overlay lets pointer input through to the text layer,
-   * whose selection is tinted with `color`; the handler then receives pointer
-   * input only on pages without text. Read reactively by the viewer.
+   * Non-null while the tool selects text natively (marker text mode,
+   * underline, strike-out): on pages that have text, the overlay lets pointer
+   * input through to the text layer, whose selection is tinted with `color`
+   * (null: not drawn at all, the tool previews its result instead); the
+   * handler then receives pointer input only on pages without text. Read
+   * reactively by the viewer.
    */
-  textSelection?(): { color: RGB } | null
+  textSelection?(): { color: RGB | null } | null
   /**
    * Hover-based text pass-through (select tool): whether pointer input at `e`
    * should go through to the text layer because nothing of the tool's is
@@ -69,6 +71,11 @@ export interface ToolContext {
   selection: { ids: string[]; set(ids: string[]): void }
   /** Live, uncommitted annotation drawn by Overlay. */
   preview: { set(a: Annotation | null): void }
+  /**
+   * Live, uncommitted annotations, at most one per page (e.g. text markup of a
+   * selection across pages), drawn on pages where `preview` has nothing.
+   */
+  pagePreviews?: { set(list: readonly Annotation[]): void }
   /** Annotations hidden by Overlay while a gesture (e.g. erasing) is in progress; cleared when the tool changes. */
   hidden: { readonly ids: ReadonlySet<string>; set(ids: Iterable<string>): void }
   /** Overrides the tool's cursor (e.g. 'grabbing' during a drag); null restores it. */

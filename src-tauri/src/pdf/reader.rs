@@ -1,4 +1,4 @@
-//! Maps a document's `/Ink`, `/Highlight`, `/FreeText`, `/Square` and
+//! Maps a document's `/Ink`, `/Highlight`, `/Underline`, `/StrikeOut`, `/FreeText`, `/Square` and
 //! `/Circle` annotations, and the `/Stamp`s JuliePDF saved for pasted images,
 //! to DTOs.
 //! `/JuliePDF` values win; foreign annotations get defaults. Other subtypes,
@@ -102,6 +102,18 @@ fn map_annotation(doc: &Document, d: &Dictionary, common: Common) -> Option<Anno
                 quads,
                 color,
                 opacity,
+            })
+        }
+        b"Underline" | b"StrikeOut" => {
+            let flat = numbers(doc, d.get(b"QuadPoints").ok());
+            let quads = flat.as_chunks::<8>().0.to_vec();
+            if quads.is_empty() {
+                return None;
+            }
+            Some(if subtype == b"Underline" {
+                AnnotationDto::Underline { common, quads, color }
+            } else {
+                AnnotationDto::Strikeout { common, quads, color }
             })
         }
         b"FreeText" => {

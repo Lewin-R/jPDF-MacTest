@@ -88,6 +88,8 @@ fn common(a: &AnnotationDto) -> &Common {
     match a {
         AnnotationDto::Ink { common, .. }
         | AnnotationDto::Highlight { common, .. }
+        | AnnotationDto::Underline { common, .. }
+        | AnnotationDto::Strikeout { common, .. }
         | AnnotationDto::Freetext { common, .. }
         | AnnotationDto::Shape { common, .. }
         | AnnotationDto::Image { common, .. } => common,
@@ -98,6 +100,8 @@ fn with_ref(mut a: AnnotationDto, r: &str) -> AnnotationDto {
     match &mut a {
         AnnotationDto::Ink { common, .. }
         | AnnotationDto::Highlight { common, .. }
+        | AnnotationDto::Underline { common, .. }
+        | AnnotationDto::Strikeout { common, .. }
         | AnnotationDto::Freetext { common, .. }
         | AnnotationDto::Shape { common, .. }
         | AnnotationDto::Image { common, .. } => common.source_ref = Some(r.into()),
@@ -239,6 +243,38 @@ fn highlight_roundtrip() {
     assert_eq!(gs.get(b"BM").unwrap().as_name().unwrap(), b"Multiply");
     assert_eq!(gs.get(b"ca").unwrap().as_float().unwrap(), 0.4);
     assert_eq!(gs.get(b"CA").unwrap().as_float().unwrap(), 0.4);
+}
+
+#[test]
+fn underline_and_strikeout_roundtrip() {
+    let orig = fixtures::simple_pdf(1);
+    let quads = vec![[72.0, 790.0, 200.5, 790.0, 72.0, 776.0, 200.5, 776.0]];
+    let base = common(&ink("x", 0, [0.0; 3])).clone();
+    let u = AnnotationDto::Underline {
+        common: Common { id: "u".into(), ..base.clone() },
+        quads: quads.clone(),
+        color: [0.118, 0.533, 0.898],
+    };
+    let s = AnnotationDto::Strikeout { common: Common { id: "s".into(), ..base }, quads, color: [1.0, 0.0, 0.0] };
+    let (out, refs) = write(&orig, &[u.clone(), s.clone()], &[]);
+    let got = read_annotations(&out).unwrap();
+    assert_eq!(got, vec![with_ref(u, &refs["u"]), with_ref(s, &refs["s"])]);
+
+    let doc = Document::load_mem(&out).unwrap();
+    // 14pt quad from y=776: 1pt line centred 0.12 (underline) or 0.42 (strike-out) up.
+    let bands = [
+        ("u", "Underline", "72 778.18 m\n200.5 778.18 l\n200.5 777.18 l\n72 777.18 l\n"),
+        ("s", "StrikeOut", "72 782.38 m\n200.5 782.38 l\n200.5 781.38 l\n72 781.38 l\n"),
+    ];
+    for (id, subtype, band) in bands {
+        let annot = annot_dict(&doc, &refs[id]);
+        assert_eq!(annot.get(b"Subtype").unwrap().as_name().unwrap(), subtype.as_bytes());
+        assert_eq!(annot.get(b"QuadPoints").unwrap().as_array().unwrap().len(), 8);
+        let stream = ap_stream(&doc, annot);
+        let content = String::from_utf8(stream.decompressed_content().unwrap()).unwrap();
+        assert!(content.contains(band), "{subtype}: {content}");
+        assert!(content.ends_with("h\nf\nQ\n"), "{content}");
+    }
 }
 
 /// The `/Fm0` form an ink or highlight appearance paints: an isolated

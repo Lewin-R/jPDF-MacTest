@@ -143,6 +143,7 @@ export class ToolRouter {
     if (oldSession) {
       const state = this.stateOf(oldSession)
       state.preview = null
+      state.pagePreviews = []
       state.hidden = new Set()
       state.cursor = null
       state.textEdit = null
@@ -176,6 +177,11 @@ export class ToolRouter {
       preview: {
         set: (a) => {
           state.preview = a
+        },
+      },
+      pagePreviews: {
+        set: (list) => {
+          state.pagePreviews = list
         },
       },
       hidden: {

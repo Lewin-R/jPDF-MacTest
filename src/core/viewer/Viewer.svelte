@@ -20,6 +20,7 @@
     onpagemenu,
     cursor,
     toolPreview = null,
+    toolPagePreviews = [],
     toolHidden,
     toolTextEdit = null,
     toolSelection = [],
@@ -36,6 +37,8 @@
     cursor?: string
     /** The tool's live, uncommitted annotation, drawn on its page. */
     toolPreview?: Annotation | null
+    /** The tool's live annotations, at most one per page (see ToolContext.pagePreviews). */
+    toolPagePreviews?: readonly Annotation[]
     /** Annotation ids the active tool has hidden (erased, not yet committed). */
     toolHidden?: ReadonlySet<string>
     /** The tool's open text box editor, drawn on its page. */
@@ -59,8 +62,14 @@
   let wheelAnchor = { x: 0, y: 0 }
   let commitTimer: ReturnType<typeof setTimeout> | undefined
 
-  /** Marker text mode: tint for the native selection in the text layers. */
-  const selectionColor = $derived(tool?.textSelection?.()?.color ?? null)
+  /**
+   * Text-selecting tools: tint for the native selection in the text layers
+   * ('hidden' when the tool previews its result instead).
+   */
+  const selectionColor = $derived.by(() => {
+    const s = tool?.textSelection?.()
+    return s ? (s.color ?? 'hidden') : null
+  })
 
   const layout = $derived(session.layout)
   /** pdf.js draws the file's annotations on the first copy of a file page only (see firstOccurrences). */
@@ -281,7 +290,7 @@
             entry={session.pages[i]}
             scale={session.scale}
             store={session.store}
-            preview={toolPreview?.page === i ? toolPreview : null}
+            preview={toolPreview?.page === i ? toolPreview : (toolPagePreviews.find((a) => a.page === i) ?? null)}
             hidden={toolHidden}
             textEdit={toolTextEdit?.draft.page === i ? toolTextEdit : null}
             selection={toolSelection}

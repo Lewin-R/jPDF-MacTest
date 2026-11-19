@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  findMergeableHighlights,
+  cutQuads,
+  findMergeableTextMarkup,
   findMergeableMarkerStrokes,
   mergeHighlightQuads,
 } from '../../../src/core/geometry/merge'
@@ -59,14 +60,14 @@ describe('mergeHighlightQuads', () => {
   })
 })
 
-describe('findMergeableHighlights', () => {
+describe('findMergeableTextMarkup', () => {
   const fresh = hl('new', [q(40, 90, 100, 110)])
 
   it('finds same-colour, same-opacity highlights whose quads overlap or touch, in z-order', () => {
     const a = hl('a', [q(10, 45, 100, 110)])
     const b = hl('b', [q(90.5, 120, 100, 110)])
     const far = hl('far', [q(200, 250, 100, 110)])
-    expect(findMergeableHighlights([a, far, b], fresh).map((x) => x.id)).toEqual(['a', 'b'])
+    expect(findMergeableTextMarkup([a, far, b], fresh).map((x) => x.id)).toEqual(['a', 'b'])
   })
 
   it('cascades: highlights connected to the new one through others join the group', () => {
@@ -76,7 +77,7 @@ describe('findMergeableHighlights', () => {
     const d = hl('d', [q(160, 170, 88, 100.5)])
     const b = hl('b', [q(300, 320, 100, 110)])
     const green = hl('green', [q(129, 131, 100, 110)], { color: [0, 1, 0] })
-    expect(findMergeableHighlights([d, b, green, c, a], fresh).map((x) => x.id)).toEqual(['d', 'c', 'a'])
+    expect(findMergeableTextMarkup([d, b, green, c, a], fresh).map((x) => x.id)).toEqual(['d', 'c', 'a'])
   })
 
   it('ignores other colours, opacities, pages and kinds', () => {
@@ -86,12 +87,12 @@ describe('findMergeableHighlights', () => {
       hl('page', [q(10, 45, 100, 110)], { page: 1 }),
       ink('ink', [[[50, 105], [60, 105]]]),
     ]
-    expect(findMergeableHighlights(list, fresh)).toEqual([])
+    expect(findMergeableTextMarkup(list, fresh)).toEqual([])
   })
 
   it('compares colours at 1/255 precision', () => {
     const a = hl('a', [q(10, 45, 100, 110)], { color: [1, 0.9221, 0.2309] })
-    expect(findMergeableHighlights([a], fresh).map((x) => x.id)).toEqual(['a'])
+    expect(findMergeableTextMarkup([a], fresh).map((x) => x.id)).toEqual(['a'])
   })
 })
 
@@ -134,5 +135,47 @@ describe('findMergeableMarkerStrokes', () => {
     ]
     expect(findMergeableMarkerStrokes(list, fresh)).toEqual([])
     expect(findMergeableMarkerStrokes([ink('m', over)], { ...fresh, role: 'pen' })).toEqual([])
+  })
+})
+
+describe('cutQuads', () => {
+  it('cuts the middle out of a line, splitting the quad in two', () => {
+    expect(cutQuads([q(10, 100, 50, 60)], [q(40, 60, 50, 60)])).toEqual([q(10, 40, 50, 60), q(60, 100, 50, 60)])
+  })
+
+  it('trims either end, removes covered quads, keeps untouched ones as they are', () => {
+    const line1 = q(10, 100, 50, 60)
+    const line2 = q(10, 80, 30, 40)
+    const line3 = q(10, 90, 10, 20)
+    const out = cutQuads([line1, line2, line3], [q(70, 120, 50, 60), q(0, 90, 30, 40)])
+    expect(out).toEqual([q(10, 70, 50, 60), line3])
+    expect(out[1]).toBe(line3)
+  })
+
+  it('only cuts on the same line (most of the height overlapping)', () => {
+    const line = q(10, 100, 50, 60)
+    // Overlaps 2 of 10pt: the line below, not this one.
+    expect(cutQuads([line], [q(10, 100, 42, 52)])).toEqual([line])
+    expect(cutQuads([line], [q(10, 50, 49, 59)])).toEqual([q(50, 100, 50, 60)])
+  })
+
+  it('drops slivers narrower than half a point', () => {
+    expect(cutQuads([q(10, 100, 50, 60)], [q(10.3, 99.8, 50, 60)])).toEqual([])
+  })
+
+  it('cuts rotated (axis-aligned) text along its own axis', () => {
+    // Text running up: TL (60,10) TR (60,100) BL (50,10) BR (50,100).
+    const up: Quad = [60, 10, 60, 100, 50, 10, 50, 100]
+    const cut: Quad = [60, 40, 60, 70, 50, 40, 50, 70]
+    expect(cutQuads([up], [cut])).toEqual([
+      [60, 10, 60, 40, 50, 10, 50, 40],
+      [60, 70, 60, 100, 50, 70, 50, 100],
+    ])
+  })
+
+  it('removes a skewed quad whole when a cut touches it', () => {
+    const skew: Quad = [0, 10, 10, 12, 0, 0, 10, 2]
+    expect(cutQuads([skew], [q(5, 6, 4, 6)])).toEqual([])
+    expect(cutQuads([skew], [q(50, 60, 4, 6)])).toEqual([skew])
   })
 })

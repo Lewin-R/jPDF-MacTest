@@ -22,15 +22,19 @@
     entry?: PageEntry
     /** CSS scale (not multiplied by devicePixelRatio). */
     scale: number
-    /** Tints the native selection (marker text mode); null = default selection colour. */
-    selectionColor?: RGB | null
+    /** Tints the native selection (marker text mode), 'hidden' = not drawn; null = default selection colour. */
+    selectionColor?: RGB | 'hidden' | null
   } = $props()
 
   /** Same box as the page (and the overlay); pdf.js renders its layer inside. */
   let host: HTMLDivElement
 
   const tint = $derived(
-    selectionColor ? `rgba(${selectionColor.map((c) => Math.round(c * 255)).join(',')},0.35)` : undefined,
+    selectionColor === 'hidden'
+      ? 'transparent'
+      : selectionColor
+        ? `rgba(${selectionColor.map((c) => Math.round(c * 255)).join(',')},0.35)`
+        : undefined,
   )
 
   // Re-rendered whenever the committed scale changes (not during a zoom

@@ -6,6 +6,14 @@ export type Quad = [number, number, number, number, number, number, number, numb
 
 interface Base { id: string; page: number; sourceRef: string | null; modifiedAt: string; author: string }
 export interface HighlightAnnotation extends Base { kind: 'highlight'; quads: Quad[]; color: RGB; opacity: number }
+/**
+ * Underlined or struck-through text: `quads` are the text's line boxes (as for
+ * highlights); the line is drawn inside each quad (see geometry/textLines.ts).
+ * Saved as /Underline or /StrikeOut.
+ */
+export interface TextLineAnnotation extends Base { kind: 'underline' | 'strikeout'; quads: Quad[]; color: RGB }
+/** Annotations made from selected text (their quads are the text's line boxes). */
+export type TextMarkupAnnotation = HighlightAnnotation | TextLineAnnotation
 export interface InkAnnotation extends Base { kind: 'ink'; strokes: Point[][]; color: RGB; width: number; opacity: number; blend: 'normal' | 'multiply'; role: 'pen' | 'marker' }
 export interface FreeTextAnnotation extends Base { kind: 'freetext'; rect: Rect; text: string; lines: string[]; fontSize: number; textColor: RGB; background: { color: RGB; opacity: number } | null }
 /**
@@ -30,7 +38,7 @@ export interface ImageAnnotation extends Base {
   rect: Rect
   image: { width: number; height: number; png: string }
 }
-export type Annotation = HighlightAnnotation | InkAnnotation | FreeTextAnnotation | ShapeAnnotation | ImageAnnotation;
+export type Annotation = HighlightAnnotation | TextLineAnnotation | InkAnnotation | FreeTextAnnotation | ShapeAnnotation | ImageAnnotation;
 
 /** `page` is 0-based here (session.currentPage / goToPage are 1-based). */
 export function newId(): string {

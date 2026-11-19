@@ -41,7 +41,7 @@
     left: number
     top: number
     /** Tints text selection in the text layer (marker text mode); null = default. */
-    selectionColor?: RGB | null
+    selectionColor?: RGB | 'hidden' | null
     /** Later layers (annotation overlay) stacked above the canvas and text layer. */
     children?: Snippet
   } = $props()

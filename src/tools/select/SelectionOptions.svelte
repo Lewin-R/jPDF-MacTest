@@ -6,6 +6,7 @@
   import { MARKER_PRESETS } from '../marker/settings'
   import { PEN_PRESETS } from '../pen/settings'
   import { selectionMemory } from '../shape/settings'
+  import { TEXT_LINE_PRESETS } from '../textline/settings'
   import StyleControls from '../shape/StyleControls.svelte'
   import { BACKGROUND_PRESETS, DEFAULT_BACKGROUND } from '../text/settings'
 
@@ -77,6 +78,13 @@
       format={pct}
       onchange={(v) => preview('opacity', v)}
       oncommit={(v) => commit({ opacity: v / 100 })}
+    />
+  {:else if annotation.kind === 'underline' || annotation.kind === 'strikeout'}
+    <ColorPicker
+      value={shown('color', annotation.color)}
+      presets={TEXT_LINE_PRESETS}
+      onchange={(v) => preview('color', v)}
+      oncommit={(color) => commit({ color })}
     />
   {:else if annotation.kind === 'freetext'}
     {@const bg = annotation.background}

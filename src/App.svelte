@@ -224,6 +224,7 @@
           eraser={router.eraser}
           cursor={router.cursor}
           toolPreview={router.stateOf(tabs.active).preview}
+          toolPagePreviews={router.stateOf(tabs.active).pagePreviews}
           toolHidden={router.stateOf(tabs.active).hidden}
           toolTextEdit={router.stateOf(tabs.active).textEdit}
           toolSelection={router.stateOf(tabs.active).selection}

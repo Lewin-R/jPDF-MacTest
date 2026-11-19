@@ -35,11 +35,14 @@ interface Press {
   box: Rect
   moved: boolean
   result: Annotation | null
-  /** A move that may carry the target to other pages (all kinds but highlights). */
+  /** A move that may carry the target to other pages (all kinds but text markup). */
   cross: CrossPageDrag | null
 }
 
 const now = () => new Date().toISOString()
+
+/** Text markup belongs to the text under it: it moves on its page only. */
+const onText = (a: Annotation) => a.kind === 'highlight' || a.kind === 'underline' || a.kind === 'strikeout'
 
 const clientOf = (e: PagePointerEvent): Point => [e.native.clientX, e.native.clientY]
 
@@ -214,7 +217,7 @@ export function createSelectHandler(ctx: ToolContext): ToolHandler {
         pr.moved = true
         ctx.hidden.set([pr.target.id])
         if (!pr.handle) ctx.cursor.set('move')
-        if (!pr.handle && pr.target.kind !== 'highlight') {
+        if (!pr.handle && !onText(pr.target)) {
           // Anchored at the press, so the threshold travel is not lost.
           pr.cross = { base: pr.target, anchor: pr.startScreen }
           ctx.crossDrag?.set({ page: e.page })

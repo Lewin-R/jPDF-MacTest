@@ -87,6 +87,20 @@ pub enum AnnotationDto {
         color: [f64; 3],
         opacity: f64,
     },
+    /// Underlined text: `quads` are the text's line boxes, the line is drawn inside them.
+    Underline {
+        #[serde(flatten)]
+        common: Common,
+        quads: Vec<[f64; 8]>,
+        color: [f64; 3],
+    },
+    /// Struck-through text, as `Underline`.
+    Strikeout {
+        #[serde(flatten)]
+        common: Common,
+        quads: Vec<[f64; 8]>,
+        color: [f64; 3],
+    },
     Ink {
         #[serde(flatten)]
         common: Common,
@@ -175,6 +189,16 @@ mod tests {
             ]
         );
         assert_eq!(norm(serde_json::to_value(&specs).unwrap()), norm(serde_json::from_str(src).unwrap()));
+    }
+
+    #[test]
+    fn dto_text_line_kinds() {
+        let src = r#"{"kind":"strikeout","id":"s","page":0,"sourceRef":null,"modifiedAt":"t","author":"J","quads":[[0,10,10,10,0,0,10,0]],"color":[1,0,0]}"#;
+        let dto: AnnotationDto = serde_json::from_str(src).unwrap();
+        assert!(matches!(dto, AnnotationDto::Strikeout { .. }));
+        assert_eq!(norm(serde_json::to_value(&dto).unwrap()), norm(serde_json::from_str(src).unwrap()));
+        let u = src.replace("strikeout", "underline");
+        assert!(matches!(serde_json::from_str(&u).unwrap(), AnnotationDto::Underline { .. }));
     }
 
     #[test]
