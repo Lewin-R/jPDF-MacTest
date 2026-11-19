@@ -172,6 +172,8 @@ describe('Overlay selection bar', () => {
     const r = mount({ selection: ['a'], onstyle })
     await fireEvent.click(r.getByRole('button', { name: 'Style' }))
     const card = r.getByRole('dialog', { name: 'Style' })
+    // Outside the page, which clips its content.
+    expect(r.container.contains(card)).toBe(false)
     await fireEvent.click(within(card).getByRole('radio', { name: 'Right' }))
     expect(onstyle).toHaveBeenCalledWith([{ ...box, align: 'right' }])
   })

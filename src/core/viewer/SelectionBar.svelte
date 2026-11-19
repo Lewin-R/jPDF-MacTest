@@ -7,6 +7,8 @@
   import StyleCard from '../../tools/select/StyleCard.svelte'
   import { styleTypeOf, swatchColor } from '../../tools/select/styleTypes'
   import { dismissable } from '../../ui/dismissable'
+  import { portal } from '../../ui/portal'
+  import { placeCard } from './cardPlacement'
   import { commands as defaultCommands, type CommandRegistry } from '../registry/commands'
   import type { Annotation, FreeTextAnnotation, Rect } from '../session/model'
 
@@ -38,8 +40,7 @@
   const BAR_H = 34
   /** Room between the bar and the selection: clear of the resize handles. */
   const GAP = 12
-  /** Room between the bar and the Style card, and the card and the window edge. */
-  const CARD_GAP = 6
+  /** Room between the Style card and the edges of the viewer. */
   const MARGIN = 8
 
   // Above the selection; below it when there is no room above.
@@ -66,7 +67,7 @@
   let styleButton = $state<HTMLButtonElement>()
   let card = $state<HTMLDivElement>()
   let open = $state(false)
-  let cardPos = $state<{ left: number; top: number }>({ left: 0, top: 0 })
+  let cardPos = $state<{ left: number; top: number; maxHeight: number }>({ left: 0, top: 0, maxHeight: 0 })
 
   function close() {
     if (!open) return
@@ -86,24 +87,25 @@
   })
 
   /**
-   * The card opens away from the selection (above the bar when the bar is
-   * above it), so the element being styled stays visible; on the other side
-   * when there is no room. Kept inside the window.
+   * Places the card next to the selection inside the viewer (see placeCard);
+   * closes it once the selection has scrolled out of view.
    */
   function place() {
     if (!card) return
-    const b = bar.getBoundingClientRect()
-    const h = card.offsetHeight
-    const w = card.offsetWidth
-    const up = b.top - CARD_GAP - h
-    const down = b.bottom + CARD_GAP
-    const fitsUp = up >= MARGIN
-    const fitsDown = down + h <= window.innerHeight - MARGIN
-    const y = above ? (fitsUp || !fitsDown ? up : down) : fitsDown || !fitsUp ? down : up
-    cardPos = {
-      left: Math.max(MARGIN, Math.min(b.left, window.innerWidth - w - MARGIN)),
-      top: Math.max(MARGIN, Math.min(y, window.innerHeight - h - MARGIN)),
+    const page = bar.parentElement!.getBoundingClientRect()
+    const viewer = bar.closest('.viewer')?.getBoundingClientRect() ?? {
+      left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight,
     }
+    const p = placeCard({
+      bar: bar.getBoundingClientRect(),
+      selection: { left: page.left + rect[0], top: page.top + rect[1], right: page.left + rect[2], bottom: page.top + rect[3] },
+      // Its natural size: scrollHeight is not cut by the height cap.
+      card: { width: card.offsetWidth, height: card.scrollHeight },
+      barAbove: above,
+      bounds: { left: viewer.left + MARGIN, top: viewer.top + MARGIN, right: viewer.right - MARGIN, bottom: viewer.bottom - MARGIN },
+    })
+    if (p) cardPos = p
+    else close()
   }
 
   $effect(() => {
@@ -172,6 +174,7 @@
     </button>
   {/each}
   {#if open && onstyle}
+    <!-- Moved to the document body (the page clips and contains it), placed in viewer coordinates. -->
     <div
       class="style-card"
       role="dialog"
@@ -179,6 +182,8 @@
       bind:this={card}
       style:left="{cardPos.left}px"
       style:top="{cardPos.top}px"
+      style:max-height="{cardPos.maxHeight}px"
+      use:portal
       use:dismissable={{ onclose: close, ignore: [styleButton] }}
     >
       <StyleCard {annotations} {relayout} {onlive} oncommit={onstyle} />
@@ -255,7 +260,6 @@
     position: fixed;
     z-index: 20;
     width: 256px;
-    max-height: calc(100vh - 16px);
     overflow-y: auto;
     padding: 12px;
     box-sizing: border-box;
@@ -263,7 +267,9 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-soft);
-    white-space: normal;
+    font: var(--font-size-base) var(--font-ui);
+    color: var(--text);
+    user-select: none;
     cursor: default;
   }
 </style>
