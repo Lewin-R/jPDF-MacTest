@@ -21,6 +21,12 @@ export interface ViewAnchor {
 
 export type { PageSize } from './pages'
 
+/** A document read by DocumentSession.loadSaved, not yet applied. */
+export interface ReloadedDocument {
+  doc: PdfDoc
+  annotations: Annotation[]
+}
+
 export function fileNameOf(path: string): string {
   return path.split(/[\\/]/).pop() || path
 }
@@ -86,6 +92,11 @@ export class DocumentSession {
    * pageCommands). Annotation.page indexes this list.
    */
   pages: PageEntry[] = $state.raw([])
+  /**
+   * Set when the session no longer matches its file (a save changed the
+   * pages but reloading the saved file failed): it must not be saved again.
+   */
+  broken = $state(false)
   /**
    * Sizes of the file's pages at scale 1 (points, with their own /Rotate).
    * Starts as page 1's size for every page; the real sizes are filled in the
@@ -375,24 +386,39 @@ export class DocumentSession {
 
   /**
    * Re-opens the document from `path` in place (after a save that changed
-   * pages): new pdf.js document, the file's page order, its annotations and
-   * an empty history. The shown pages keep their sizes, so the view stays put.
+   * pages): loadSaved, then applyReload.
    */
   async reload(): Promise<void> {
-    const path = this.path
-    const [bytes, read] = await Promise.all([openPdf(path), readManaged(path)])
+    this.applyReload(await this.loadSaved())
+  }
+
+  /**
+   * Reads the file at `path` (pdf.js document and annotations) without
+   * touching the session; the session keeps working meanwhile.
+   */
+  async loadSaved(): Promise<ReloadedDocument> {
+    const [bytes, read] = await Promise.all([openPdf(this.path), readManaged(this.path)])
     const doc = await loadPdf(bytes)
-    let annotations: Annotation[]
     try {
-      annotations = await withFreeTextLines(doc, read)
+      return { doc, annotations: await withFreeTextLines(doc, read) }
     } catch (e) {
       await doc.destroy()
       throw e
     }
+  }
+
+  /**
+   * Switches the session to a document from loadSaved, in one synchronous
+   * step: the new pdf.js document, the file's page order, its annotations
+   * and an empty history. The shown pages keep their sizes, so the view
+   * stays put.
+   */
+  applyReload({ doc, annotations }: ReloadedDocument): void {
     if (this.disposed) {
-      await doc.destroy()
+      void doc.destroy()
       return
     }
+    const path = this.path
     const old = this.doc
     const shown = this.pageSizes
     renderCache.evictPrefix(`${this.id}:`)

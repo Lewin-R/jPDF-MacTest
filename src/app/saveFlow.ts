@@ -37,7 +37,15 @@ function showSaveError(s: DocumentSession, e: unknown): void {
   toasts.show(`Could not save ${s.fileName}: ${detail}`, 'error')
 }
 
+/** A session whose reload failed after a page save: saving it again would corrupt the file. */
+function refuseBroken(s: DocumentSession): boolean {
+  if (!s.broken) return false
+  toasts.show(`${s.fileName} cannot be saved: it no longer matches the file. Close and reopen it.`, 'error')
+  return true
+}
+
 async function writeSession(s: DocumentSession, target: string): Promise<boolean> {
+  if (refuseBroken(s)) return false
   const { store, history } = s
   const present = new Set(store.all().map((a) => a.sourceRef).filter((r) => r !== null))
   const deletes = store.deletedRefs().filter((d) => !present.has(d.sourceRef))
@@ -62,7 +70,7 @@ async function writeSession(s: DocumentSession, target: string): Promise<boolean
 
   if (plan) {
     if (!samePath(target, s.path)) s.setPath(target)
-    await reloadSaved(s, before, pages !== s.pages)
+    await reloadSaved(s, before, pages)
     return true
   }
 
@@ -86,21 +94,35 @@ async function writeSession(s: DocumentSession, target: string): Promise<boolean
 
 /**
  * After a save that changed pages: reloads the session from the saved file
- * (fresh history). Annotation edits made while the file was being written
- * are carried over as one undoable step; after a page operation in that time
- * they cannot be placed and are dropped (with a warning).
+ * (fresh history), trying twice. Annotation edits made since the save
+ * started (`before`, `pages`: the state it wrote) are carried over as one
+ * undoable step; after a page operation in that time they cannot be placed
+ * and are dropped (with a warning). If the file cannot be reloaded the
+ * session is marked broken: it no longer matches its file and must not save.
  */
-async function reloadSaved(s: DocumentSession, before: Map<string, Annotation>, pagesChanged: boolean): Promise<void> {
+async function reloadSaved(
+  s: DocumentSession,
+  before: Map<string, Annotation>,
+  pages: DocumentSession['pages'],
+): Promise<void> {
   const { store, history } = s
-  const changed = store.all().filter((a) => before.get(a.id) !== a)
-  const removed = [...before.keys()].filter((id) => !store.get(id))
+  let loaded: Awaited<ReturnType<DocumentSession['loadSaved']>>
   try {
-    await s.reload()
+    loaded = await s.loadSaved().catch((e: unknown) => {
+      console.error(`Failed to reload ${s.path}, retrying`, e)
+      return s.loadSaved()
+    })
   } catch (e) {
     console.error(`Failed to reload ${s.path}`, e)
+    s.broken = true
     toasts.show(`${s.fileName} was saved but could not be reloaded. Close and reopen it.`, 'error')
     return
   }
+  // Right before switching: everything done while saving and loading counts.
+  const changed = store.all().filter((a) => before.get(a.id) !== a)
+  const removed = [...before.keys()].filter((id) => !store.get(id))
+  const pagesChanged = s.pages !== pages
+  s.applyReload(loaded)
   if (changed.length === 0 && removed.length === 0) return
   if (pagesChanged) {
     toasts.show('Changes made while saving were not kept', 'warning')
@@ -147,6 +169,7 @@ export function saveSession(s: DocumentSession, targetPath?: string): Promise<bo
  */
 export async function saveSessionAs(s: DocumentSession): Promise<boolean> {
   s.commitPendingEdit()
+  if (refuseBroken(s)) return false
   const picked = await saveDialog({ defaultPath: s.path, filters: PDF_FILTER })
   if (!picked) return false
   let target = picked
@@ -172,7 +195,8 @@ export async function saveSessionAs(s: DocumentSession): Promise<boolean> {
  */
 export async function confirmAndClose(s: DocumentSession): Promise<boolean> {
   s.commitPendingEdit()
-  if (!s.dirty) return true
+  // Broken: what was saved is on disk; what is shown can no longer be saved.
+  if (!s.dirty || s.broken) return true
   // Show the document the question is about.
   if (tabs.sessions.some((x) => x.id === s.id)) tabs.activeId = s.id
   const choice = await askToSave(s.fileName)

@@ -55,10 +55,15 @@ function fakeSession(path = 'C:\\docs\\a.pdf', loaded: InkAnnotation[] = []) {
     /** Page plan to save (null: pages unchanged), see DocumentSession.pagePlan. */
     plan: null as PageSpec[] | null,
     pagePlan: vi.fn((): Promise<PageSpec[]> | null => (s.plan ? Promise.resolve(s.plan) : null)),
-    /** What reload() reads from the saved file. */
+    /** The page list (identity only matters: page operations replace it). */
+    pages: [] as unknown[],
+    /** Set when the session no longer matches its file and must not save. */
+    broken: false,
+    /** What loadSaved() reads from the saved file. */
     reloaded: [] as InkAnnotation[],
-    reload: vi.fn(async () => {
-      store.load(s.reloaded)
+    loadSaved: vi.fn(async () => ({ annotations: s.reloaded })),
+    applyReload: vi.fn((loaded: { annotations: InkAnnotation[] }) => {
+      store.load(loaded.annotations)
       history.reset()
     }),
     pendingEdit: null as (() => void) | null,
@@ -203,7 +208,7 @@ describe('saving page changes', () => {
     h.savePdf.mockResolvedValue({ refs: { a: '20R' } })
     await saveSession(s)
     expect(h.savePdf.mock.calls[0]).toHaveLength(4)
-    expect(s.reload).not.toHaveBeenCalled()
+    expect(s.loadSaved).not.toHaveBeenCalled()
     expect(s.history.canUndo).toBe(true)
   })
 
@@ -215,7 +220,7 @@ describe('saving page changes', () => {
     h.savePdf.mockResolvedValue({ refs: { a: '20R' } })
     expect(await saveSession(s)).toBe(true)
     expect(h.savePdf).toHaveBeenCalledWith('C:\\docs\\a.pdf', 'C:\\docs\\a.pdf', [ink('a')], [], plan)
-    expect(s.reload).toHaveBeenCalledOnce()
+    expect(s.applyReload).toHaveBeenCalledOnce()
     expect(s.store.get('a')!.sourceRef).toBe('31R')
     expect(s.history.canUndo).toBe(false)
     expect(s.history.canRedo).toBe(false)
@@ -226,9 +231,12 @@ describe('saving page changes', () => {
     const s = fakeSession('C:\\docs\\a.pdf')
     s.plan = plan
     h.savePdf.mockResolvedValue({ refs: {} })
-    s.reload.mockImplementation(async () => expect(s.path).toBe('D:\\out\\b.pdf'))
+    s.loadSaved.mockImplementation(async () => {
+      expect(s.path).toBe('D:\\out\\b.pdf')
+      return { annotations: [] }
+    })
     expect(await saveSession(s, 'D:\\out\\b.pdf')).toBe(true)
-    expect(s.reload).toHaveBeenCalledOnce()
+    expect(s.applyReload).toHaveBeenCalledOnce()
   })
 
   it('keeps annotation edits made while saving (dirty, undoable) across the reload', async () => {
@@ -253,13 +261,71 @@ describe('saving page changes', () => {
     expect(s.history.canUndo).toBe(false)
   })
 
-  it('reports a failed reload without failing the save', async () => {
-    const s = fakeSession()
+  it('keeps edits made while the saved file is being loaded', async () => {
+    const s = fakeSession('C:\\docs\\a.pdf', [ink('old', '10R')])
+    s.plan = plan
+    const load = deferred<{ annotations: InkAnnotation[] }>()
+    s.loadSaved.mockReturnValueOnce(load.promise)
+    h.savePdf.mockResolvedValue({ refs: {} })
+    const saving = saveSession(s)
+    await vi.waitFor(() => expect(s.loadSaved).toHaveBeenCalled())
+    s.history.execute(addAnnotations([ink('late')]))
+    load.resolve({ annotations: [ink('old', '30R')] })
+    expect(await saving).toBe(true)
+    expect(s.store.all().map((a) => a.id)).toEqual(['old', 'late'])
+    expect(s.dirty).toBe(true)
+  })
+
+  it('drops edits with a warning when a page operation happened while loading', async () => {
+    const s = fakeSession('C:\\docs\\a.pdf', [ink('old', '10R')])
+    s.plan = plan
+    const load = deferred<{ annotations: InkAnnotation[] }>()
+    s.loadSaved.mockReturnValueOnce(load.promise)
+    h.savePdf.mockResolvedValue({ refs: {} })
+    const saving = saveSession(s)
+    await vi.waitFor(() => expect(s.loadSaved).toHaveBeenCalled())
+    s.history.execute(addAnnotations([ink('late')]))
+    s.pages = []
+    load.resolve({ annotations: [ink('old', '30R')] })
+    expect(await saving).toBe(true)
+    expect(s.store.all().map((a) => a.id)).toEqual(['old'])
+    expect(toasts.items.at(-1)?.message).toBe('Changes made while saving were not kept')
+  })
+
+  it('retries a failed reload once', async () => {
+    const s = fakeSession('C:\\docs\\a.pdf', [ink('old', '10R')])
     s.plan = plan
     h.savePdf.mockResolvedValue({ refs: {} })
-    s.reload.mockRejectedValue(new Error('gone'))
+    s.loadSaved.mockRejectedValueOnce(new Error('busy'))
+    s.reloaded = [ink('old', '30R')]
     expect(await saveSession(s)).toBe(true)
+    expect(s.loadSaved).toHaveBeenCalledTimes(2)
+    expect(s.broken).toBe(false)
+    expect(s.store.get('old')!.sourceRef).toBe('30R')
+  })
+
+  it('after a reload that keeps failing the session cannot save and closes without asking', async () => {
+    const s = fakeSession('C:\\docs\\a.pdf', [ink('old', '10R')])
+    s.history.execute(addAnnotations([ink('a')]))
+    s.plan = plan
+    h.savePdf.mockResolvedValue({ refs: {} })
+    s.loadSaved.mockRejectedValue(new Error('gone'))
+    expect(await saveSession(s)).toBe(true)
+    expect(s.loadSaved).toHaveBeenCalledTimes(2)
+    expect(s.applyReload).not.toHaveBeenCalled()
+    expect(s.broken).toBe(true)
+    expect(toasts.items.at(-1)).toMatchObject({ kind: 'error' })
     expect(toasts.items.at(-1)?.message).toContain('could not be reloaded')
+    h.savePdf.mockClear()
+    expect(await saveSession(s)).toBe(false)
+    expect(h.savePdf).not.toHaveBeenCalled()
+    expect(toasts.items.at(-1)?.message).toContain('Close and reopen')
+    h.saveDialog.mockResolvedValue('D:\\out\\b.pdf')
+    expect(await saveSessionAs(s)).toBe(false)
+    expect(h.saveDialog).not.toHaveBeenCalled()
+    expect(h.savePdf).not.toHaveBeenCalled()
+    expect(await confirmAndClose(s)).toBe(true)
+    expect(h.askToSave).not.toHaveBeenCalled()
   })
 })
 
