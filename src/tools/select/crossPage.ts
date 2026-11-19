@@ -6,7 +6,10 @@ import { toScreenRect } from './handles'
 
 export type { PageFrame }
 
-/** Drag state: the element as placed on `base.page` when the pointer was at `anchor` (client px). */
+/**
+ * Drag state: the element as placed on `base.page` when the pointer was at
+ * `anchor`, in that page's own px (so the drag survives scrolling).
+ */
 export interface CrossPageDrag {
   base: Annotation
   anchor: Point
@@ -44,9 +47,9 @@ export function dragAcrossPages(
   if (!start) return { annotation: drag.base, drag }
   const kind = annotationKinds.get(drag.base.kind)
   const box0 = toScreenRect(kind.bounds(drag.base), start.vp)
-  const dx = clampShift(client[0] - drag.anchor[0], -box0[0], start.vp.width - box0[2])
+  const dx = clampShift(client[0] - start.origin[0] - drag.anchor[0], -box0[0], start.vp.width - box0[2])
   /** Where the pointer wants the box's top, in client px (the box's height can change between pages). */
-  let naturalTop = start.origin[1] + box0[1] + (client[1] - drag.anchor[1])
+  let naturalTop = client[1] - drag.anchor[1] + box0[1]
   let page = drag.base.page
   let frame = start
   let left = box0[0] + dx
@@ -61,7 +64,8 @@ export function dragAcrossPages(
     const to = next === null || next < 0 ? null : frameOf(next)
     if (next === null || !to) {
       const a = placeOn(drag.base, page, frame.vp, left, Math.min(Math.max(top, -h / 2), H - h / 2))
-      return { annotation: a, drag: snapped ? { base: a, anchor: client } : drag }
+      const anchor: Point = [client[0] - frame.origin[0], client[1] - frame.origin[1]]
+      return { annotation: a, drag: snapped ? { base: a, anchor } : drag }
     }
     const toBox = toScreenRect(kind.bounds(drag.base), to.vp)
     const th = toBox[3] - toBox[1]

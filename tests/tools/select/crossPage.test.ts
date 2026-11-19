@@ -33,9 +33,10 @@ function image(rect: Rect, page = 0): ImageAnnotation {
 
 const rectOf = (a: Annotation) => (a as ImageAnnotation).rect
 
-/** Drags `a` from client point `from` to `to`. */
+/** Drags `a` from client point `from` to `to` (the anchor is page-local). */
 function drag(a: Annotation, from: Point, to: Point, fs: (PageFrame | null)[] = frames) {
-  return dragAcrossPages({ base: a, anchor: from }, to, frameOf(fs))
+  const o = fs[a.page]!.origin
+  return dragAcrossPages({ base: a, anchor: [from[0] - o[0], from[1] - o[1]] }, to, frameOf(fs))
 }
 
 describe('dragAcrossPages', () => {
@@ -56,7 +57,8 @@ describe('dragAcrossPages', () => {
     const r = drag(image([20, 10, 40, 30]), [60, 160], [60, 201])
     expect(r.annotation.page).toBe(1)
     expect(rectOf(r.annotation)).toEqual([20, 80, 40, 100])
-    expect(r.drag.anchor).toEqual([60, 201])
+    // Page-local on page 1.
+    expect(r.drag.anchor).toEqual([60, -15])
     expect(r.drag.base).toEqual(r.annotation)
   })
 
@@ -112,6 +114,18 @@ describe('dragAcrossPages', () => {
     const again = dragAcrossPages(first.drag, [60, 181], frameOf(frames))
     expect(again.annotation.page).toBe(1)
     expect(rectOf(again.annotation)).toEqual(rectOf(first.annotation))
+  })
+
+  it('keeps following the pointer while the pages scroll under it', () => {
+    const first = drag(image([20, 10, 40, 30]), [60, 160], [60, 170])
+    // The view scrolls 10px down: every page moves up, the pointer stays.
+    const scrolled = frames.map((f) => ({ ...f, origin: [f.origin[0], f.origin[1] - 10] as Point }))
+    const r = dragAcrossPages(first.drag, [60, 170], frameOf(scrolled))
+    expect(rectOf(r.annotation)).toEqual([20, 0, 40, 20])
+    const snapped = drag(image([20, 10, 40, 30]), [60, 160], [60, 201])
+    const after = dragAcrossPages(snapped.drag, [60, 201], frameOf(scrolled))
+    expect(after.annotation.page).toBe(1)
+    expect(rectOf(after.annotation)).toEqual([20, 75, 40, 95])
   })
 
   it('returns the drag unchanged when its page is not mounted', () => {

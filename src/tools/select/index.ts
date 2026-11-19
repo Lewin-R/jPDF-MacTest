@@ -215,9 +215,7 @@ export function createSelectHandler(ctx: ToolContext): ToolHandler {
         if (!pr.handle) ctx.cursor.set('move')
         if (!pr.handle && pr.target.kind !== 'highlight') {
           // Anchored at the press, so the threshold travel is not lost.
-          const [cx, cy] = clientOf(e)
-          const [sx, sy] = screenOf(e)
-          pr.cross = { base: pr.target, anchor: [cx - (sx - pr.startScreen[0]), cy - (sy - pr.startScreen[1])] }
+          pr.cross = { base: pr.target, anchor: pr.startScreen }
           ctx.crossDrag?.set({ page: e.page })
         }
       }
