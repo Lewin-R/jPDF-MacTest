@@ -12,6 +12,12 @@ import { mergeLineRects, type ScreenRect } from './quads'
 export const HIGHLIGHT_TOUCH_PT = 1
 /** Quads whose line centres are at most this far apart (pt) are on the same line. */
 export const HIGHLIGHT_LINE_TOLERANCE_PT = 2
+/**
+ * Same-line quads join only if their heights differ by at most this fraction
+ * of the taller one: a tall and a short quad must not union into a box that
+ * covers unhighlighted height.
+ */
+export const HIGHLIGHT_HEIGHT_RATIO = 0.3
 
 const byte = (c: number) => Math.round(c * 255)
 /** Same colour at 8-bit precision. */
@@ -96,7 +102,8 @@ function unframe(f: Omit<Framed, 'rect' | 'key'>, r: ScreenRect): Quad {
 /**
  * Merges quads that overlap or touch on the same line into one quad, with
  * the rectsToQuads rules in PDF space: line centres within
- * HIGHLIGHT_LINE_TOLERANCE_PT, gap ≤ HIGHLIGHT_TOUCH_PT. Only axis-aligned
+ * HIGHLIGHT_LINE_TOLERANCE_PT, gap ≤ HIGHLIGHT_TOUCH_PT, heights within
+ * HIGHLIGHT_HEIGHT_RATIO. Only axis-aligned
  * quads of the same orientation merge (upright text on any page rotation);
  * other quads are kept unchanged after the merged ones.
  */
@@ -115,33 +122,57 @@ export function mergeHighlightQuads(quads: Quad[]): Quad[] {
   }
   const out: Quad[] = []
   for (const { f, rects } of groups.values()) {
-    for (const r of mergeLineRects(rects, HIGHLIGHT_LINE_TOLERANCE_PT, HIGHLIGHT_TOUCH_PT)) out.push(unframe(f, r))
+    for (const r of mergeLineRects(rects, HIGHLIGHT_LINE_TOLERANCE_PT, HIGHLIGHT_TOUCH_PT, HIGHLIGHT_HEIGHT_RATIO)) out.push(unframe(f, r))
   }
   return [...out, ...other]
 }
 
 /**
- * Highlights among `pageAnnotations` (z-order) that `fresh` merges with:
- * same page, colour and opacity, and a quad whose bounding box overlaps or
- * touches (within HIGHLIGHT_TOUCH_PT) the bounding box of a quad of `fresh`.
+ * The connected group of `candidates` around `fresh`: candidates that touch
+ * `fresh` or, transitively, any candidate already in the group. Kept in the
+ * order of `candidates` (z-order).
+ */
+function connected<T>(fresh: T, candidates: T[], touch: (a: T, b: T) => boolean): T[] {
+  const group: T[] = [fresh]
+  const inGroup = new Set<T>()
+  for (let i = 0; i < group.length; i++) {
+    for (const c of candidates) {
+      if (!inGroup.has(c) && touch(group[i], c)) {
+        inGroup.add(c)
+        group.push(c)
+      }
+    }
+  }
+  return candidates.filter((c) => inGroup.has(c))
+}
+
+function highlightsTouch(a: HighlightAnnotation, b: HighlightAnnotation): boolean {
+  const boxes = a.quads.map((q) => boxOf(q))
+  return b.quads.some((q) => {
+    const box = boxOf(q)
+    return boxes.some((f) => boxesTouch(f, box, HIGHLIGHT_TOUCH_PT))
+  })
+}
+
+/**
+ * Highlights among `pageAnnotations` (z-order) that `fresh` merges with: same
+ * page, colour and opacity, connected to `fresh` through quads whose bounding
+ * boxes overlap or touch (within HIGHLIGHT_TOUCH_PT), directly or via other
+ * such highlights (new touches A, A touches C: both merge).
  */
 export function findMergeableHighlights(
   pageAnnotations: readonly Annotation[],
   fresh: HighlightAnnotation,
 ): HighlightAnnotation[] {
-  const boxes = fresh.quads.map((q) => boxOf(q))
-  return pageAnnotations.filter(
+  const candidates = pageAnnotations.filter(
     (a): a is HighlightAnnotation =>
       a.kind === 'highlight' &&
       a.id !== fresh.id &&
       a.page === fresh.page &&
       sameColor(a.color, fresh.color) &&
-      close(a.opacity, fresh.opacity) &&
-      a.quads.some((q) => {
-        const b = boxOf(q)
-        return boxes.some((f) => boxesTouch(f, b, HIGHLIGHT_TOUCH_PT))
-      }),
+      close(a.opacity, fresh.opacity),
   )
+  return connected(fresh, candidates, highlightsTouch)
 }
 
 function cross(o: Point, a: Point, b: Point): number {
@@ -177,15 +208,16 @@ export function strokesWithin(a: Point[], b: Point[], dist: number): boolean {
 /**
  * Marker annotations among `pageAnnotations` (z-order) that the marker
  * stroke(s) of `fresh` merge with: same page, colour, opacity, width and
- * blend, and a stroke within `width` of a stroke of `fresh` (the painted
- * bands overlap or touch). Pen ink never merges.
+ * blend, connected to `fresh` through strokes within `width` of each other
+ * (the painted bands overlap or touch), directly or via other such marker
+ * annotations. Pen ink never merges.
  */
 export function findMergeableMarkerStrokes(
   pageAnnotations: readonly Annotation[],
   fresh: InkAnnotation,
 ): InkAnnotation[] {
   if (fresh.role !== 'marker') return []
-  return pageAnnotations.filter(
+  const candidates = pageAnnotations.filter(
     (a): a is InkAnnotation =>
       a.kind === 'ink' &&
       a.role === 'marker' &&
@@ -194,7 +226,9 @@ export function findMergeableMarkerStrokes(
       a.blend === fresh.blend &&
       sameColor(a.color, fresh.color) &&
       close(a.opacity, fresh.opacity) &&
-      close(a.width, fresh.width) &&
-      a.strokes.some((s) => fresh.strokes.some((f) => strokesWithin(s, f, fresh.width))),
+      close(a.width, fresh.width),
   )
+  const touch = (a: InkAnnotation, b: InkAnnotation) =>
+    a.strokes.some((s) => b.strokes.some((t) => strokesWithin(s, t, fresh.width)))
+  return connected(fresh, candidates, touch)
 }

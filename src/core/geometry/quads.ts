@@ -13,8 +13,15 @@ const MAX_GAP_PX = 4
 
 const centre = (r: ScreenRect) => (r.top + r.bottom) / 2
 
-function joinable(a: ScreenRect, b: ScreenRect, tol: number, maxGap: number): boolean {
-  return Math.abs(centre(a) - centre(b)) <= tol && b.left - a.right <= maxGap && a.left - b.right <= maxGap
+const height = (r: ScreenRect) => r.bottom - r.top
+
+function joinable(a: ScreenRect, b: ScreenRect, tol: number, maxGap: number, heightRatio?: number): boolean {
+  return (
+    Math.abs(centre(a) - centre(b)) <= tol &&
+    b.left - a.right <= maxGap &&
+    a.left - b.right <= maxGap &&
+    (heightRatio === undefined || Math.abs(height(a) - height(b)) <= heightRatio * Math.max(height(a), height(b)))
+  )
 }
 
 function union(a: ScreenRect, b: ScreenRect): ScreenRect {
@@ -30,13 +37,19 @@ function union(a: ScreenRect, b: ScreenRect): ScreenRect {
  * Merges rects on one line (vertical centres within `lineTolerance`,
  * horizontal gap ≤ `maxGap`, overlaps included) into one rect per line
  * fragment, repeating until no two fragments join. Result sorted top to
- * bottom, left to right. Shared by selection rects (rectsToQuads) and saved
- * highlight quads (merge.ts).
+ * bottom, left to right. With `heightRatio`, rects join only if their
+ * heights differ by at most that fraction of the taller one. Shared by
+ * selection rects (rectsToQuads) and saved highlight quads (merge.ts).
  */
-export function mergeLineRects(rects: ScreenRect[], lineTolerance: number, maxGap: number): ScreenRect[] {
+export function mergeLineRects(
+  rects: ScreenRect[],
+  lineTolerance: number,
+  maxGap: number,
+  heightRatio?: number,
+): ScreenRect[] {
   const merged: ScreenRect[] = []
   for (const r of rects.slice().sort((a, b) => a.left - b.left)) {
-    const i = merged.findIndex((m) => joinable(m, r, lineTolerance, maxGap))
+    const i = merged.findIndex((m) => joinable(m, r, lineTolerance, maxGap, heightRatio))
     if (i >= 0) merged[i] = union(merged[i], r)
     // Copy the edges explicitly: DOMRect keeps them as prototype getters, so `{ ...r }` would be empty.
     else merged.push({ left: r.left, top: r.top, right: r.right, bottom: r.bottom })
@@ -46,7 +59,7 @@ export function mergeLineRects(rects: ScreenRect[], lineTolerance: number, maxGa
     changed = false
     outer: for (let i = 0; i < merged.length; i++) {
       for (let j = i + 1; j < merged.length; j++) {
-        if (joinable(merged[i], merged[j], lineTolerance, maxGap)) {
+        if (joinable(merged[i], merged[j], lineTolerance, maxGap, heightRatio)) {
           merged[i] = union(merged[i], merged[j])
           merged.splice(j, 1)
           changed = true

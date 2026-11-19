@@ -33,6 +33,14 @@ describe('mergeHighlightQuads', () => {
     expect(mergeHighlightQuads(lines)).toEqual(lines)
   })
 
+  it('joins same-line quads only when their heights are within 30%', () => {
+    // Same centre line, heights 12 and 6: a union would cover unhighlighted height.
+    const tallShort = [q(10, 50, 100, 112), q(40, 90, 103, 109)]
+    expect(mergeHighlightQuads(tallShort)).toEqual(tallShort)
+    // Heights 10 and 9: joined.
+    expect(mergeHighlightQuads([q(10, 50, 100, 110), q(40, 90, 100.5, 109.5)])).toEqual([q(10, 90, 100, 110)])
+  })
+
   it('merges in a chain once a union reaches another fragment', () => {
     expect(mergeHighlightQuads([q(60, 80, 100, 110), q(10, 30, 100, 110), q(25, 65, 100, 110)])).toEqual([
       q(10, 80, 100, 110),
@@ -61,6 +69,16 @@ describe('findMergeableHighlights', () => {
     expect(findMergeableHighlights([a, far, b], fresh).map((x) => x.id)).toEqual(['a', 'b'])
   })
 
+  it('cascades: highlights connected to the new one through others join the group', () => {
+    // new touches a, a touches c, c touches d; b only touches nothing.
+    const a = hl('a', [q(85, 130, 100, 110)])
+    const c = hl('c', [q(130.5, 160, 100, 110)])
+    const d = hl('d', [q(160, 170, 88, 100.5)])
+    const b = hl('b', [q(300, 320, 100, 110)])
+    const green = hl('green', [q(129, 131, 100, 110)], { color: [0, 1, 0] })
+    expect(findMergeableHighlights([d, b, green, c, a], fresh).map((x) => x.id)).toEqual(['d', 'c', 'a'])
+  })
+
   it('ignores other colours, opacities, pages and kinds', () => {
     const list: Annotation[] = [
       hl('colour', [q(10, 45, 100, 110)], { color: [0, 1, 0] }),
@@ -83,8 +101,20 @@ describe('findMergeableMarkerStrokes', () => {
   it('finds marker strokes whose painted bands overlap or touch (distance <= width)', () => {
     const near = ink('near', [[[0, 10], [100, 10]]]) // 10 pt apart = width
     const cross = ink('cross', [[[50, -50], [50, 50]]])
-    const far = ink('far', [[[0, 10.5], [100, 10.5]]])
+    const far = ink('far', [[[0, 80], [100, 80]]]) // beyond every stroke of the group
     expect(findMergeableMarkerStrokes([near, far, cross], fresh).map((x) => x.id)).toEqual(['near', 'cross'])
+    // Just beyond the width: separate.
+    expect(findMergeableMarkerStrokes([ink('gap', [[[0, 10.5], [100, 10.5]]])], fresh)).toEqual([])
+  })
+
+  it('cascades through strokes connected to the new one via others', () => {
+    // new (y=0) touches a (y=10), a touches c (y=20), c touches e (y=30); far does not connect.
+    const a = ink('a', [[[0, 10], [100, 10]]])
+    const c = ink('c', [[[0, 20], [100, 20]]])
+    const e = ink('e', [[[0, 30], [100, 30]]])
+    const far = ink('far', [[[0, 45], [100, 45]]])
+    const pen = ink('pen', [[[0, 15], [100, 15]]], { role: 'pen', blend: 'normal' })
+    expect(findMergeableMarkerStrokes([e, far, pen, c, a], fresh).map((x) => x.id)).toEqual(['e', 'c', 'a'])
   })
 
   it('handles single-point strokes', () => {

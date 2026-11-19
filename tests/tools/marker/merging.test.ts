@@ -53,6 +53,36 @@ describe('markerStrokeCommand', () => {
   })
 })
 
+describe('cascading merges', () => {
+  it('marker: new touches only b, b touches the older a: all three become a', () => {
+    const store = new AnnotationStore()
+    const a = marker('a', [[[0, 0], [50, 0]]])
+    const b = marker('b', [[[0, 14], [50, 14]]])
+    store.load([a, b])
+    const fresh = marker('new', [[[0, 28], [50, 28]]], { modifiedAt: 'now' })
+    const cmd = markerStrokeCommand(store, fresh)
+    cmd.do(store)
+    expect(ids(store.byPage(0))).toEqual(['a'])
+    expect((store.get('a') as InkAnnotation).strokes).toEqual([...a.strokes, ...b.strokes, ...fresh.strokes])
+    cmd.undo(store)
+    expect(ids(store.byPage(0))).toEqual(['a', 'b'])
+  })
+
+  it('highlight: new touches only b, b touches the older a: all three become a', () => {
+    const store = new AnnotationStore()
+    const a = hl('a', [q(10, 50, 100, 110)])
+    const b = hl('b', [q(50.5, 90, 100, 110)])
+    store.load([a, b])
+    const cmd = highlightsCommand(store, [hl('new', [q(90, 130, 100, 110)], { modifiedAt: 'now' })])
+    cmd.do(store)
+    expect(ids(store.byPage(0))).toEqual(['a'])
+    expect((store.get('a') as HighlightAnnotation).quads).toEqual([q(10, 130, 100, 110)])
+    cmd.undo(store)
+    expect(ids(store.byPage(0))).toEqual(['a', 'b'])
+    expect(store.get('a')).toEqual(a)
+  })
+})
+
 describe('highlightsCommand', () => {
   it('merges an overlapping highlight into the oldest, quads joined per line, one undo step for all pages', () => {
     const store = new AnnotationStore()

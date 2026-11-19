@@ -177,4 +177,92 @@ describe('Overlay: hold right button = temporary eraser', () => {
     executed[0].do(store)
     expect(store.byPage(0)).toEqual([] as Annotation[])
   })
+
+  it('a right press on another page cancels a stale erase gesture of the shared eraser', async () => {
+    const eraser = spy()
+    const a = mount({ tool: null, eraser: eraser.handler, pageNumber: 1 })
+    const b = mount({ tool: null, eraser: eraser.handler, pageNumber: 2 })
+    await fireEvent.pointerDown(a.svg, right({ pointerId: 1 }))
+    await fireEvent.pointerDown(b.svg, right({ pointerId: 2 }))
+    expect(eraser.kinds()).toEqual(['down', 'cancel', 'down'])
+    expect(eraser.events[1][1].page).toBe(0)
+    expect(eraser.events[2][1].page).toBe(1)
+    expect(a.svg.classList.contains('interactive')).toBe(false)
+    // The stale page can no longer commit (or reset) the other page's erasures.
+    await fireEvent.pointerMove(a.svg, right({ pointerId: 1 }))
+    await fireEvent.pointerUp(a.svg, right({ pointerId: 1, buttons: 0 }))
+    expect(eraser.kinds()).toEqual(['down', 'cancel', 'down'])
+    await fireEvent.pointerUp(b.svg, right({ pointerId: 2, buttons: 0 }))
+    expect(eraser.kinds()).toEqual(['down', 'cancel', 'down', 'up'])
+  })
+
+  it('swallows the context menu after an erase anywhere, once, for 500 ms', async () => {
+    vi.useFakeTimers()
+    try {
+      const eraser = spy()
+      const { svg } = mount({ tool: null, eraser: eraser.handler })
+      const menu = () => {
+        const e = new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
+        document.body.dispatchEvent(e)
+        return e.defaultPrevented
+      }
+      menu() // drains a guard left by an earlier test's erase (real timers there)
+      expect(menu()).toBe(false)
+      await fireEvent.pointerDown(svg, right())
+      await fireEvent.pointerUp(svg, right({ buttons: 0 }))
+      expect(menu()).toBe(true) // released outside the page
+      expect(menu()).toBe(false) // only the one right after the release
+      await fireEvent.pointerDown(svg, right())
+      await fireEvent.pointerUp(svg, right({ buttons: 0 }))
+      vi.advanceTimersByTime(501)
+      expect(menu()).toBe(false) // expired
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  function realEraser() {
+    const line = (id: string, y: number): InkAnnotation => ({
+      id, page: 0, sourceRef: null, modifiedAt: '', author: '', kind: 'ink',
+      strokes: [[[10, y], [90, y]]], color: [1, 0, 0], width: 2, opacity: 1, blend: 'normal', role: 'pen',
+    })
+    const store = new AnnotationStore()
+    store.load([line('a', 80), line('b', 60)])
+    const state = { hidden: new Set<string>() }
+    const executed: Command[] = []
+    const ctx = {
+      session: { store },
+      execute: (c: Command) => {
+        executed.push(c)
+        c.do(store)
+      },
+      hidden: { get ids() { return state.hidden }, set: (ids: Iterable<string>) => { state.hidden = new Set(ids) } },
+    } as unknown as ToolContext
+    return { store, state, executed, ctx }
+  }
+
+  it('right-drag works while the Eraser tool itself is active, independent of its left gestures', async () => {
+    const { store, executed, ctx } = realEraser()
+    const { svg } = mount({ tool: createEraserHandler(ctx), eraser: createEraserHandler(ctx) }, store)
+    // Stroke a at y=80pt (40px), b at y=60pt (80px).
+    await fireEvent.pointerDown(svg, right({ clientX: 100, clientY: 40 }))
+    await fireEvent.pointerUp(svg, right({ buttons: 0, clientX: 100, clientY: 40 }))
+    expect(executed).toHaveLength(1)
+    expect(store.byPage(0).map((a) => a.id)).toEqual(['b'])
+    await fireEvent.pointerDown(svg, { button: 0, buttons: 1, pointerId: 3, clientX: 100, clientY: 80 })
+    await fireEvent.pointerUp(svg, { button: 0, buttons: 0, pointerId: 3, clientX: 100, clientY: 80 })
+    expect(executed).toHaveLength(2)
+    expect(store.byPage(0)).toEqual([])
+  })
+
+  it('unmounting during a right gesture cancels it: nothing deleted, hidden cleared', async () => {
+    const { store, state, executed, ctx } = realEraser()
+    const { svg, unmount } = mount({ tool: null, eraser: createEraserHandler(ctx) }, store)
+    await fireEvent.pointerDown(svg, right({ clientX: 100, clientY: 40 }))
+    expect([...state.hidden]).toEqual(['a'])
+    unmount()
+    expect(state.hidden.size).toBe(0)
+    expect(executed).toEqual([])
+    expect(store.byPage(0)).toHaveLength(2)
+  })
 })

@@ -1,3 +1,35 @@
+<script module lang="ts">
+  /**
+   * Cancels the right-button erase in progress, on whichever page it runs:
+   * all pages share one eraser handler, so a stale gesture on one page must
+   * not reset or commit another page's erasures.
+   */
+  let activeErase: (() => void) | null = null
+  /** Removes the pending context-menu guard (see guardContextMenu). */
+  let stopMenuGuard: (() => void) | null = null
+
+  /**
+   * An erase released outside the page: the context menu that follows the
+   * right-button release goes to whatever is under the pointer, so swallow
+   * the next one anywhere for a moment (one guard at a time).
+   */
+  function guardContextMenu() {
+    stopMenuGuard?.()
+    const swallow = (e: Event) => {
+      e.preventDefault()
+      stop()
+    }
+    const timer = setTimeout(() => stop(), 500)
+    function stop() {
+      window.removeEventListener('contextmenu', swallow, true)
+      clearTimeout(timer)
+      if (stopMenuGuard === stop) stopMenuGuard = null
+    }
+    window.addEventListener('contextmenu', swallow, true)
+    stopMenuGuard = stop
+  }
+</script>
+
 <script lang="ts">
   import { onDestroy } from 'svelte'
   import type { PageViewport } from 'pdfjs-dist'
@@ -141,7 +173,10 @@
   function dropGesture() {
     if (!gesture) return
     const id = gesture.pointerId
-    if (gesture.erase) guardContextMenu()
+    if (gesture.erase) {
+      guardContextMenu()
+      if (activeErase === cancelErase) activeErase = null
+    }
     gesture = null
     erasing = false
     try {
@@ -172,8 +207,10 @@
     if (t instanceof Element && t.closest(EDITABLE)) return
     e.preventDefault()
     e.stopPropagation()
+    activeErase?.()
     const pe = toPageEvent(e, vp)
     gesture = { pointerId: e.pointerId, tool: eraser, last: pe, erase: true }
+    activeErase = cancelErase
     erasing = true
     try {
       el.setPointerCapture?.(e.pointerId)
@@ -183,22 +220,19 @@
     eraser.onPointerDown?.(pe)
   }
 
+  /** Cancels this page's right-button erase (another page started one). */
+  function cancelErase() {
+    if (!gesture?.erase) return
+    const { tool: t, last } = gesture
+    dropGesture()
+    if (t === eraser) t.onPointerCancel?.(last)
+  }
+
   /** No browser context menu over the page (right-drag erases), except in the text box editor. */
   function onContextMenu(e: MouseEvent) {
     const t = e.target
     if (t instanceof Element && t.closest(EDITABLE)) return
     e.preventDefault()
-  }
-
-  /**
-   * An erase released outside the page: the context menu that follows the
-   * right-button release goes to whatever is under the pointer, so swallow
-   * the next one anywhere for a moment.
-   */
-  function guardContextMenu() {
-    const swallow = (e: Event) => e.preventDefault()
-    window.addEventListener('contextmenu', swallow, { capture: true, once: true })
-    setTimeout(() => window.removeEventListener('contextmenu', swallow, { capture: true }), 500)
   }
 
   /** The gesture's handler and page event for `e`, if `e` belongs to the gesture. */
