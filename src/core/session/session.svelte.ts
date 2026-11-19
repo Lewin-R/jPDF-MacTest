@@ -1,6 +1,6 @@
 import { openPdf, readAnnotations } from '../ipc/api'
 import {
-  clampScale, computeLayout, fitWidthScale, pageAt, zoomAround, PAGE_GAP, type Layout,
+  clampScale, computeLayout, contentWidth, fitWidthScale, initialScale, pageAt, pageLeft, zoomAround, PAGE_GAP, type Layout,
 } from '../viewer/layout'
 import { loadPdf, type PdfDoc } from '../viewer/pdfEngine'
 import { renderCache } from '../viewer/renderCache'
@@ -221,7 +221,12 @@ export class DocumentSession {
   private applySourceSizes(sizes: PageSize[]): void {
     const p = Math.min(this.currentPage, this.pages.length) - 1
     const oldTop = this.layout.tops[p]
+    const oldContentW = contentWidth(this.layout, this.viewportW)
     this.sourceSizes = sizes
+    // Pages are centred in the content, so a wider page arriving shifts every
+    // page right by half the growth; follow it so the view doesn't drift.
+    const dw = contentWidth(this.layout, this.viewportW) - oldContentW
+    if (dw !== 0) this.scrollLeft = Math.max(0, this.scrollLeft + dw / 2)
     if (oldTop === undefined) return
     const delta = this.layout.tops[p] - oldTop
     if (delta === 0) return
@@ -276,12 +281,19 @@ export class DocumentSession {
     this.zoomTo(fitWidthScale(maxW, this.viewportW))
   }
 
-  /** First display: fit width, scrolled to the top. Later calls do nothing. */
+  /**
+   * First display: the first page fitted (see initialScale), scrolled to the
+   * top and centred horizontally. Later calls do nothing.
+   */
   initView(): void {
     if (this.viewInitialized) return
     this.viewInitialized = true
-    this.fitWidth()
-    this.setScroll(0, 0)
+    const first = this.pageSizes[0]
+    if (!first) return
+    this.zoomTo(initialScale(first, this.viewportW, this.viewportH))
+    const l = this.layout
+    const left = pageLeft(l, 0, this.viewportW) - (this.viewportW - l.widths[0]) / 2
+    this.setScroll(0, Math.max(0, left))
   }
 
   /**

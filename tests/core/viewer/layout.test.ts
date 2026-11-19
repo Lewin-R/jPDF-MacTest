@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  computeLayout, visibleRange, pageAt, clampScale, fitWidthScale, zoomAround,
+  computeLayout, visibleRange, pageAt, clampScale, fitWidthScale, initialScale, zoomAround,
   contentWidth, pageLeft, PAGE_GAP,
 } from '../../../src/core/viewer/layout';
 
@@ -61,6 +61,14 @@ describe('scale helpers', () => {
   it('fitWidthScale', () => {
     expect(fitWidthScale(600, 1232)).toBe(2);
     expect(fitWidthScale(600, 10)).toBe(0.1);
+  });
+  it('initialScale fits portrait pages whole and landscape pages to the width', () => {
+    // Portrait: height limits (800 - 32) / 1000 = 0.768, below fit width 2.
+    expect(initialScale({ width: 600, height: 1000 }, 1232, 800)).toBeCloseTo(0.768);
+    // Portrait in a narrow window: fit width is already the smaller one.
+    expect(initialScale({ width: 600, height: 800 }, 332, 2000)).toBeCloseTo(0.5);
+    // Landscape: always fit width, even if that overflows the height.
+    expect(initialScale({ width: 600, height: 400 }, 1232, 300)).toBe(2);
   });
 });
 

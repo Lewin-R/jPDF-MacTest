@@ -62,6 +62,20 @@ export function fitWidthScale(maxPageWidthPt: number, containerW: number): numbe
   return clampScale((containerW - 2 * PAGE_GAP) / maxPageWidthPt);
 }
 
+/**
+ * Scale for a document's first display, from its first page. Landscape pages
+ * fit the width so they fill the view; portrait pages fit whole (never larger
+ * than fit width), so the opening view shows the full first page instead of a
+ * blown-up top slice.
+ */
+export function initialScale(
+  first: { width: number; height: number }, containerW: number, containerH: number,
+): number {
+  const fitW = fitWidthScale(first.width, containerW);
+  if (first.height <= first.width) return fitW;
+  return Math.min(fitW, clampScale((containerH - 2 * PAGE_GAP) / first.height));
+}
+
 export function contentWidth(l: Layout, containerW: number): number {
   return Math.max(containerW, l.maxWidth + 2 * PAGE_GAP);
 }

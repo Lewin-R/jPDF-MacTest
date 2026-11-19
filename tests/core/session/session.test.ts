@@ -28,7 +28,7 @@ const uniform = Array.from({ length: 4 }, () => ({ width: 600, height: 800 }))
 import { DocumentSession } from '../../../src/core/session/session.svelte'
 import { toasts } from '../../../src/ui/toasts.svelte'
 import { renderCache } from '../../../src/core/viewer/renderCache'
-import { PAGE_GAP } from '../../../src/core/viewer/layout'
+import { PAGE_GAP, pageLeft } from '../../../src/core/viewer/layout'
 
 // 4 pages of 600x800 pt. At scale 1: tops 16, 832, 1648, 2464; totalHeight 3280.
 let s: DocumentSession
@@ -60,14 +60,23 @@ describe('DocumentSession view state', () => {
     expect([s.scrollTop, s.scrollLeft]).toEqual([0, 0])
   })
 
-  it('initView fits width at the top once', () => {
+  it('initView fits a portrait first page whole, at the top, once', () => {
     s.initView()
-    expect(s.scale).toBeCloseTo((1000 - 2 * PAGE_GAP) / 600)
+    expect(s.scale).toBeCloseTo((500 - 2 * PAGE_GAP) / 800)
     expect(s.scrollTop).toBe(0)
     expect(s.scrollLeft).toBe(0)
     s.zoomTo(1)
     s.initView()
     expect(s.scale).toBe(1)
+  })
+
+  it('initView fits a landscape first page to the width', async () => {
+    mocks.doc = fakeDoc(Array.from({ length: 2 }, () => ({ width: 800, height: 600 })))
+    const session = await DocumentSession.open('C:/docs/wide.pdf')
+    await session.pageSizesLoaded
+    session.setViewport(1000, 500)
+    session.initView()
+    expect(session.scale).toBeCloseTo((1000 - 2 * PAGE_GAP) / 800)
   })
 
   it('zoomTo clamps the scale and keeps the anchor point fixed', () => {
@@ -160,6 +169,22 @@ describe('DocumentSession lazy page sizes', () => {
     await session.pageSizesLoaded
     expect(session.scrollTop).toBe(1848 + 100)
     expect(session.currentPage).toBe(3)
+  })
+
+  it('keeps the first page centred when a wider page loads after initView', async () => {
+    let release!: () => void
+    const sizes = [{ width: 600, height: 800 }, { width: 2400, height: 800 }]
+    mocks.doc = fakeDoc(sizes, new Promise<void>((r) => (release = r)))
+    const session = await DocumentSession.open('C:/docs/e.pdf')
+    session.setViewport(1000, 500)
+    session.initView()
+    const pageCentre = () =>
+      session.layout.widths[0] / 2 + pageLeft(session.layout, 0, 1000) - session.scrollLeft
+    expect(pageCentre()).toBeCloseTo(500)
+    release()
+    await session.pageSizesLoaded
+    expect(session.layout.maxWidth + 2 * PAGE_GAP).toBeGreaterThan(1000)
+    expect(pageCentre()).toBeCloseTo(500)
   })
 
   it('stops filling once disposed', async () => {
