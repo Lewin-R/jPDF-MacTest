@@ -5,6 +5,13 @@ backend with lopdf). Annotations are saved into the PDF as standard annotations
 with appearance streams, so they must look right in every other viewer. Design:
 `docs/superpowers/specs/2026-11-18-juliepdf-design.md`.
 
+## Performance
+
+Performance is a core goal: the app must stay fast, quick and responsive,
+and feel lightweight. Keep work off the drawing and page-rendering paths.
+If a proposed feature could noticeably slow the app or make it feel heavier,
+say so (and suggest a lighter alternative) before implementing it.
+
 ## Commands
 
 - Run the app: `npm.cmd run tauri dev` (PowerShell blocks `npm.ps1` on this
