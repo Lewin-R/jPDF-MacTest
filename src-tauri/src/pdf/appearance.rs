@@ -1,10 +1,13 @@
+use super::dto::Background;
 use super::fmt::fmt_num;
+use super::winansi::encode_winansi;
 
 /// An appearance stream description, built independent of lopdf.
 ///
 /// `content` uses absolute PDF user-space coordinates (no translation), so the
-/// writer must set the form XObject `/BBox` = `bbox` with an identity `/Matrix`
-/// (unless `matrix` is set) and the annotation `/Rect` = `bbox`.
+/// writer must set the form XObject `/BBox` = `bbox` with `/Matrix` = `matrix`
+/// (identity when `None`) and the annotation `/Rect` = `rect()` (`bbox`
+/// transformed by `matrix`, so the form maps onto `/Rect` without scaling).
 /// The writer builds the `/ExtGState` resource `GS0` from `opacity` (`/CA`, `/ca`)
 /// and `multiply` (`/BM /Multiply`), and a Helvetica font resource if `uses_helvetica`.
 #[derive(Clone, Debug, PartialEq)]
@@ -15,6 +18,29 @@ pub struct Appearance {
     pub multiply: bool,
     pub uses_helvetica: bool,
     pub matrix: Option<[f64; 6]>,
+}
+
+impl Appearance {
+    /// Bounding box of `bbox` transformed by `matrix`: the annotation `/Rect`.
+    pub fn rect(&self) -> [f64; 4] {
+        match self.matrix {
+            None => self.bbox,
+            Some(m) => transformed_bounds(self.bbox, m),
+        }
+    }
+}
+
+fn transformed_bounds(b: [f64; 4], m: [f64; 6]) -> [f64; 4] {
+    let (mut x1, mut y1, mut x2, mut y2) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+    for (x, y) in [(b[0], b[1]), (b[2], b[1]), (b[0], b[3]), (b[2], b[3])] {
+        let tx = m[0] * x + m[2] * y + m[4];
+        let ty = m[1] * x + m[3] * y + m[5];
+        x1 = x1.min(tx);
+        y1 = y1.min(ty);
+        x2 = x2.max(tx);
+        y2 = y2.max(ty);
+    }
+    [x1, y1, x2, y2]
 }
 
 fn mid(a: [f64; 2], b: [f64; 2]) -> [f64; 2] {
@@ -111,9 +137,150 @@ pub fn highlight_appearance(quads: &[[f64; 8]], color: [f64; 3], opacity: f64) -
     Appearance { bbox, content: c.into_bytes(), opacity, multiply: true, uses_helvetica: false, matrix: None }
 }
 
+/// Inner box padding, line height factor and first-baseline offset (fraction of
+/// the font size below the padding); identical to the TS `textLayout` and the
+/// overlay's FreeText rendering.
+const TEXT_PADDING: f64 = 4.0;
+const LINE_HEIGHT: f64 = 1.2;
+const ASCENT: f64 = 0.8;
+
+/// PDF literal string body: WinAnsi bytes with `(`, `)` and `\` escaped.
+fn literal(s: &str) -> Vec<u8> {
+    let mut out = Vec::new();
+    for b in encode_winansi(s) {
+        if matches!(b, b'(' | b')' | b'\\') {
+            out.push(b'\\');
+        }
+        out.push(b);
+    }
+    out
+}
+
+/// Rotation part `[a b c d]` that turns the screen-aligned text frame so it reads
+/// upright on a page with this `/Rotate` (clockwise); `None` for 0 and unknown values.
+fn upright_rotation(page_rotation: i32) -> Option<[f64; 4]> {
+    match page_rotation.rem_euclid(360) {
+        90 => Some([0.0, 1.0, -1.0, 0.0]),
+        180 => Some([-1.0, 0.0, 0.0, -1.0]),
+        270 => Some([0.0, -1.0, 1.0, 0.0]),
+        _ => None,
+    }
+}
+
+/// FreeText appearance: optional background fill (its opacity is the `GS0`
+/// opacity, so it applies to the fill only) and one opaque Helvetica (`/Helv`,
+/// WinAnsiEncoding) line per entry of `lines`, `font_size * LINE_HEIGHT` apart,
+/// the first baseline `TEXT_PADDING + font_size * ASCENT` below the top.
+///
+/// `rect` is axis-aligned in PDF space. On a page with `/Rotate` 90/180/270 the
+/// text is laid out in the screen-aligned frame (width and height swapped for
+/// 90/270), anchored at the rect's lower-left corner, and `matrix` rotates that
+/// frame exactly onto `rect` so the text reads upright on screen, as the overlay
+/// shows it. Unmappable characters are written as `?`.
+pub fn freetext_appearance(
+    rect: [f64; 4],
+    lines: &[String],
+    font_size: f64,
+    text_color: [f64; 3],
+    background: Option<&Background>,
+    page_rotation: i32,
+) -> Appearance {
+    let (x1, y1) = (rect[0].min(rect[2]), rect[1].min(rect[3]));
+    let (w, h) = ((rect[2] - rect[0]).abs(), (rect[3] - rect[1]).abs());
+    let rotation = upright_rotation(page_rotation);
+    let (fw, fh) = match page_rotation.rem_euclid(360) {
+        90 | 270 => (h, w),
+        _ => (w, h),
+    };
+    let bbox = [x1, y1, x1 + fw, y1 + fh];
+    let matrix = rotation.map(|[a, b, c, d]| {
+        let turned = transformed_bounds(bbox, [a, b, c, d, 0.0, 0.0]);
+        [a, b, c, d, x1 - turned[0], y1 - turned[1]]
+    });
+
+    let rgb = |c: [f64; 3]| format!("{} {} {}", fmt_num(c[0]), fmt_num(c[1]), fmt_num(c[2]));
+    let mut c: Vec<u8> = Vec::new();
+    if let Some(bg) = background {
+        c.extend_from_slice(
+            format!(
+                "q\n/GS0 gs\n{} rg\n{} {} {} {} re\nf\nQ\n",
+                rgb(bg.color),
+                fmt_num(x1),
+                fmt_num(y1),
+                fmt_num(fw),
+                fmt_num(fh)
+            )
+            .as_bytes(),
+        );
+    }
+    let baseline = y1 + fh - TEXT_PADDING - font_size * ASCENT;
+    c.extend_from_slice(
+        format!(
+            "BT\n/Helv {} Tf\n{} rg\n{} {} Td\n",
+            fmt_num(font_size),
+            rgb(text_color),
+            fmt_num(x1 + TEXT_PADDING),
+            fmt_num(baseline)
+        )
+        .as_bytes(),
+    );
+    let lead = format!("0 {} Td\n", fmt_num(-font_size * LINE_HEIGHT));
+    for (i, line) in lines.iter().enumerate() {
+        if i > 0 {
+            c.extend_from_slice(lead.as_bytes());
+        }
+        if !line.is_empty() {
+            c.push(b'(');
+            c.extend(literal(line));
+            c.extend_from_slice(b") Tj\n");
+        }
+    }
+    c.extend_from_slice(b"ET\n");
+
+    Appearance {
+        bbox,
+        content: c,
+        opacity: background.map_or(1.0, |b| b.opacity),
+        multiply: false,
+        uses_helvetica: true,
+        matrix,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn freetext_appearance_layout() {
+        let lines = vec!["a(b)".to_string(), String::new(), "c".to_string()];
+        let bg = Background { color: [1.0, 1.0, 0.0], opacity: 0.5 };
+        let a = freetext_appearance([10.0, 20.0, 110.0, 70.0], &lines, 10.0, [0.0, 0.0, 1.0], Some(&bg), 0);
+        assert_eq!(
+            text(&a),
+            "q\n/GS0 gs\n1 1 0 rg\n10 20 100 50 re\nf\nQ\nBT\n/Helv 10 Tf\n0 0 1 rg\n14 58 Td\n(a\\(b\\)) Tj\n0 -12 Td\n0 -12 Td\n(c) Tj\nET\n"
+        );
+        assert_eq!(a.opacity, 0.5);
+        assert!(a.uses_helvetica && !a.multiply);
+        assert_eq!(a.bbox, [10.0, 20.0, 110.0, 70.0]);
+        let plain = freetext_appearance([10.0, 20.0, 110.0, 70.0], &lines, 10.0, [0.0; 3], None, 0);
+        assert!(text(&plain).starts_with("BT\n"));
+        assert_eq!(plain.opacity, 1.0);
+    }
+
+    #[test]
+    fn freetext_rotation_matrix_maps_frame_onto_rect() {
+        let rect = [100.0, 500.0, 130.0, 700.0];
+        let ninety = freetext_appearance(rect, &[], 12.0, [0.0; 3], None, 90);
+        assert_eq!(ninety.matrix, Some([0.0, 1.0, -1.0, 0.0, 630.0, 400.0]));
+        // Frame top-left (screen top-left) lands on the rect's min corner, which is
+        // the top-left on screen for Rotate 90 (right = +y, down = +x).
+        let m = ninety.matrix.unwrap();
+        let (fx, fy) = (ninety.bbox[0], ninety.bbox[3]);
+        assert_eq!((m[0] * fx + m[2] * fy + m[4], m[1] * fx + m[3] * fy + m[5]), (100.0, 500.0));
+        assert_eq!(freetext_appearance(rect, &[], 12.0, [0.0; 3], None, -270).matrix, ninety.matrix);
+        assert!(freetext_appearance(rect, &[], 12.0, [0.0; 3], None, 45).matrix.is_none());
+    }
 
     fn text(a: &Appearance) -> String {
         String::from_utf8(a.content.clone()).unwrap()

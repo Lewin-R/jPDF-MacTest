@@ -1,0 +1,76 @@
+import { describe, expect, it } from 'vitest'
+import {
+  boxRect, DEFAULT_BOX_WIDTH, frameOrigin, frameSize, LINE_HEIGHT, measureHelvetica, pageBoxRect, TEXT_PADDING,
+  wrapText,
+} from '../../../src/core/geometry/textLayout'
+
+const half = (s: string, size: number) => s.length * size * 0.5
+
+describe('wrapText', () => {
+  it('wrapText splits on newline', () => {
+    expect(wrapText('one\ntwo\n\nfour', 10, 1000, half)).toEqual(['one', 'two', '', 'four'])
+    expect(wrapText('a\r\nb', 10, 1000, half)).toEqual(['a', 'b'])
+    expect(wrapText('', 10, 1000, half)).toEqual([''])
+  })
+
+  it('wrapText wraps words at maxWidth', () => {
+    expect(wrapText('aa bb cc', 10, 30, half)).toEqual(['aa bb', 'cc'])
+  })
+
+  it('wrapText breaks overlong word', () => {
+    expect(wrapText('abcdefgh', 10, 30, half)).toEqual(['abcdef', 'gh'])
+    expect(wrapText('x abcdefgh y', 10, 30, half)).toEqual(['x', 'abcdef', 'gh y'])
+  })
+
+  it('keeps at least one character per line when a single character is too wide', () => {
+    expect(wrapText('abc', 10, 2, half)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('keeps leading and inner spaces', () => {
+    expect(wrapText('  a  b', 10, 1000, half)).toEqual(['  a  b'])
+  })
+})
+
+describe('boxRect', () => {
+  it('boxRect height for 2 lines at 10pt === 32', () => {
+    const r = boxRect([100, 500], 200, 2, 10)
+    expect(r[3] - r[1]).toBeCloseTo(32)
+    expect(r).toEqual([100, 500 - 2 * 10 * LINE_HEIGHT - 2 * TEXT_PADDING, 300, 500])
+  })
+
+  it('exports the layout constants', () => {
+    expect([TEXT_PADDING, LINE_HEIGHT, DEFAULT_BOX_WIDTH]).toEqual([4, 1.2, 200])
+  })
+})
+
+describe('rotated pages', () => {
+  // A box 200 wide and 32 tall on screen, top-left on screen at PDF (100, 500).
+  it('pageBoxRect places the screen frame on each rotation', () => {
+    expect(pageBoxRect([100, 500], 200, 32, 0)).toEqual([100, 468, 300, 500])
+    expect(pageBoxRect([100, 500], 200, 32, 90)).toEqual([100, 500, 132, 700])
+    expect(pageBoxRect([100, 500], 200, 32, 180)).toEqual([-100, 500, 100, 532])
+    expect(pageBoxRect([100, 500], 200, 32, 270)).toEqual([68, 300, 100, 500])
+  })
+
+  it('frameOrigin and frameSize invert pageBoxRect', () => {
+    for (const rot of [0, 90, 180, 270]) {
+      const r = pageBoxRect([100, 500], 200, 32, rot)
+      expect(frameOrigin(r, rot)).toEqual([100, 500])
+      expect(frameSize(r, rot)).toEqual({ width: 200, height: 32 })
+    }
+  })
+})
+
+describe('measureHelvetica', () => {
+  it('uses the Helvetica AFM widths', () => {
+    expect(measureHelvetica('a', 10)).toBeCloseTo(5.56)
+    expect(measureHelvetica('Hi!', 1000)).toBeCloseTo(722 + 222 + 278)
+    expect(measureHelvetica('Übung', 1000)).toBeCloseTo(722 + 556 + 556 + 556 + 556)
+    expect(measureHelvetica('ß€—', 1000)).toBeCloseTo(611 + 556 + 1000)
+  })
+
+  it('measures unknown characters (one per code point) like the "?" they are saved as', () => {
+    expect(measureHelvetica('😀', 1000)).toBe(556)
+    expect(measureHelvetica('あ', 1000)).toBe(556)
+  })
+})

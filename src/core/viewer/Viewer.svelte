@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import type { ToolHandler } from '../registry/tools'
+  import type { TextEdit, ToolHandler } from '../registry/tools'
   import type { Annotation } from '../session/model'
   import type { DocumentSession } from '../session/session.svelte'
   import { clampScale, contentWidth, pageLeft, visibleRange } from './layout'
@@ -17,6 +17,7 @@
     cursor,
     toolPreview = null,
     toolHidden,
+    toolTextEdit = null,
   }: {
     session: DocumentSession
     /** Active tool's handler (see ToolRouter); page overlays forward pointer input to it. */
@@ -26,6 +27,8 @@
     toolPreview?: Annotation | null
     /** Annotation ids the active tool has hidden (erased, not yet committed). */
     toolHidden?: ReadonlySet<string>
+    /** The tool's open text box editor, drawn on its page. */
+    toolTextEdit?: TextEdit | null
   } = $props()
 
   const WHEEL_COMMIT_MS = 150
@@ -221,6 +224,7 @@
             store={session.store}
             preview={toolPreview?.page === i ? toolPreview : null}
             hidden={toolHidden}
+            textEdit={toolTextEdit?.draft.page === i ? toolTextEdit : null}
             {tool}
             cursor={panning ? 'grabbing' : spaceHeld ? 'grab' : cursor}
           />

@@ -4,7 +4,8 @@ use std::collections::HashSet;
 
 use juliepdf_lib::commands::files::save_to_path;
 use juliepdf_lib::error::AppError;
-use juliepdf_lib::pdf::dto::{AnnotationDto, Blend, Common, InkRole};
+use juliepdf_lib::pdf::appearance::freetext_appearance;
+use juliepdf_lib::pdf::dto::{AnnotationDto, Background, Blend, Common, InkRole};
 use juliepdf_lib::pdf::reader::read_annotations;
 use juliepdf_lib::pdf::writer::write_incremental;
 use lopdf::{Document, Object, ObjectId};
@@ -40,6 +41,27 @@ fn highlight(id: &str, page: u32) -> AnnotationDto {
         color: [1.0, 0.922, 0.231],
         opacity: 0.4,
     }
+}
+
+fn freetext(id: &str, page: u32, text: &str, background: Option<Background>) -> AnnotationDto {
+    AnnotationDto::Freetext {
+        common: common(&ink(id, page, [0.0; 3])).clone(),
+        rect: [72.0, 700.5, 272.0, 740.0],
+        text: text.into(),
+        lines: Vec::new(),
+        font_size: 14.0,
+        text_color: [0.1, 0.2, 0.7],
+        background,
+    }
+}
+
+fn annot_dict<'a>(doc: &'a Document, r: &str) -> &'a lopdf::Dictionary {
+    doc.get_dictionary(lopdf_id(r)).unwrap()
+}
+
+fn ap_stream<'a>(doc: &'a Document, annot: &lopdf::Dictionary) -> &'a lopdf::Stream {
+    let ap = annot.get(b"AP").unwrap().as_dict().unwrap().get(b"N").unwrap().as_reference().unwrap();
+    doc.get_object(ap).unwrap().as_stream().unwrap()
 }
 
 fn common(a: &AnnotationDto) -> &Common {
@@ -503,24 +525,136 @@ fn lopdf_id(r: &str) -> ObjectId {
 }
 
 #[test]
-fn unsupported_kind_and_bad_page_are_invalid() {
+fn bad_page_is_invalid() {
     let orig = fixtures::simple_pdf(1);
-    let ft = AnnotationDto::Freetext {
-        common: common(&ink("f", 0, [0.0; 3])).clone(),
-        rect: [0.0, 0.0, 10.0, 10.0],
-        text: "x".into(),
-        lines: vec!["x".into()],
-        font_size: 12.0,
-        text_color: [0.0; 3],
-        background: None,
-    };
-    let err = write_incremental(&orig, &[ft], &[]).unwrap_err();
-    assert!(
-        matches!(&err, AppError::InvalidPdf(m) if m == "unsupported annotation kind: freetext"),
-        "{err:?}"
-    );
     let err = write_incremental(&orig, &[ink("a", 5, [0.0; 3])], &[]).unwrap_err();
     assert!(matches!(err, AppError::InvalidPdf(_)));
+}
+
+#[test]
+fn freetext_roundtrip() {
+    let orig = fixtures::simple_pdf(1);
+    let with_bg = freetext(
+        "f",
+        0,
+        "Hello (world)\\ \nsecond line",
+        Some(Background { color: [1.0, 0.922, 0.231], opacity: 0.35 }),
+    );
+    let without_bg = freetext("g", 0, "plain", None);
+    let (out, refs) = write(&orig, &[with_bg.clone(), without_bg.clone()], &[]);
+    assert_eq!(&out[..orig.len()], &orig[..]);
+    assert_eq!(
+        read_annotations(&out).unwrap(),
+        vec![with_ref(with_bg, &refs["f"]), with_ref(without_bg, &refs["g"])]
+    );
+
+    let doc = Document::load_mem(&out).unwrap();
+    let annot = annot_dict(&doc, &refs["f"]);
+    assert_eq!(annot.get(b"Subtype").unwrap().as_name().unwrap(), b"FreeText");
+    assert_eq!(annot.get(b"DA").unwrap().as_str().unwrap(), b"/Helv 14 Tf 0.1 0.2 0.7 rg");
+    assert_eq!(annot.get(b"CA").unwrap().as_i64().unwrap(), 1, "text stays opaque");
+    assert_eq!(annot.get(b"C").unwrap().as_array().unwrap().len(), 3);
+    let bs = annot.get(b"BS").unwrap().as_dict().unwrap();
+    assert_eq!(bs.get(b"W").unwrap().as_i64().unwrap(), 0);
+    let private = annot.get(b"JuliePDF").unwrap().as_dict().unwrap();
+    assert!(private.get(b"hasBg").unwrap().as_bool().unwrap());
+    let stream = ap_stream(&doc, annot);
+    let content = String::from_utf8(stream.decompressed_content().unwrap()).unwrap();
+    assert!(content.contains("/GS0 gs\n1 0.922 0.231 rg\n72 700.5 200 39.5 re\nf\n"), "{content}");
+    assert!(content.contains("/Helv 14 Tf\n"), "{content}");
+    assert!(content.contains("(Hello \\(world\\)\\\\ ) Tj\n"), "{content}");
+    assert!(content.contains("(second line) Tj\n"), "{content}");
+    let res = stream.dict.get(b"Resources").unwrap().as_dict().unwrap();
+    let helv = res.get(b"Font").unwrap().as_dict().unwrap().get(b"Helv").unwrap().as_dict().unwrap();
+    assert_eq!(helv.get(b"BaseFont").unwrap().as_name().unwrap(), b"Helvetica");
+    assert_eq!(helv.get(b"Encoding").unwrap().as_name().unwrap(), b"WinAnsiEncoding");
+    let gs = res.get(b"ExtGState").unwrap().as_dict().unwrap().get(b"GS0").unwrap().as_dict().unwrap();
+    assert_eq!(gs.get(b"ca").unwrap().as_float().unwrap(), 0.35);
+
+    let plain = annot_dict(&doc, &refs["g"]);
+    assert!(plain.get(b"C").unwrap().as_array().unwrap().is_empty(), "no background = transparent");
+    let plain_content = String::from_utf8(ap_stream(&doc, plain).decompressed_content().unwrap()).unwrap();
+    assert!(!plain_content.contains(" re\n"), "{plain_content}");
+}
+
+#[test]
+fn freetext_edit_removes_background_and_keeps_object() {
+    let orig = fixtures::simple_pdf(1);
+    let a = freetext("f", 0, "x", Some(Background { color: [1.0, 0.0, 0.0], opacity: 1.0 }));
+    let (out1, refs1) = write(&orig, &[a], &[]);
+    let edited = with_ref(freetext("f", 0, "y", None), &refs1["f"]);
+    let (out2, refs2) = write(&out1, std::slice::from_ref(&edited), &[]);
+    assert_eq!(refs2["f"], refs1["f"]);
+    assert_eq!(read_annotations(&out2).unwrap(), vec![edited]);
+}
+
+#[test]
+fn freetext_umlauts_survive_and_emoji_replaced() {
+    let orig = fixtures::simple_pdf(1);
+    let a = freetext("u", 0, "Übung 😀", None);
+    let (out, refs) = write(&orig, std::slice::from_ref(&a), &[]);
+    assert_eq!(read_annotations(&out).unwrap(), vec![with_ref(a, &refs["u"])]);
+    let doc = Document::load_mem(&out).unwrap();
+    let annot = annot_dict(&doc, &refs["u"]);
+    let contents = annot.get(b"Contents").unwrap().as_str().unwrap();
+    assert!(contents.starts_with(b"\xFE\xFF"), "UTF-16BE with BOM: {contents:?}");
+    let utf16: Vec<u16> = contents[2..].chunks(2).map(|c| u16::from_be_bytes([c[0], c[1]])).collect();
+    assert_eq!(String::from_utf16(&utf16).unwrap(), "Übung 😀");
+    let content = ap_stream(&doc, annot).decompressed_content().unwrap();
+    let needle = b"(\xDCbung ?) Tj";
+    assert!(
+        content.windows(needle.len()).any(|w| w == needle),
+        "{}",
+        String::from_utf8_lossy(&content)
+    );
+}
+
+#[test]
+fn freetext_on_rotated_page_has_counter_rotation_matrix() {
+    // Rotate 90: a box 200 wide and 30 tall on screen is 30 x 200 in PDF space.
+    let rect = [100.0, 500.0, 130.0, 700.0];
+    let lines = vec!["upright".to_string()];
+    let flat = freetext_appearance(rect, &lines, 12.0, [0.0; 3], None, 0);
+    assert!(flat.matrix.is_none());
+    assert_eq!(flat.rect(), rect);
+
+    let ap = freetext_appearance(rect, &lines, 12.0, [0.0; 3], None, 90);
+    let m = ap.matrix.expect("rotated page needs a matrix");
+    assert_eq!(&m[..4], &[0.0, 1.0, -1.0, 0.0]);
+    assert_ne!(m, [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
+    // The text frame is the screen-aligned box (200 x 30) and maps exactly onto /Rect.
+    assert_eq!(ap.bbox[2] - ap.bbox[0], 200.0);
+    assert_eq!(ap.bbox[3] - ap.bbox[1], 30.0);
+    assert_eq!(ap.rect(), rect);
+
+    for (rot, abcd) in [(180, [-1.0, 0.0, 0.0, -1.0]), (270, [0.0, -1.0, 1.0, 0.0])] {
+        let ap = freetext_appearance(rect, &lines, 12.0, [0.0; 3], None, rot);
+        assert_eq!(&ap.matrix.unwrap()[..4], &abcd, "rotation {rot}");
+        assert_eq!(ap.rect(), rect, "rotation {rot}");
+    }
+
+    // The writer applies the page rotation and keeps /Rect on the box.
+    let orig = fixtures::rotated_pdf();
+    let mut a = freetext("r", 0, "upright", None);
+    if let AnnotationDto::Freetext { rect: r, .. } = &mut a {
+        *r = rect;
+    }
+    let (out, refs) = write(&orig, std::slice::from_ref(&a), &[]);
+    assert_eq!(read_annotations(&out).unwrap(), vec![with_ref(a, &refs["r"])]);
+    let doc = Document::load_mem(&out).unwrap();
+    let annot = annot_dict(&doc, &refs["r"]);
+    let matrix: Vec<f32> = ap_stream(&doc, annot)
+        .dict
+        .get(b"Matrix")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|o| o.as_float().unwrap())
+        .collect();
+    assert_eq!(&matrix[..4], &[0.0, 1.0, -1.0, 0.0]);
+    let r: Vec<f32> = annot.get(b"Rect").unwrap().as_array().unwrap().iter().map(|o| o.as_float().unwrap()).collect();
+    assert_eq!(r, [100.0, 500.0, 130.0, 700.0]);
 }
 
 #[test]

@@ -108,8 +108,18 @@ fn map_annotation(doc: &Document, d: &Dictionary, common: Common) -> Option<Anno
                 [0.0; 4]
             };
             let (font_size, text_color) = parse_da(&text(doc, d, b"DA").unwrap_or_default());
-            let background =
-                color_of(doc, d.get(b"C").ok()).map(|color| Background { color, opacity });
+            let c = color_of(doc, d.get(b"C").ok());
+            // JuliePDF keeps /CA at 1 and the background opacity in /JuliePDF.
+            let private_bool =
+                |key: &[u8]| private.and_then(|p| p.get_deref(key, doc).and_then(Object::as_bool).ok());
+            let background = match (private_bool(b"hasBg"), private) {
+                (Some(false), _) => None,
+                (Some(true), Some(p)) => Some(Background {
+                    color: c.unwrap_or(BLACK),
+                    opacity: number(doc, p.get(b"bgOpacity").ok()).unwrap_or(1.0),
+                }),
+                _ => c.map(|color| Background { color, opacity }),
+            };
             Some(AnnotationDto::Freetext {
                 common,
                 rect,

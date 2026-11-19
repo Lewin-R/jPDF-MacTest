@@ -8,9 +8,10 @@ use lopdf::{
     text_string,
 };
 
-use super::appearance::{Appearance, highlight_appearance, ink_appearance};
+use super::appearance::{Appearance, freetext_appearance, highlight_appearance, ink_appearance};
 use super::date::pdf_date;
-use super::dto::{AnnotationDto, Blend, Common, InkRole};
+use super::dto::{AnnotationDto, Background, Blend, Common, InkRole};
+use super::fmt::fmt_num;
 use super::{format_source_ref, load_document, parse_source_ref};
 use crate::error::AppError;
 
@@ -164,7 +165,8 @@ impl Writer {
             .ok_or_else(|| AppError::InvalidPdf(format!("page {} out of range", common.page)))?;
         let existing = self.existing(common.source_ref.as_deref());
 
-        let Some((mut annot, ap)) = build_annotation(dto)? else {
+        let rotation = page_rotation(self.prev(), page_id);
+        let Some((mut annot, ap)) = build_annotation(dto, rotation)? else {
             // Nothing to draw (e.g. every stroke erased): drop any saved version.
             if let Some(id) = existing {
                 self.detach(id);
@@ -172,7 +174,7 @@ impl Writer {
             return Ok(None);
         };
         let ap_id = self.inc.new_document.add_object(appearance_stream(&ap)?);
-        annot.set("Rect", nums(&ap.bbox));
+        annot.set("Rect", nums(&ap.rect()));
         annot.set("AP", dictionary! { "N" => ap_id });
         annot.set("P", page_id);
         common_entries(&mut annot, common);
@@ -244,7 +246,11 @@ fn common_of(dto: &AnnotationDto) -> &Common {
 /// Every key set here (and in `upsert`/`common_entries`) is owned by JuliePDF:
 /// updating an existing annotation overwrites exactly these and keeps the rest.
 /// Adding a kind = one match arm calling its appearance builder.
-fn build_annotation(dto: &AnnotationDto) -> Result<Option<(Dictionary, Appearance)>, AppError> {
+/// `page_rotation` is the page's `/Rotate` (FreeText text is turned upright on screen).
+fn build_annotation(
+    dto: &AnnotationDto,
+    page_rotation: i32,
+) -> Result<Option<(Dictionary, Appearance)>, AppError> {
     match dto {
         AnnotationDto::Ink {
             strokes,
@@ -306,12 +312,96 @@ fn build_annotation(dto: &AnnotationDto) -> Result<Option<(Dictionary, Appearanc
             };
             Ok(Some((d, ap)))
         }
-        AnnotationDto::Freetext { .. } => Err(unsupported("freetext")),
+        AnnotationDto::Freetext {
+            rect,
+            text,
+            lines,
+            font_size,
+            text_color,
+            background,
+            ..
+        } => {
+            check_finite(
+                rect.iter()
+                    .chain(text_color)
+                    .chain([font_size])
+                    .chain(background.iter().flat_map(|b| b.color.iter().chain([&b.opacity]))),
+            )?;
+            if text.trim().is_empty() {
+                return Ok(None);
+            }
+            // The TS side wraps; a DTO without lines falls back to the hard breaks.
+            let fallback: Vec<String>;
+            let lines = if lines.is_empty() {
+                fallback = text.split('\n').map(|l| l.trim_end_matches('\r').to_string()).collect();
+                &fallback
+            } else {
+                lines
+            };
+            let ap = freetext_appearance(
+                *rect,
+                lines,
+                *font_size,
+                *text_color,
+                background.as_ref(),
+                page_rotation,
+            );
+            Ok(Some((freetext_dict(text, *font_size, *text_color, background.as_ref()), ap)))
+        }
     }
 }
 
-fn unsupported(kind: &str) -> AppError {
-    AppError::InvalidPdf(format!("unsupported annotation kind: {kind}"))
+/// `/C` is the background colour; an empty array (transparent) when there is
+/// none, so an update also clears the colour of a previously saved version.
+/// `/CA` stays 1: the background opacity lives in the appearance's `GS0` (fill
+/// only), and `/CA` would also fade the text. `/JuliePDF` keeps the exact
+/// background opacity for the reader.
+fn freetext_dict(text: &str, font_size: f64, color: [f64; 3], bg: Option<&Background>) -> Dictionary {
+    let da = format!(
+        "/Helv {} Tf {} {} {} rg",
+        fmt_num(font_size),
+        fmt_num(color[0]),
+        fmt_num(color[1]),
+        fmt_num(color[2])
+    );
+    let hex = |v: f64| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+    let ds = format!(
+        "font: Helvetica,sans-serif {}pt; color: #{:02X}{:02X}{:02X}",
+        fmt_num(font_size),
+        hex(color[0]),
+        hex(color[1]),
+        hex(color[2])
+    );
+    dictionary! {
+        "Subtype" => "FreeText",
+        "Contents" => text_string(text),
+        "DA" => Object::String(da.into_bytes(), StringFormat::Literal),
+        "DS" => Object::String(ds.into_bytes(), StringFormat::Literal),
+        "C" => bg.map_or(Object::Array(Vec::new()), |b| nums(&b.color)),
+        "CA" => 1,
+        "BS" => dictionary! { "W" => 0 },
+        "JuliePDF" => dictionary! {
+            "v" => 1,
+            "hasBg" => bg.is_some(),
+            "bgOpacity" => num(bg.map_or(1.0, |b| b.opacity)),
+        },
+    }
+}
+
+/// The page's `/Rotate` (inherited through `/Parent`), normalised to 0..360;
+/// 0 when absent or not a multiple of 90.
+fn page_rotation(doc: &Document, page_id: ObjectId) -> i32 {
+    let mut node = doc.get_dictionary(page_id).ok();
+    // Bounded walk: a malformed /Parent cycle must not hang the save.
+    for _ in 0..64 {
+        let Some(d) = node else { break };
+        if let Ok(r) = d.get_deref(b"Rotate", doc).and_then(Object::as_i64) {
+            let r = r.rem_euclid(360) as i32;
+            return if r % 90 == 0 { r } else { 0 };
+        }
+        node = d.get_deref(b"Parent", doc).and_then(Object::as_dict).ok();
+    }
+    0
 }
 
 fn blend_name(b: Blend) -> &'static str {

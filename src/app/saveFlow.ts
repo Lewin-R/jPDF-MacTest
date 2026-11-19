@@ -67,12 +67,15 @@ async function writeSession(s: DocumentSession, target: string): Promise<boolean
 }
 
 /**
- * Writes the session's annotation changes as an incremental update of its
+ * Commits a pending edit (see DocumentSession.commitPendingEdit), then
+ * writes the session's annotation changes as an incremental update of its
  * current file to `targetPath` (default: the current file). On success the
  * session is clean and points at `targetPath`; returns false on error (an
  * error toast is shown and the session stays dirty).
  */
 export function saveSession(s: DocumentSession, targetPath?: string): Promise<boolean> {
+  // An open text box is part of what the user sees: save it too.
+  s.commitPendingEdit()
   const prev = inFlight.get(s)
   const write = () => writeSession(s, targetPath ?? s.path)
   // Start right away when idle so the written state is the state at the call.
@@ -88,6 +91,7 @@ export function saveSession(s: DocumentSession, targetPath?: string): Promise<bo
 
 /** Asks for a target file and saves there; false if cancelled or failed. */
 export async function saveSessionAs(s: DocumentSession): Promise<boolean> {
+  s.commitPendingEdit()
   let target = await saveDialog({ defaultPath: s.path, filters: PDF_FILTER })
   if (!target) return false
   if (!target.toLowerCase().endsWith('.pdf')) target += '.pdf'
@@ -99,6 +103,7 @@ export async function saveSessionAs(s: DocumentSession): Promise<boolean> {
  * close (not dirty, saved, or discarded), false on Cancel or a failed save.
  */
 export async function confirmAndClose(s: DocumentSession): Promise<boolean> {
+  s.commitPendingEdit()
   if (!s.dirty) return true
   const choice = await askToSave(s.fileName)
   if (choice === 'cancel') return false
@@ -123,6 +128,7 @@ export function registerSaveCommands(active: () => DocumentSession | null): () =
       enabled,
       run: async () => {
         const s = active()
+        s?.commitPendingEdit()
         if (s?.dirty) await saveSession(s)
       },
     }),

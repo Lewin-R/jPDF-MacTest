@@ -205,6 +205,33 @@ describe('DocumentSession.open annotations', () => {
     error.mockRestore()
   })
 
+  it('wraps freetext lines on load to the box width on screen (page rotation aware)', async () => {
+    const ft = (id: string, page: number, rect: number[]) => ({
+      kind: 'freetext', id, page, sourceRef: '20R', modifiedAt: '', author: '', rect,
+      text: 'aaa bbb\nccc', lines: [], fontSize: 10, textColor: [0, 0, 0], background: null,
+    })
+    // 'aaa bbb' is 36.14pt in Helvetica 10pt: fits a 48pt box (40pt text area), not a 30pt one.
+    mocks.annotations = [ink('i', '10R'), ft('flat', 0, [0, 0, 48, 30]), ft('turned', 1, [0, 0, 48, 30])]
+    const doc = fakeDoc(uniform)
+    doc.getPage.mockImplementation(async (i: number) => ({ getViewport: () => uniform[i - 1], rotate: i === 2 ? 90 : 0 }))
+    mocks.doc = doc
+    const session = await DocumentSession.open('C:/docs/h.pdf')
+    expect(session.store.get('flat')).toMatchObject({ lines: ['aaa bbb', 'ccc'] })
+    // Rotate 90: the box is 30pt wide on screen (22pt text area).
+    expect(session.store.get('turned')).toMatchObject({ lines: ['aaa', 'bbb', 'ccc'] })
+    expect(session.store.get('i')).toEqual(ink('i', '10R'))
+    expect(session.dirty).toBe(false)
+  })
+
+  it('commitPendingEdit runs the pending edit once', () => {
+    const commit = vi.fn()
+    s.pendingEdit = commit
+    s.commitPendingEdit()
+    s.commitPendingEdit()
+    expect(commit).toHaveBeenCalledOnce()
+    expect(s.pendingEdit).toBeNull()
+  })
+
   it('setPath updates path and fileName', () => {
     s.setPath('D:\\out\\copy.pdf')
     expect(s.path).toBe('D:\\out\\copy.pdf')

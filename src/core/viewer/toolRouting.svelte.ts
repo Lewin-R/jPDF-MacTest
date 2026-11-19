@@ -1,5 +1,5 @@
 import { untrack } from 'svelte'
-import type { ToolContext, ToolDefinition, ToolHandler } from '../registry/tools'
+import type { TextEdit, ToolContext, ToolDefinition, ToolHandler } from '../registry/tools'
 import type { Annotation } from '../session/model'
 import type { DocumentSession } from '../session/session.svelte'
 import type { ToolInstance } from '../settings/settings.svelte'
@@ -15,6 +15,7 @@ export class SessionToolState {
   preview = $state.raw<Annotation | null>(null)
   hidden = $state.raw<ReadonlySet<string>>(new Set())
   cursor = $state<string | null>(null)
+  textEdit = $state.raw<TextEdit | null>(null)
 }
 
 /**
@@ -95,6 +96,7 @@ export class ToolRouter {
       state.preview = null
       state.hidden = new Set()
       state.cursor = null
+      state.textEdit = null
     }
   }
 
@@ -137,6 +139,11 @@ export class ToolRouter {
       cursor: {
         set: (c) => {
           state.cursor = c
+        },
+      },
+      textEdit: {
+        set: (e) => {
+          state.textEdit = e
         },
       },
     }

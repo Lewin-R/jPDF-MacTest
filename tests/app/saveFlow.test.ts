@@ -12,7 +12,8 @@ vi.mock('../../src/core/ipc/api', async (orig) => ({
 vi.mock('../../src/app/ConfirmClose.svelte', () => ({ askToSave: h.askToSave }))
 vi.mock('@tauri-apps/plugin-dialog', () => ({ save: h.saveDialog }))
 
-import { confirmAndClose, confirmCloseAll, saveSession, saveSessionAs } from '../../src/app/saveFlow'
+import { confirmAndClose, confirmCloseAll, registerSaveCommands, saveSession, saveSessionAs } from '../../src/app/saveFlow'
+import { commands } from '../../src/core/registry/commands'
 import { addAnnotations, deleteAnnotations, updateAnnotation } from '../../src/core/session/commands'
 import { History } from '../../src/core/session/history.svelte'
 import type { InkAnnotation } from '../../src/core/session/model'
@@ -44,6 +45,12 @@ function fakeSession(path = 'C:\\docs\\a.pdf', loaded: InkAnnotation[] = []) {
       s.fileName = p.split('\\').pop()!
     }),
     suppress: vi.fn(),
+    pendingEdit: null as (() => void) | null,
+    commitPendingEdit() {
+      const commit = s.pendingEdit
+      s.pendingEdit = null
+      commit?.()
+    },
   }
   return s as typeof s & DocumentSession
 }
@@ -319,5 +326,55 @@ describe('confirmCloseAll', () => {
     a.history.execute(addAnnotations([ink('x')]))
     h.askToSave.mockResolvedValue('discard')
     expect(await confirmCloseAll([a, fakeSession('C:\\b.pdf')])).toBe(true)
+  })
+})
+
+describe('pending edit (open text box)', () => {
+  /** A pending edit that adds `id` when committed, as the text tool does. */
+  function withPendingAdd(s: ReturnType<typeof fakeSession>, id: string) {
+    const commit = vi.fn(() => s.history.execute(addAnnotations([ink(id)])))
+    s.pendingEdit = commit
+    return commit
+  }
+
+  it('saveSession commits the pending edit before writing it', async () => {
+    const s = fakeSession()
+    const commit = withPendingAdd(s, 'typed')
+    h.savePdf.mockResolvedValue({ refs: { typed: '30R' } })
+    expect(await saveSession(s)).toBe(true)
+    expect(commit).toHaveBeenCalledOnce()
+    expect(s.pendingEdit).toBeNull()
+    expect(h.savePdf).toHaveBeenCalledWith(s.path, s.path, [ink('typed')], [])
+    expect(s.dirty).toBe(false)
+  })
+
+  it('Ctrl+S (file.save) on a clean session with an open text box saves the box', async () => {
+    const s = fakeSession()
+    withPendingAdd(s, 'typed')
+    h.savePdf.mockResolvedValue({ refs: { typed: '30R' } })
+    const dispose = registerSaveCommands(() => s)
+    try {
+      await commands.execute('file.save')
+    } finally {
+      dispose()
+    }
+    expect(h.savePdf).toHaveBeenCalledOnce()
+    expect(s.dirty).toBe(false)
+  })
+
+  it('confirmAndClose commits the pending edit before deciding whether to ask', async () => {
+    const s = fakeSession()
+    withPendingAdd(s, 'typed')
+    h.askToSave.mockResolvedValueOnce('discard')
+    expect(await confirmAndClose(s)).toBe(true)
+    expect(h.askToSave).toHaveBeenCalledWith('a.pdf')
+  })
+
+  it('saveSessionAs commits before asking for the target', async () => {
+    const s = fakeSession()
+    const commit = withPendingAdd(s, 'typed')
+    h.saveDialog.mockResolvedValue(null)
+    expect(await saveSessionAs(s)).toBe(false)
+    expect(commit).toHaveBeenCalledOnce()
   })
 })

@@ -1,7 +1,7 @@
 import type { PageViewport } from 'pdfjs-dist'
 import type { Component } from 'svelte'
 import type { Command } from '../session/history.svelte'
-import type { Annotation, Point, RGB } from '../session/model'
+import type { Annotation, FreeTextAnnotation, Point, RGB } from '../session/model'
 import type { DocumentSession } from '../session/session.svelte'
 
 export interface PagePointerEvent {
@@ -32,6 +32,20 @@ export interface ToolHandler {
   textSelection?(): { color: RGB } | null
 }
 
+/**
+ * An open text box editor (Overlay draws it as a <textarea> on `draft.page`).
+ * The editor reports every change through setText and ends editing with
+ * commit (Escape, blur, unmount); commit is idempotent.
+ */
+export interface TextEdit {
+  /** The box being edited: position, size and style; `text` is the initial text. */
+  draft: FreeTextAnnotation
+  /** /Rotate of the box's page (the editor is laid out upright on screen). */
+  rotation: number
+  setText(text: string): void
+  commit(): void
+}
+
 export interface ToolContext {
   session: DocumentSession
   execute(c: Command): void
@@ -42,6 +56,8 @@ export interface ToolContext {
   hidden: { readonly ids: ReadonlySet<string>; set(ids: Iterable<string>): void }
   /** Overrides the tool's cursor (e.g. 'grabbing' during a drag); null restores it. */
   cursor: { set(c: string | null): void }
+  /** Opens (or with null closes) the text box editor; cleared when the tool changes. */
+  textEdit: { set(e: TextEdit | null): void }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

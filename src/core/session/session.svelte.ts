@@ -4,6 +4,7 @@ import {
 } from '../viewer/layout'
 import { loadPdf, type PdfDoc } from '../viewer/pdfEngine'
 import { renderCache } from '../viewer/renderCache'
+import { frameSize, layoutLines } from '../geometry/textLayout'
 import { History } from './history.svelte'
 import type { Annotation } from './model'
 import { AnnotationStore } from './store.svelte'
@@ -30,6 +31,27 @@ async function readManaged(path: string): Promise<Annotation[]> {
     console.error(`Failed to read annotations of ${path}`, e)
     return []
   }
+}
+
+/**
+ * The reader returns freetext annotations without `lines`: wraps their text
+ * to each box's on-screen width (which depends on the page's /Rotate).
+ */
+async function withFreeTextLines(doc: PdfDoc, annotations: Annotation[]): Promise<Annotation[]> {
+  const pages = [...new Set(annotations.filter((a) => a.kind === 'freetext').map((a) => a.page))]
+  if (pages.length === 0) return annotations
+  const rotations = new Map<number, number>()
+  await Promise.all(
+    pages.map(async (p) => {
+      const page = await doc.getPage(p + 1).catch(() => null)
+      rotations.set(p, page?.rotate ?? 0)
+    }),
+  )
+  return annotations.map((a) =>
+    a.kind === 'freetext'
+      ? { ...a, lines: layoutLines(a.text, a.fontSize, frameSize(a.rect, rotations.get(a.page) ?? 0).width) }
+      : a,
+  )
 }
 
 async function pageSizeOf(doc: PdfDoc, page: number): Promise<PageSize> {
@@ -77,6 +99,18 @@ export class DocumentSession {
     return this.history.isDirty
   }
 
+  /**
+   * Finishes an in-progress edit (an open text box), set by the tool that owns
+   * it. Save and close call commitPendingEdit first so the edit is included.
+   */
+  pendingEdit: (() => void) | null = null
+
+  commitPendingEdit(): void {
+    const commit = this.pendingEdit
+    this.pendingEdit = null
+    commit?.()
+  }
+
   private constructor(path: string, doc: PdfDoc, first: PageSize, annotations: Annotation[]) {
     this.setPath(path)
     this.doc = doc
@@ -94,10 +128,10 @@ export class DocumentSession {
    * page 1's size is known (fast first page).
    */
   static async open(path: string): Promise<DocumentSession> {
-    const [bytes, annotations] = await Promise.all([openPdf(path), readManaged(path)])
-    // TODO(Task 20): recompute `lines` of freetext annotations here.
+    const [bytes, read] = await Promise.all([openPdf(path), readManaged(path)])
     const doc = await loadPdf(bytes)
     try {
+      const annotations = await withFreeTextLines(doc, read)
       return new DocumentSession(path, doc, await pageSizeOf(doc, 1), annotations)
     } catch (e) {
       await doc.destroy()

@@ -4,10 +4,11 @@
   import type { PdfDoc } from './pdfEngine'
   import type { AnnotationStore } from '../session/store.svelte'
   import type { Annotation, Point } from '../session/model'
-  import type { PagePointerEvent, ToolHandler } from '../registry/tools'
+  import type { PagePointerEvent, TextEdit, ToolHandler } from '../registry/tools'
   import { annotationKinds } from '../registry/annotationKinds'
   import { pageHasText } from './textContent'
   import { clientToPdf as mapClientToPdf } from './viewerMath'
+  import TextEditor from '../../annotations/freetext/Editor.svelte'
 
   let {
     doc,
@@ -18,6 +19,7 @@
     hidden,
     tool = null,
     cursor,
+    textEdit = null,
     viewport,
   }: {
     doc?: PdfDoc
@@ -34,6 +36,11 @@
     tool?: ToolHandler | null
     /** CSS cursor while a tool is active. */
     cursor?: string
+    /**
+     * Open text box editor on this page: a <textarea> stacked above the SVG
+     * (a sibling, so its pointer input never reaches the tool).
+     */
+    textEdit?: TextEdit | null
     /** Overrides the viewport derived from doc (tests). */
     viewport?: PageViewport
   } = $props()
@@ -196,6 +203,9 @@
     {/if}
   {/if}
 </svg>
+{#if vp && textEdit}
+  <TextEditor edit={textEdit} {vp} />
+{/if}
 
 <style>
   .overlay {

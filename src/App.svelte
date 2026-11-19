@@ -132,6 +132,7 @@
           cursor={router.cursor}
           toolPreview={router.stateOf(tabs.active).preview}
           toolHidden={router.stateOf(tabs.active).hidden}
+          toolTextEdit={router.stateOf(tabs.active).textEdit}
         />
       {/key}
     {:else}
