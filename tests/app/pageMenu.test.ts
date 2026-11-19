@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { pageMenuItems } from '../../src/app/pageMenu'
+import type { MenuItem } from '../../src/ui/ContextMenu.svelte'
+import { toasts } from '../../src/ui/toasts.svelte'
 import { rightClickErases } from '../../src/tools/rightClick'
 
 describe('rightClickErases', () => {
@@ -24,26 +26,65 @@ describe('rightClickErases', () => {
   })
 })
 
+function actions(canDelete = true) {
+  return {
+    duplicatePage: vi.fn(),
+    deletePage: vi.fn(),
+    insertBlankPage: vi.fn(async () => {}),
+    rotatePage: vi.fn(async () => {}),
+    canDeletePage: () => canDelete,
+  }
+}
+
+const item = (items: MenuItem[], label: string) => items.find((i) => i.label === label)!
+
 describe('pageMenuItems', () => {
   it('lists the page actions for the page that was right-clicked (1-based)', () => {
-    expect(pageMenuItems(3).map((i) => i.label)).toEqual([
+    expect(pageMenuItems(3, actions()).map((i) => i.label)).toEqual([
       'Insert as…',
       'Duplicate page 3',
       'Delete page 3',
       'Insert empty page after page 3',
-      'Rotate right',
-      'Rotate left',
+      'Rotate page 3 right',
+      'Rotate page 3 left',
     ])
   })
 
   it('marks delete as dangerous', () => {
-    expect(pageMenuItems(1).find((i) => i.label === 'Delete page 1')?.danger).toBe(true)
+    expect(item(pageMenuItems(1, actions()), 'Delete page 1').danger).toBe(true)
   })
 
-  it('items are placeholders for now: choosing one runs without side effects', () => {
-    const log = vi.spyOn(console, 'error')
-    for (const item of pageMenuItems(2)) expect(() => item.run()).not.toThrow()
-    expect(log).not.toHaveBeenCalled()
-    log.mockRestore()
+  it('runs the page operation on the clicked page (0-based)', () => {
+    const a = actions()
+    const items = pageMenuItems(3, a)
+    item(items, 'Duplicate page 3').run()
+    item(items, 'Delete page 3').run()
+    item(items, 'Insert empty page after page 3').run()
+    item(items, 'Rotate page 3 right').run()
+    item(items, 'Rotate page 3 left').run()
+    expect(a.duplicatePage).toHaveBeenCalledWith(2)
+    expect(a.deletePage).toHaveBeenCalledWith(2)
+    expect(a.insertBlankPage).toHaveBeenCalledWith(2)
+    expect(a.rotatePage.mock.calls).toEqual([[2, 90], [2, -90]])
+  })
+
+  it('disables delete when only one page is left', () => {
+    expect(item(pageMenuItems(1, actions(false)), 'Delete page 1').disabled).toBe(true)
+    expect(item(pageMenuItems(1, actions(true)), 'Delete page 1').disabled).toBeFalsy()
+  })
+
+  it('reports a failed page operation with a toast', async () => {
+    const a = actions()
+    a.rotatePage.mockRejectedValue(new Error('boom'))
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    item(pageMenuItems(1, a), 'Rotate page 1 right').run()
+    await vi.waitFor(() => expect(toasts.items.at(-1)?.message).toBe('Could not rotate the page'))
+    err.mockRestore()
+  })
+
+  it('Insert as… is still a placeholder', () => {
+    const a = actions()
+    item(pageMenuItems(2, a), 'Insert as…').run()
+    expect(Object.values(a).filter((f) => typeof f === 'function' && 'mock' in f && f.mock.calls.length)).toEqual([])
   })
 })

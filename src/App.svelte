@@ -186,8 +186,13 @@
 </div>
 <ConfirmClose />
 <Toast />
-{#if pageMenu}
-  <ContextMenu x={pageMenu.x} y={pageMenu.y} items={pageMenuItems(pageMenu.page)} onclose={() => (pageMenu = null)} />
+{#if pageMenu && tabs.active}
+  <ContextMenu
+    x={pageMenu.x}
+    y={pageMenu.y}
+    items={pageMenuItems(pageMenu.page, tabs.active)}
+    onclose={() => (pageMenu = null)}
+  />
 {/if}
 
 <style>

@@ -5,6 +5,8 @@
     label: string
     icon?: Component<{ size?: number }>
     danger?: boolean
+    /** Shown greyed out; cannot be chosen and arrow keys skip it. */
+    disabled?: boolean
     run(): void
   }
 </script>
@@ -17,6 +19,7 @@
   let { x, y, items, onclose }: { x: number; y: number; items: MenuItem[]; onclose(): void } = $props()
 
   const MARGIN = 8
+  const ENABLED = '[role="menuitem"]:not(:disabled)'
 
   let el: HTMLDivElement
   let left = $state(0)
@@ -27,10 +30,11 @@
     const w = el.offsetWidth
     left = Math.max(MARGIN, x + w + MARGIN > window.innerWidth ? x - w : x)
     top = Math.max(MARGIN, Math.min(y, window.innerHeight - el.offsetHeight - MARGIN))
-    el.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
+    el.querySelector<HTMLElement>(ENABLED)?.focus()
   })
 
   function choose(item: MenuItem) {
+    if (item.disabled) return
     onclose()
     item.run()
   }
@@ -39,7 +43,7 @@
     const delta = e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0
     if (!delta) return
     e.preventDefault()
-    const all = [...el.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+    const all = [...el.querySelectorAll<HTMLElement>(ENABLED)]
     const i = all.indexOf(document.activeElement as HTMLElement)
     all[(i + delta + all.length) % all.length]?.focus()
   }
@@ -57,7 +61,7 @@
   use:dismissable={{ onclose }}
 >
   {#each items as item (item.label)}
-    <button type="button" role="menuitem" class:danger={item.danger} onclick={() => choose(item)}>
+    <button type="button" role="menuitem" class:danger={item.danger} disabled={item.disabled} onclick={() => choose(item)}>
       {#if item.icon}<item.icon size={14} />{/if}
       <span>{item.label}</span>
     </button>
@@ -102,6 +106,12 @@
   .danger:hover,
   .danger:focus-visible {
     color: var(--danger);
+  }
+  button:disabled,
+  button:disabled:hover {
+    color: var(--text-muted);
+    background: transparent;
+    cursor: default;
   }
   @keyframes in {
     from {
