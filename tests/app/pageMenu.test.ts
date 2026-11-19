@@ -41,12 +41,12 @@ const item = (items: MenuItem[], label: string) => items.find((i) => i.label ===
 describe('pageMenuItems', () => {
   it('lists the page actions for the page that was right-clicked (1-based)', () => {
     expect(pageMenuItems(3, actions()).map((i) => i.label)).toEqual([
-      'Insert as…',
-      'Duplicate page 3',
-      'Delete page 3',
+      'Insert image',
       'Insert empty page after page 3',
-      'Rotate page 3 right',
-      'Rotate page 3 left',
+      'Duplicate page 3',
+      'Rotate right',
+      'Rotate left',
+      'Delete page 3',
     ])
   })
 
@@ -60,8 +60,8 @@ describe('pageMenuItems', () => {
     item(items, 'Duplicate page 3').run()
     item(items, 'Delete page 3').run()
     item(items, 'Insert empty page after page 3').run()
-    item(items, 'Rotate page 3 right').run()
-    item(items, 'Rotate page 3 left').run()
+    item(items, 'Rotate right').run()
+    item(items, 'Rotate left').run()
     expect(a.duplicatePage).toHaveBeenCalledWith(2)
     expect(a.deletePage).toHaveBeenCalledWith(2)
     expect(a.insertBlankPage).toHaveBeenCalledWith(2)
@@ -77,23 +77,23 @@ describe('pageMenuItems', () => {
     const a = actions()
     a.rotatePage.mockRejectedValue(new Error('boom'))
     const err = vi.spyOn(console, 'error').mockImplementation(() => {})
-    item(pageMenuItems(1, a), 'Rotate page 1 right').run()
+    item(pageMenuItems(1, a), 'Rotate right').run()
     await vi.waitFor(() => expect(toasts.items.at(-1)?.message).toBe('Could not rotate the page'))
     err.mockRestore()
   })
 
-  it('Insert as… is disabled without a clipboard image', () => {
-    expect(item(pageMenuItems(2, actions()), 'Insert as…').disabled).toBe(true)
+  it('Insert image is disabled without a clipboard image', () => {
+    expect(item(pageMenuItems(2, actions()), 'Insert image').disabled).toBe(true)
     const insert = vi.fn()
-    const i = item(pageMenuItems(2, actions(), { image: null, insert }), 'Insert as…')
+    const i = item(pageMenuItems(2, actions(), { image: null, insert }), 'Insert image')
     expect(i.disabled).toBe(true)
   })
 
-  it('Insert as… is enabled with a clipboard image and inserts that image', () => {
+  it('Insert image is enabled with a clipboard image and inserts that image', () => {
     const image = { width: 1, height: 1, rgba: new Uint8Array(4) }
     const insert = vi.fn(async () => {})
     const a = actions()
-    const i = item(pageMenuItems(2, a, { image, insert }), 'Insert as…')
+    const i = item(pageMenuItems(2, a, { image, insert }), 'Insert image')
     expect(i.disabled).toBe(false)
     i.run()
     expect(insert).toHaveBeenCalledWith(image)
@@ -105,7 +105,7 @@ describe('pageMenuItems', () => {
       throw new Error('boom')
     })
     const err = vi.spyOn(console, 'error').mockImplementation(() => {})
-    item(pageMenuItems(1, actions(), { image: { width: 1, height: 1, rgba: new Uint8Array(4) }, insert }), 'Insert as…').run()
+    item(pageMenuItems(1, actions(), { image: { width: 1, height: 1, rgba: new Uint8Array(4) }, insert }), 'Insert image').run()
     await vi.waitFor(() => expect(toasts.items.at(-1)?.message).toBe('Could not insert the image'))
     err.mockRestore()
   })

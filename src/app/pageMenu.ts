@@ -11,7 +11,7 @@ export interface PageMenuActions {
   canDeletePage(): boolean
 }
 
-/** Pasting the clipboard image onto the page ("Insert as…"). */
+/** Pasting the clipboard image onto the page ("Insert image"). */
 export interface PageMenuPaste {
   /** The clipboard image read when the menu opened; null while unknown or when there is none. */
   image: ClipboardImage | null
@@ -21,7 +21,7 @@ export interface PageMenuPaste {
 /**
  * Items of the page context menu (right-click with select, hand or the
  * text-selection marker) for `page` (1-based) of the document `actions`
- * belongs to. Each operation is one undo step. "Insert as…" pastes the
+ * belongs to. Each operation is one undo step. "Insert image" pastes the
  * clipboard image (`paste`); it is disabled while there is none.
  */
 export function pageMenuItems(page: number, actions: PageMenuActions, paste?: PageMenuPaste): MenuItem[] {
@@ -40,7 +40,7 @@ export function pageMenuItems(page: number, actions: PageMenuActions, paste?: Pa
   }
   return [
     {
-      label: 'Insert as…',
+      label: 'Insert image',
       disabled: !paste?.image,
       run: attempt(
         'insert the image on',
@@ -50,15 +50,15 @@ export function pageMenuItems(page: number, actions: PageMenuActions, paste?: Pa
         'Could not insert the image',
       ),
     },
+    { label: `Insert empty page after page ${page}`, run: attempt('insert an empty page after', () => actions.insertBlankPage(i)) },
     { label: `Duplicate page ${page}`, run: attempt('duplicate', () => actions.duplicatePage(i)) },
+    { label: 'Rotate right', run: attempt('rotate', () => actions.rotatePage(i, 90)) },
+    { label: 'Rotate left', run: attempt('rotate', () => actions.rotatePage(i, -90)) },
     {
       label: `Delete page ${page}`,
       danger: true,
       disabled: !actions.canDeletePage(),
       run: attempt('delete', () => actions.deletePage(i)),
     },
-    { label: `Insert empty page after page ${page}`, run: attempt('insert an empty page after', () => actions.insertBlankPage(i)) },
-    { label: `Rotate page ${page} right`, run: attempt('rotate', () => actions.rotatePage(i, 90)) },
-    { label: `Rotate page ${page} left`, run: attempt('rotate', () => actions.rotatePage(i, -90)) },
   ]
 }

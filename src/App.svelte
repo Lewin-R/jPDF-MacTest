@@ -41,7 +41,7 @@
 
   /** Open page context menu: position (client), 1-based page number and the point clicked on the page. */
   let pageMenu = $state<{ x: number; y: number; page: number; at: PageMenuPoint | null } | null>(null)
-  /** The clipboard image read when the page menu opened (enables "Insert as…"). */
+  /** The clipboard image read when the page menu opened (enables "Insert image"). */
   let menuImage = $state.raw<ClipboardImage | null>(null)
   let menuToken = 0
   function openPageMenu(page: number, x: number, y: number, at?: PageMenuPoint) {
@@ -59,13 +59,13 @@
     menuToken++
   }
 
-  /** "Insert as…" of the page menu: the image read at menu open (captured; closing the menu clears it). */
+  /** "Insert image" of the page menu: the image read at menu open (captured; closing the menu clears it). */
   function menuPaste(session: DocumentSession, page: number, at: PageMenuPoint | null): PageMenuPaste {
     const image = at ? menuImage : null
     return { image, insert: (img) => (at ? pasteImage(session, page, at, img) : undefined) }
   }
 
-  /** "Insert as…": pastes `img` where the page was right-clicked; selected if the select tool is active. */
+  /** "Insert image": pastes `img` where the page was right-clicked; selected if the select tool is active. */
   async function pasteImage(session: DocumentSession, page: number, at: PageMenuPoint, img: ClipboardImage) {
     const a = await insertImage(session, page - 1, at.pdf, at.vp, img, settings.data.author)
     if (activeTool.current?.def.type === 'select' && tabs.active === session) {
