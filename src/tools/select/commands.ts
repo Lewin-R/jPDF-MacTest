@@ -3,7 +3,7 @@ import { keybindings as defaultKeybindings, type KeybindingRegistry } from '../.
 import { deleteAnnotations, updateAnnotation } from '../../core/session/commands'
 import type { Annotation } from '../../core/session/model'
 import type { DocumentSession } from '../../core/session/session.svelte'
-import type { SessionToolState } from '../../core/viewer/toolRouting.svelte'
+import type { SessionToolState } from '../../core/session/toolState.svelte'
 import { toasts } from '../../ui/toasts.svelte'
 import { layoutFreeText } from '../text/editing'
 

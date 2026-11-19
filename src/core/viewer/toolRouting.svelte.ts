@@ -1,7 +1,7 @@
 import { untrack } from 'svelte'
-import type { TextEdit, ToolContext, ToolDefinition, ToolHandler } from '../registry/tools'
-import type { Annotation } from '../session/model'
+import type { ToolContext, ToolDefinition, ToolHandler } from '../registry/tools'
 import type { DocumentSession } from '../session/session.svelte'
+import { SessionToolState } from '../session/toolState.svelte'
 import type { ToolInstance } from '../settings/settings.svelte'
 
 interface ActiveToolLike {
@@ -9,14 +9,7 @@ interface ActiveToolLike {
   instance: ToolInstance
 }
 
-/** Per-session tool state: selection and the live (uncommitted) preview annotation. */
-export class SessionToolState {
-  selection = $state<string[]>([])
-  preview = $state.raw<Annotation | null>(null)
-  hidden = $state.raw<ReadonlySet<string>>(new Set())
-  cursor = $state<string | null>(null)
-  textEdit = $state.raw<TextEdit | null>(null)
-}
+export { SessionToolState }
 
 /**
  * Owns the active tool's ToolHandler. The handler is created (with a
@@ -43,7 +36,13 @@ export class ToolRouter {
     private getSession: () => DocumentSession | null,
   ) {}
 
+  /**
+   * The session's tool state. Real sessions own one from construction (see
+   * SessionToolState for why it must not be created lazily by a reader); the
+   * lazy fallback only serves minimal session stand-ins.
+   */
   stateOf(session: DocumentSession): SessionToolState {
+    if (session.toolState) return session.toolState
     let s = this.states.get(session)
     if (!s) {
       s = new SessionToolState()

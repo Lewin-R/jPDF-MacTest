@@ -9,6 +9,7 @@ import { toasts } from '../../ui/toasts.svelte'
 import { History } from './history.svelte'
 import type { Annotation } from './model'
 import { AnnotationStore } from './store.svelte'
+import { SessionToolState } from './toolState.svelte'
 
 export interface ViewAnchor {
   /** Resolves when the viewport size next changes. */
@@ -103,6 +104,8 @@ export class DocumentSession {
   private viewportWaiters: (() => void)[] = []
   readonly store = new AnnotationStore()
   readonly history = new History(this.store)
+  /** Selection and live tool preview; created here, never lazily (see SessionToolState). */
+  readonly toolState = new SessionToolState()
 
   get dirty(): boolean {
     return this.history.isDirty
