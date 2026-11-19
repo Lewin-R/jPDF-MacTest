@@ -33,6 +33,17 @@ describe('wheelZoomFactor', () => {
     expect(wheelZoomFactor(3, 1)).toBeCloseTo(Math.exp(-3 * 16 * 0.002))
     expect(wheelZoomFactor(1, 2)).toBeCloseTo(Math.exp(-800 * 0.002))
   })
+  it('follows a touchpad pinch 1:1 (small Ctrl+wheel deltas summing to 100·ln(1/scale))', () => {
+    // A pinch to 2x arrives as many small deltas totalling 100·ln(1/2) ≈ -69.3.
+    const deltas = [-1, -2, -2, -2, -4, -3, -3, -3, -5, -6, -8, -7, -9, -14.31]
+    const total = deltas.reduce((f, d) => f * wheelZoomFactor(d, 0), 1)
+    expect(deltas.reduce((a, b) => a + b, 0)).toBeCloseTo(100 * Math.log(1 / 2), 1)
+    expect(total).toBeCloseTo(2, 2)
+  })
+  it('keeps mouse Ctrl+wheel notches (large deltas) at the gentle mouse rate', () => {
+    expect(wheelZoomFactor(-100, 0)).toBeCloseTo(Math.exp(0.2))
+    expect(wheelZoomFactor(250, 0)).toBeCloseTo(Math.exp(-0.5))
+  })
 })
 
 describe('parsePageInput', () => {

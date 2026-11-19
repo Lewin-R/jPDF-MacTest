@@ -22,6 +22,13 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            #[cfg(windows)]
+            if let Some(window) = app.get_webview_window("main") {
+                enable_touchpad_pinch(&window);
+            }
+            Ok(())
+        })
         .manage(LaunchFiles(std::sync::Mutex::new(pdf_args(std::env::args().skip(1)))))
         .invoke_handler(tauri::generate_handler![
             open_pdf,
@@ -34,4 +41,32 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// `zoomHotkeysEnabled: false` (no Ctrl+wheel / Ctrl+± zoom of the whole UI)
+/// also turns off WebView2 pinch, which swallows touchpad pinch before the page
+/// sees it. Turn pinch back on: the page then receives pinch as Ctrl+wheel,
+/// the viewer zooms the document, and `guardPageZoom` cancels it elsewhere.
+#[cfg(windows)]
+fn enable_touchpad_pinch(window: &tauri::WebviewWindow) {
+    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings5;
+    use windows::core::Interface;
+
+    let result = window.with_webview(|webview| {
+        // SAFETY: COM calls on the WebView2 controller, on the thread Tauri runs this closure on.
+        let enabled = unsafe {
+            webview
+                .controller()
+                .CoreWebView2()
+                .and_then(|core| core.Settings())
+                .and_then(|settings| settings.cast::<ICoreWebView2Settings5>())
+                .and_then(|settings| settings.SetIsPinchZoomEnabled(true))
+        };
+        if let Err(e) = enabled {
+            eprintln!("Could not enable touchpad pinch zoom: {e}");
+        }
+    });
+    if let Err(e) = result {
+        eprintln!("Could not access the webview to enable pinch zoom: {e}");
+    }
 }

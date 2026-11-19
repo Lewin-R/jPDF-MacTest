@@ -40,8 +40,16 @@ export function scaleBucket(rs: number): number {
 
 const LINE_PX = 16, PAGE_PX = 800
 
+/**
+ * Below this pixel delta a Ctrl+wheel event is treated as touchpad pinch: Chromium
+ * sends a pinch as many small deltas, while a mouse wheel notch is ~100 or more.
+ */
+const PINCH_MAX_DELTA = 50
+
 /** Zoom factor for one Ctrl+wheel / pinch event. */
 export function wheelZoomFactor(deltaY: number, deltaMode: number): number {
+  // Pinch deltas total 100·ln(1/scale), so exp(-Δ/100) makes the page follow the fingers 1:1.
+  if (deltaMode === 0 && Math.abs(deltaY) < PINCH_MAX_DELTA) return Math.exp(-deltaY / 100)
   const px = deltaMode === 1 ? deltaY * LINE_PX : deltaMode === 2 ? deltaY * PAGE_PX : deltaY
   return Math.exp(-px * 0.002)
 }
