@@ -15,8 +15,10 @@
   )
 </script>
 
-<g style:mix-blend-mode="multiply">
+<!-- Opacity on the group over opaque polygons: overlapping quads are not
+     darkened twice, as in the saved appearance. -->
+<g opacity={a.opacity < 1 ? a.opacity : undefined} style:mix-blend-mode="multiply">
   {#each polygons as points, i (i)}
-    <polygon {points} fill={color} fill-opacity={a.opacity} />
+    <polygon {points} fill={color} />
   {/each}
 </g>

@@ -13,14 +13,15 @@
   const multiply = $derived(a.blend === 'multiply')
 </script>
 
-<g style:mix-blend-mode={multiply ? 'multiply' : undefined}>
+<!-- Opacity on the group over opaque strokes: where strokes cross (or one
+     crosses itself) the area is not darkened twice, as in the saved appearance. -->
+<g opacity={a.opacity < 1 ? a.opacity : undefined} style:mix-blend-mode={multiply ? 'multiply' : undefined}>
   {#each a.strokes as stroke, i (i)}
     <path
       d={smoothPath(stroke, toScreen)}
       fill="none"
       stroke={color}
       stroke-width={a.width * vp.scale}
-      stroke-opacity={a.opacity}
       stroke-linecap="round"
       stroke-linejoin="round"
     />

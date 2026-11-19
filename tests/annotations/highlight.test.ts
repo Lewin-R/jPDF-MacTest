@@ -39,7 +39,9 @@ describe('highlight kind', () => {
     // TL, TR, BR, BL
     expect(polys[0].getAttribute('points')).toBe('20,20 100,20 100,40 20,40')
     expect(polys[0].getAttribute('fill')).toBe('rgb(255,255,0)')
-    expect(polys[0].getAttribute('fill-opacity')).toBe('0.4')
+    // Opacity on the group, opaque polygons: overlapping quads are not darkened twice.
+    expect(polys[0].hasAttribute('fill-opacity')).toBe(false)
+    expect(container.querySelector('g')!.getAttribute('opacity')).toBe('0.4')
     expect(container.querySelector('g')!.style.mixBlendMode).toBe('multiply')
   })
 

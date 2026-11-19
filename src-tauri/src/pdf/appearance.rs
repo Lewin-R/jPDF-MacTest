@@ -11,6 +11,12 @@ use super::winansi::encode_winansi;
 /// The writer builds the `/ExtGState` resource `GS0` from `opacity` (`/CA`, `/ca`)
 /// and `multiply` (`/BM /Multiply`), a further `/ExtGState` entry per
 /// `gstates` item, and a Helvetica font resource if `uses_helvetica`.
+///
+/// With `group`, `content` only paints the form `/Fm0` (under `GS0`), and the
+/// writer builds `/Fm0` from `group`: an isolated knockout transparency group
+/// with the same box, drawing opaque paths. The opacity and blend mode then
+/// apply once to the whole drawing, so overlapping strokes or quads of one
+/// annotation are not darkened twice.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Appearance {
     pub bbox: [f64; 4],
@@ -21,7 +27,12 @@ pub struct Appearance {
     pub matrix: Option<[f64; 6]>,
     /// Extra named graphics states (shapes: separate fill and stroke opacity).
     pub gstates: Vec<NamedGState>,
+    /// Content of the transparency group `/Fm0` that `content` paints.
+    pub group: Option<Vec<u8>>,
 }
+
+/// Outer content of a grouped appearance: opacity and blend mode, then the group.
+const PAINT_GROUP: &str = "q\n/GS0 gs\n/Fm0 Do\nQ\n";
 
 /// An `/ExtGState` resource `name` setting `/ca` (fill) and/or `/CA` (stroke) opacity.
 #[derive(Clone, Debug, PartialEq)]
@@ -99,7 +110,7 @@ pub fn ink_appearance(strokes: &[Vec<[f64; 2]>], color: [f64; 3], width: f64, op
     let bbox = if any { [x1 - pad, y1 - pad, x2 + pad, y2 + pad] } else { [0.0; 4] };
 
     let mut c = format!(
-        "q\n{} w\n1 J\n1 j\n{} {} {} RG\n/GS0 gs\n",
+        "q\n{} w\n1 J\n1 j\n{} {} {} RG\n",
         fmt_num(width),
         fmt_num(color[0]),
         fmt_num(color[1]),
@@ -111,11 +122,20 @@ pub fn ink_appearance(strokes: &[Vec<[f64; 2]>], color: [f64; 3], width: f64, op
     }
     c.push_str("Q\n");
 
-    Appearance { bbox, content: c.into_bytes(), opacity, multiply, uses_helvetica: false, matrix: None, gstates: Vec::new() }
+    Appearance {
+        bbox,
+        content: PAINT_GROUP.into(),
+        opacity,
+        multiply,
+        uses_helvetica: false,
+        matrix: None,
+        gstates: Vec::new(),
+        group: Some(c.into_bytes()),
+    }
 }
 
 /// One filled path per quad (QuadPoints order TL, TR, BL, BR; drawn TL→TR→BR→BL),
-/// multiply-blended. `bbox` = union of the quads (zero if there are none).
+/// in an opaque group painted multiply-blended with the opacity. `bbox` = union of the quads (zero if there are none).
 pub fn highlight_appearance(quads: &[[f64; 8]], color: [f64; 3], opacity: f64) -> Appearance {
     let (mut x1, mut y1, mut x2, mut y2) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
     for q in quads {
@@ -129,7 +149,7 @@ pub fn highlight_appearance(quads: &[[f64; 8]], color: [f64; 3], opacity: f64) -
     let bbox = if quads.is_empty() { [0.0; 4] } else { [x1, y1, x2, y2] };
 
     let mut c = format!(
-        "q\n{} {} {} rg\n/GS0 gs\n",
+        "q\n{} {} {} rg\n",
         fmt_num(color[0]),
         fmt_num(color[1]),
         fmt_num(color[2])
@@ -145,7 +165,16 @@ pub fn highlight_appearance(quads: &[[f64; 8]], color: [f64; 3], opacity: f64) -
     }
     c.push_str("Q\n");
 
-    Appearance { bbox, content: c.into_bytes(), opacity, multiply: true, uses_helvetica: false, matrix: None, gstates: Vec::new() }
+    Appearance {
+        bbox,
+        content: PAINT_GROUP.into(),
+        opacity,
+        multiply: true,
+        uses_helvetica: false,
+        matrix: None,
+        gstates: Vec::new(),
+        group: Some(c.into_bytes()),
+    }
 }
 
 /// Inner box padding, line height factor and first-baseline offset (fraction of
@@ -256,6 +285,7 @@ pub fn freetext_appearance(
         uses_helvetica: true,
         matrix,
         gstates: Vec::new(),
+        group: None,
     }
 }
 
@@ -311,6 +341,7 @@ pub fn shape_appearance(shape: ShapeKind, rect: [f64; 4], border: Option<&Stroke
         uses_helvetica: false,
         matrix: None,
         gstates,
+        group: None,
     }
 }
 
@@ -375,6 +406,37 @@ mod tests {
         String::from_utf8(a.content.clone()).unwrap()
     }
 
+    /// The opaque drawing of a grouped appearance (the `/Fm0` form).
+    fn group_text(a: &Appearance) -> String {
+        String::from_utf8(a.group.clone().expect("transparency group")).unwrap()
+    }
+
+    #[test]
+    fn ink_and_highlight_paint_an_opaque_group_with_opacity_applied_once() {
+        let ink = ink_appearance(
+            &[vec![[0.0, 0.0], [10.0, 0.0]], vec![[5.0, -5.0], [5.0, 5.0]]],
+            [1.0, 0.0, 0.0],
+            2.0,
+            0.4,
+            true,
+        );
+        let hl = highlight_appearance(&[[0.0, 10.0, 10.0, 10.0, 0.0, 0.0, 10.0, 0.0]], [1.0, 0.5, 0.0], 0.4);
+        for a in [&ink, &hl] {
+            // Outer stream: opacity and blend mode (GS0), then the group, once.
+            assert_eq!(text(a), "q\n/GS0 gs\n/Fm0 Do\nQ\n");
+            assert_eq!(a.opacity, 0.4);
+            assert!(a.multiply);
+            // The group draws opaque paths: no graphics state changes inside.
+            assert!(!group_text(a).contains(" gs"), "{}", group_text(a));
+        }
+        assert_eq!(group_text(&ink).matches("S\n").count(), 2);
+        assert_eq!(group_text(&hl).matches("f\n").count(), 1);
+        // Other appearances draw directly.
+        let fill = Fill { color: [0.0; 3], opacity: 0.5 };
+        assert!(shape_appearance(ShapeKind::Rect, [0.0, 0.0, 1.0, 1.0], None, Some(&fill)).group.is_none());
+        assert!(freetext_appearance([0.0, 0.0, 10.0, 10.0], &[], 10.0, [0.0; 3], None, 0).group.is_none());
+    }
+
     #[test]
     fn highlight_appearance_uses_multiply() {
         let a = highlight_appearance(&[[0.0, 10.0, 10.0, 10.0, 0.0, 0.0, 10.0, 0.0]], [1.0, 0.5, 0.0], 0.4);
@@ -396,8 +458,8 @@ mod tests {
             0.4,
         );
         assert_eq!(
-            text(&a),
-            "q\n1 0.5 0 rg\n/GS0 gs\n1 20 m\n30 20 l\n30 10 l\n1 10 l\nh\nf\n5 8 m\n15 8 l\n15 -2 l\n5 -2 l\nh\nf\nQ\n"
+            group_text(&a),
+            "q\n1 0.5 0 rg\n1 20 m\n30 20 l\n30 10 l\n1 10 l\nh\nf\n5 8 m\n15 8 l\n15 -2 l\n5 -2 l\nh\nf\nQ\n"
         );
         assert_eq!(a.bbox, [1.0, -2.0, 30.0, 20.0]);
     }
@@ -411,13 +473,13 @@ mod tests {
     #[test]
     fn ink_appearance_contains_curve_ops() {
         let a = ink_appearance(&[vec![[0.0, 0.0], [10.0, 10.0], [20.0, 0.0]]], [1.0, 0.0, 0.0], 2.0, 1.0, false);
-        let t = text(&a);
+        let t = group_text(&a);
         assert!(t.contains(" c\n"));
         assert!(t.ends_with("S\nQ\n"));
-        assert!(t.starts_with("q\n2 w\n1 J\n1 j\n1 0 0 RG\n/GS0 gs\n"));
+        assert!(t.starts_with("q\n2 w\n1 J\n1 j\n1 0 0 RG\n"), "{t}");
         let b = ink_appearance(&[vec![[0.0, 0.0], [10.0, 0.0]]], [0.0; 3], 2.0, 1.0, false);
-        assert!(text(&b).contains(" l\n"));
-        assert!(!text(&b).contains(" c\n"));
+        assert!(group_text(&b).contains(" l\n"));
+        assert!(!group_text(&b).contains(" c\n"));
     }
 
     #[test]
@@ -425,20 +487,20 @@ mod tests {
         // p0=(0,0) c=(10,10) end=mid((10,10),(20,0))=(15,5)
         // c1 = (6.667,6.667); c2 = (15+2/3*(10-15), 5+2/3*(10-5)) = (11.667,8.333)
         let a = ink_appearance(&[vec![[0.0, 0.0], [10.0, 10.0], [20.0, 0.0]]], [0.0; 3], 2.0, 1.0, false);
-        let t = text(&a);
+        let t = group_text(&a);
         assert!(t.contains("0 0 m\n6.667 6.667 11.667 8.333 15 5 c\n20 0 l\nS\n"), "{t}");
     }
 
     #[test]
     fn ink_single_point_is_zero_length_line() {
         let a = ink_appearance(&[vec![[5.0, 6.0]]], [0.0; 3], 2.0, 1.0, false);
-        assert!(text(&a).contains("5 6 m\n5 6 l\nS\n"));
+        assert!(group_text(&a).contains("5 6 m\n5 6 l\nS\n"));
     }
 
     #[test]
     fn ink_skips_empty_strokes() {
         let a = ink_appearance(&[vec![], vec![[1.0, 1.0], [2.0, 2.0]]], [0.0; 3], 2.0, 1.0, false);
-        assert_eq!(text(&a).matches("S\n").count(), 1);
+        assert_eq!(group_text(&a).matches("S\n").count(), 1);
         let none = ink_appearance(&[], [0.0; 3], 2.0, 1.0, false);
         assert_eq!(none.bbox, [0.0; 4]);
     }
@@ -455,7 +517,7 @@ mod tests {
     #[test]
     fn ink_four_points_second_segment_starts_at_midpoint() {
         let a = ink_appearance(&[vec![[0.0, 0.0], [10.0, 0.0], [20.0, 10.0], [30.0, 10.0]]], [0.0; 3], 2.0, 1.0, false);
-        let t = text(&a);
+        let t = group_text(&a);
         // first end = mid(p1,p2) = (15,5); second curve: c = p2, p0' = (15,5), end = mid(p2,p3) = (25,10)
         // c1 = 15+2/3*(20-15), 5+2/3*(10-5) = 18.333 8.333; c2 = 25+2/3*(20-25), 10+2/3*(10-10) = 21.667 10
         assert!(t.contains("15 5 c

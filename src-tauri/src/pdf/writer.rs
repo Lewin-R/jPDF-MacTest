@@ -201,7 +201,7 @@ impl Writer {
             }
             return Ok(None);
         };
-        let ap_id = self.inc.new_document.add_object(appearance_stream(&ap)?);
+        let ap_id = add_appearance(&mut self.inc.new_document, &ap)?;
         annot.set("Rect", nums(&ap.rect()));
         annot.set("AP", dictionary! { "N" => ap_id });
         annot.set("P", page_id);
@@ -536,8 +536,9 @@ fn nums(values: &[f64]) -> Object {
     Object::Array(values.iter().map(|&v| num(v)).collect())
 }
 
-/// Form XObject for an appearance whose content uses absolute user-space coordinates.
-fn appearance_stream(ap: &Appearance) -> Result<Stream, AppError> {
+/// Adds the form XObject for an appearance whose content uses absolute
+/// user-space coordinates (and its transparency group form, if any) to `doc`.
+fn add_appearance(doc: &mut Document, ap: &Appearance) -> Result<ObjectId, AppError> {
     let mut gs =
         dictionary! { "Type" => "ExtGState", "CA" => num(ap.opacity), "ca" => num(ap.opacity) };
     if ap.multiply {
@@ -555,6 +556,20 @@ fn appearance_stream(ap: &Appearance) -> Result<Stream, AppError> {
         gstates.set(g.name, d);
     }
     let mut resources = dictionary! { "ExtGState" => gstates };
+    if let Some(group) = &ap.group {
+        // Isolated knockout group drawing opaque paths: the outer stream's GS0
+        // applies opacity and blend mode once to the composited group.
+        let dict = dictionary! {
+            "Type" => "XObject",
+            "Subtype" => "Form",
+            "FormType" => 1,
+            "BBox" => nums(&ap.bbox),
+            "Resources" => Dictionary::new(),
+            "Group" => dictionary! { "S" => "Transparency", "I" => true, "K" => true },
+        };
+        let id = doc.add_object(compressed_stream(dict, group)?);
+        resources.set("XObject", dictionary! { "Fm0" => id });
+    }
     if ap.uses_helvetica {
         resources.set(
             "Font",
@@ -577,7 +592,7 @@ fn appearance_stream(ap: &Appearance) -> Result<Stream, AppError> {
         "Matrix" => nums(&matrix),
         "Resources" => resources,
     };
-    compressed_stream(dict, &ap.content)
+    Ok(doc.add_object(compressed_stream(dict, &ap.content)?))
 }
 
 /// A Flate-compressed stream (uncompressed if that is not smaller). Uses the

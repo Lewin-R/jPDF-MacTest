@@ -34,7 +34,9 @@ describe('Overlay + ink', () => {
     const path = container.querySelector('path')!
     expect(path.getAttribute('d')).toBe('M0 200 Q20 200 30 190 L40 180')
     expect(path.getAttribute('stroke-width')).toBe('8')
-    expect(path.getAttribute('stroke-opacity')).toBe('0.5')
+    // Opacity on the group, opaque strokes: crossings are not darkened twice.
+    expect(path.hasAttribute('stroke-opacity')).toBe(false)
+    expect(container.querySelector('g')!.getAttribute('opacity')).toBe('0.5')
     expect(path.getAttribute('stroke')).toBe('rgb(255,0,0)')
     expect(path.getAttribute('stroke-linecap')).toBe('round')
     expect(container.querySelector('g')!.style.mixBlendMode).toBe('')

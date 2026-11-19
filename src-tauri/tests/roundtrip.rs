@@ -209,11 +209,17 @@ fn highlight_roundtrip() {
     assert_eq!(private.get(b"v").unwrap().as_i64().unwrap(), 1);
     let ap = annot.get(b"AP").unwrap().as_dict().unwrap().get(b"N").unwrap().as_reference().unwrap();
     let stream = doc.get_object(ap).unwrap().as_stream().unwrap();
-    let content = String::from_utf8(stream.decompressed_content().unwrap()).unwrap();
+    // Opacity is applied once, to an opaque knockout group: overlapping quads
+    // are not darkened twice.
+    let outer = String::from_utf8(stream.decompressed_content().unwrap()).unwrap();
+    assert_eq!(outer, "q\n/GS0 gs\n/Fm0 Do\nQ\n");
+    let group = knockout_group(&doc, stream);
+    let content = String::from_utf8(group.decompressed_content().unwrap()).unwrap();
     assert!(
         content.contains("72 790 m\n200.5 790 l\n200.5 766 l\n72 766 l\nh\nf\n"),
         "{content}"
     );
+    assert!(!content.contains(" gs"), "{content}");
     let gs = stream
         .dict
         .get(b"Resources")
@@ -229,6 +235,23 @@ fn highlight_roundtrip() {
         .as_dict()
         .unwrap();
     assert_eq!(gs.get(b"BM").unwrap().as_name().unwrap(), b"Multiply");
+    assert_eq!(gs.get(b"ca").unwrap().as_float().unwrap(), 0.4);
+    assert_eq!(gs.get(b"CA").unwrap().as_float().unwrap(), 0.4);
+}
+
+/// The `/Fm0` form an ink or highlight appearance paints: an isolated
+/// knockout transparency group with the same box.
+fn knockout_group<'a>(doc: &'a Document, outer: &lopdf::Stream) -> &'a lopdf::Stream {
+    let res = outer.dict.get(b"Resources").unwrap().as_dict().unwrap();
+    let id = res.get(b"XObject").unwrap().as_dict().unwrap().get(b"Fm0").unwrap().as_reference().unwrap();
+    let inner = doc.get_object(id).unwrap().as_stream().unwrap();
+    assert_eq!(inner.dict.get(b"Subtype").unwrap().as_name().unwrap(), b"Form");
+    let g = inner.dict.get(b"Group").unwrap().as_dict().unwrap();
+    assert_eq!(g.get(b"S").unwrap().as_name().unwrap(), b"Transparency");
+    assert!(g.get(b"I").unwrap().as_bool().unwrap(), "isolated");
+    assert!(g.get(b"K").unwrap().as_bool().unwrap(), "knockout");
+    assert_eq!(floats(inner.dict.get(b"BBox").unwrap()), floats(outer.dict.get(b"BBox").unwrap()));
+    inner
 }
 
 #[test]
@@ -529,7 +552,7 @@ fn output_reloads_with_lopdf() {
         stream.dict.get(b"Subtype").unwrap().as_name().unwrap(),
         b"Form"
     );
-    let content = stream.decompressed_content().unwrap();
+    let content = knockout_group(&doc, stream).decompressed_content().unwrap();
     assert!(
         content.starts_with(b"q\n2.5 w\n"),
         "{}",
