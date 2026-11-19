@@ -49,17 +49,44 @@ describe('Fullscreen', () => {
     expect(fs.active).toBe(false)
   })
 
-  it('restores the captured scroll anchor once the resize has settled', async () => {
+  it('restores when the viewer resizes, not on a timer', async () => {
     const win = fakeWindow()
-    const fs = new Fullscreen(() => win, 150)
+    const fs = new Fullscreen(() => win, 500)
     const restore = vi.fn()
-    fs.anchor = () => restore
+    let resize!: () => void
+    fs.anchor = () => ({ restore, resized: new Promise<void>((r) => (resize = r)) })
     const done = fs.toggle()
-    await vi.advanceTimersByTimeAsync(100)
+    await vi.advanceTimersByTimeAsync(300)
     expect(restore).not.toHaveBeenCalled()
-    await vi.advanceTimersByTimeAsync(100)
+    resize()
     await done
     expect(restore).toHaveBeenCalledOnce()
+  })
+
+  it('falls back to a timeout when no resize arrives', async () => {
+    const win = fakeWindow()
+    const fs = new Fullscreen(() => win, 500)
+    const restore = vi.fn()
+    fs.anchor = () => ({ restore, resized: new Promise<void>(() => {}) })
+    const done = fs.toggle()
+    await vi.advanceTimersByTimeAsync(499)
+    expect(restore).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(2)
+    await done
+    expect(restore).toHaveBeenCalledOnce()
+  })
+
+  it('sync is skipped while a toggle is pending', async () => {
+    const win = fakeWindow()
+    let release!: () => void
+    win.setFullscreen.mockImplementation(() => new Promise<void>((r) => (release = r)))
+    const fs = new Fullscreen(() => win, 0)
+    const t = fs.toggle()
+    await fs.sync()
+    expect(win.isFullscreen).not.toHaveBeenCalled()
+    release()
+    await t
+    expect(fs.active).toBe(true)
   })
 
   it('a failing window call keeps the state and shows a toast', async () => {

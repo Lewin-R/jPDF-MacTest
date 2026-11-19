@@ -210,14 +210,47 @@ describe('DocumentSession.open annotations', () => {
     error.mockRestore()
   })
 
-  it('anchorView restores the page and the offset within it after the scroll was disturbed', () => {
-    s.goToPage(3)
-    s.scrollBy(0, 100)
-    const restore = s.anchorView()
-    const top = s.scrollTop
-    s.setScroll(5, 0) // e.g. the browser clamped the scroll while the viewport resized
+  it('anchorView.resized resolves on a viewport size change only', async () => {
+    const { resized } = s.anchorView()
+    let done = false
+    void resized.then(() => (done = true))
+    s.setViewport(1000, 500)
+    await Promise.resolve()
+    expect(done).toBe(false)
+    s.setViewport(1000, 900)
+    await Promise.resolve()
+    expect(done).toBe(true)
+  })
+
+  it('anchorView restores the page position after a resize clamped the scroll', () => {
+    s.goToPage(4)
+    const top = s.scrollTop // 2780: the bottom at viewport height 500
+    const { restore } = s.anchorView()
+    s.setViewport(1000, 900)
+    s.setScroll(2380, 0) // the browser clamped it to the new maximum
     restore()
     expect(s.scrollTop).toBe(top)
+  })
+
+  it('anchorView skips the restore after the user scrolled', () => {
+    s.goToPage(3)
+    const { restore } = s.anchorView()
+    s.setViewport(1000, 900)
+    s.scrollBy(0, 300) // user scroll
+    const moved = s.scrollTop
+    restore()
+    expect(s.scrollTop).toBe(moved)
+  })
+
+  it('anchorView is scale independent: a zoom in between keeps the same fraction of the page', () => {
+    s.goToPage(3)
+    s.scrollBy(0, 200) // 200 pt into the page area above the page top (16pt gap), at scale 1
+    const before = (s.scrollTop - s.layout.tops[2]) / 800
+    const { restore } = s.anchorView()
+    s.zoomTo(2)
+    s.setScroll(0, 0) // viewer moved elsewhere
+    restore()
+    expect((s.scrollTop - s.layout.tops[2]) / (800 * s.scale)).toBeCloseTo(before, 5)
     expect(s.currentPage).toBe(3)
   })
 

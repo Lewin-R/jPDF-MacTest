@@ -1,6 +1,7 @@
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { commands as defaultCommands, type CommandRegistry } from '../core/registry/commands'
 import { keybindings as defaultKeybindings, type KeybindingRegistry } from '../core/registry/keybindings'
+import type { ViewAnchor } from '../core/session/session.svelte'
 import { toasts } from '../ui/toasts.svelte'
 
 interface FullscreenWindow {
@@ -8,8 +9,8 @@ interface FullscreenWindow {
   isFullscreen(): Promise<boolean>
 }
 
-/** Time for the viewer to pick up its new size before the scroll position is restored. */
-const SETTLE_MS = 150
+/** Fallback when the viewer never reports a size change. */
+const SETTLE_MS = 500
 
 /**
  * Window fullscreen. The shell hides its chrome while `active`; `anchor` (set by
@@ -18,7 +19,9 @@ const SETTLE_MS = 150
  */
 export class Fullscreen {
   active = $state(false)
-  anchor: (() => (() => void) | null) | null = null
+  anchor: (() => ViewAnchor | null) | null = null
+  /** Toggles in flight: resize events during one must not re-read the state. */
+  private pending = 0
 
   constructor(
     private getWindow: () => FullscreenWindow = getCurrentWindow,
@@ -35,6 +38,7 @@ export class Fullscreen {
 
   /** Follows the window when fullscreen was left by other means (e.g. the OS). */
   async sync(): Promise<void> {
+    if (this.pending > 0) return
     try {
       this.active = await this.getWindow().isFullscreen()
     } catch (e) {
@@ -50,18 +54,29 @@ export class Fullscreen {
   }
 
   private async set(on: boolean): Promise<void> {
-    const restore = this.anchor?.() ?? null
+    const anchor = this.anchor?.() ?? null
+    this.pending++
     try {
-      await this.getWindow().setFullscreen(on)
-    } catch (e) {
-      console.error('Could not change fullscreen', e)
-      toasts.show('Could not change fullscreen mode', 'error')
-      return
+      try {
+        await this.getWindow().setFullscreen(on)
+      } catch (e) {
+        console.error('Could not change fullscreen', e)
+        toasts.show('Could not change fullscreen mode', 'error')
+        return
+      }
+      this.active = on
+      if (!anchor) return
+      // Restore when the viewer has actually resized; the timer only covers "no resize came".
+      let timer: ReturnType<typeof setTimeout> | undefined
+      await Promise.race([
+        anchor.resized,
+        new Promise<void>((r) => (timer = setTimeout(r, this.settleMs))),
+      ])
+      clearTimeout(timer)
+      anchor.restore()
+    } finally {
+      this.pending--
     }
-    this.active = on
-    if (!restore) return
-    await new Promise((r) => setTimeout(r, this.settleMs))
-    restore()
   }
 }
 

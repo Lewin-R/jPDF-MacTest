@@ -28,7 +28,7 @@ function reportCommandError(id: string, e: unknown): void {
 }
 
 /** Bare keys typed while focus is inside a popup (flyout, modal, menu) belong to it. */
-const POPUP_SELECTOR = '[role="dialog"], [role="menu"], [data-flyout]'
+const POPUP_SELECTOR = '[role="dialog"], [role="menu"]'
 
 function isInsidePopup(t: EventTarget | null): boolean {
   return t instanceof Element && t.closest(POPUP_SELECTOR) !== null

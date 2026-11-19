@@ -10,6 +10,12 @@ import { History } from './history.svelte'
 import type { Annotation } from './model'
 import { AnnotationStore } from './store.svelte'
 
+export interface ViewAnchor {
+  /** Resolves when the viewport size next changes. */
+  resized: Promise<void>
+  restore(): void
+}
+
 export interface PageSize {
   width: number
   height: number
@@ -94,6 +100,7 @@ export class DocumentSession {
   /** Set by goToPage so the echoing scroll event keeps the requested page. */
   private pinnedTop: number | null = null
   private disposed = false
+  private viewportWaiters: (() => void)[] = []
   readonly store = new AnnotationStore()
   readonly history = new History(this.store)
 
@@ -185,8 +192,10 @@ export class DocumentSession {
   }
 
   setViewport(width: number, height: number): void {
+    const changed = width !== this.viewportW || height !== this.viewportH
     this.viewportW = width
     this.viewportH = height
+    if (changed) this.viewportWaiters.splice(0).forEach((r) => r())
   }
 
   /**
@@ -238,18 +247,28 @@ export class DocumentSession {
   }
 
   /**
-   * Remembers the current page and the scroll offset within it; the returned
-   * function restores that position (after a viewport resize such as entering
-   * or leaving fullscreen).
+   * Remembers the current page and how far into it the viewport is (as a
+   * fraction of the page height, so it survives a zoom change). `resized`
+   * resolves when the viewport size next changes; `restore` puts the position
+   * back, unless the user scrolled in the meantime.
    */
-  anchorView(): () => void {
-    const p = this.currentPage - 1
-    const offset = this.scrollTop - (this.layout.tops[p] ?? 0)
+  anchorView(): ViewAnchor {
+    const p = Math.max(0, this.currentPage - 1)
+    const height = (this.pageSizes[p]?.height ?? 1) * this.scale
+    const fraction = (this.scrollTop - (this.layout.tops[p] ?? 0)) / height
+    const top0 = this.scrollTop
+    const scale0 = this.scale
     const left = this.scrollLeft
-    return () => {
+    const resized = new Promise<void>((resolve) => this.viewportWaiters.push(resolve))
+    const restore = () => {
       if (this.disposed) return
-      this.setScroll(Math.max(0, (this.layout.tops[p] ?? 0) + offset), left)
+      // A resize may clamp the scroll position; anything else is the user moving.
+      const clamped = Math.min(top0, Math.max(0, this.layout.totalHeight - this.viewportH))
+      if (this.scale === scale0 && Math.abs(this.scrollTop - clamped) >= 1) return
+      const h = (this.pageSizes[p]?.height ?? 1) * this.scale
+      this.setScroll(Math.max(0, (this.layout.tops[p] ?? 0) + fraction * h), left)
     }
+    return { resized, restore }
   }
 
   /** Scrolls so 1-based page `page` (clamped to the document) is at the top. */
