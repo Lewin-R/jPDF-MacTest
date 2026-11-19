@@ -1,5 +1,5 @@
-//! Maps a document's `/Ink`, `/Highlight`, `/Underline`, `/StrikeOut`, `/FreeText`, `/Square` and
-//! `/Circle` annotations, and the `/Stamp`s JuliePDF saved for pasted images,
+//! Maps a document's `/Ink`, `/Highlight`, `/Underline`, `/StrikeOut`, `/FreeText`, `/Square`,
+//! `/Circle`, `/Line` and `/PolyLine` annotations, and the `/Stamp`s JuliePDF saved for pasted images,
 //! to DTOs.
 //! `/JuliePDF` values win; foreign annotations get defaults. Other subtypes,
 //! annotations stored inline in `/Annots` (which cannot be addressed by ref),
@@ -166,6 +166,7 @@ fn map_annotation(doc: &Document, d: &Dictionary, common: Common) -> Option<Anno
             let shape = if subtype == b"Square" { ShapeKind::Rect } else { ShapeKind::Circle };
             map_shape(doc, d, private, shape, opacity, common)
         }
+        b"Line" | b"PolyLine" => map_line(doc, d, private.is_some(), subtype == b"Line", opacity, common),
         _ => None,
     }
 }
@@ -195,14 +196,7 @@ fn map_shape(
     opacity: f64,
     common: Common,
 ) -> Option<AnnotationDto> {
-    let width = d
-        .get_deref(b"BS", doc)
-        .and_then(Object::as_dict)
-        .ok()
-        .map(|bs| number(doc, bs.get(b"W").ok()).unwrap_or(1.0))
-        .or_else(|| numbers(doc, d.get(b"Border").ok()).get(2).copied())
-        .filter(|w| w.is_finite() && *w >= 0.0)
-        .unwrap_or(1.0);
+    let width = border_width(doc, d);
     let c = color_of(doc, d.get(b"C").ok());
     let ic = color_of(doc, d.get(b"IC").ok());
     let r = numbers(doc, d.get(b"Rect").ok());
@@ -280,6 +274,79 @@ fn map_shape(
         rect,
         border,
         fill,
+    })
+}
+
+/// Border width: `/BS /W`, else the third entry of `/Border`, else 1.
+fn border_width(doc: &Document, d: &Dictionary) -> f64 {
+    d.get_deref(b"BS", doc)
+        .and_then(Object::as_dict)
+        .ok()
+        .map(|bs| number(doc, bs.get(b"W").ok()).unwrap_or(1.0))
+        .or_else(|| numbers(doc, d.get(b"Border").ok()).get(2).copied())
+        .filter(|w| w.is_finite() && *w >= 0.0)
+        .unwrap_or(1.0)
+}
+
+/// `/Line` (`/L`) and `/PolyLine` (`/Vertices`), stroked with `/C` at width
+/// `border_width` and opacity `/CA`. An arrow ending (`/OpenArrow`,
+/// `/ClosedArrow`) at the end of `/LE` becomes the arrowhead; one only at the
+/// start too, with the points reversed; other endings are dropped. A foreign
+/// line with leader lines (`/LL`) is drawn where the viewer shows it: offset
+/// by `/LL`, clockwise of its direction. Lines without a colour, with width 0
+/// or fewer than two points are skipped.
+fn map_line(
+    doc: &Document,
+    d: &Dictionary,
+    own: bool,
+    straight: bool,
+    opacity: f64,
+    common: Common,
+) -> Option<AnnotationDto> {
+    let mut points = if straight {
+        let l = numbers(doc, d.get(b"L").ok());
+        if l.len() != 4 {
+            return None;
+        }
+        let (a, b) = ([l[0], l[1]], [l[2], l[3]]);
+        let ll = number(doc, d.get(b"LL").ok()).filter(|v| v.is_finite()).unwrap_or(0.0);
+        let len = (b[0] - a[0]).hypot(b[1] - a[1]);
+        if ll != 0.0 && len > 0.0 {
+            let (ox, oy) = ((b[1] - a[1]) / len * ll, -(b[0] - a[0]) / len * ll);
+            vec![[a[0] + ox, a[1] + oy], [b[0] + ox, b[1] + oy]]
+        } else {
+            vec![a, b]
+        }
+    } else {
+        d.get(b"Vertices").map(|v| points(doc, v)).unwrap_or_default()
+    };
+    if points.len() < 2 || points.iter().flatten().any(|v| !v.is_finite()) {
+        return None;
+    }
+    let width = border_width(doc, d);
+    let color = color_of(doc, d.get(b"C").ok())?;
+    if width <= 0.0 {
+        return None;
+    }
+    let endings: Vec<&[u8]> = d
+        .get_deref(b"LE", doc)
+        .and_then(Object::as_array)
+        .map(|a| a.iter().filter_map(|n| deref(doc, n).as_name().ok()).collect())
+        .unwrap_or_default();
+    let is_arrow = |n: Option<&&[u8]>| matches!(n, Some(&b"OpenArrow") | Some(&b"ClosedArrow"));
+    let arrow = if is_arrow(endings.get(1)) {
+        true
+    } else if is_arrow(endings.first()) {
+        points.reverse();
+        true
+    } else {
+        false
+    };
+    Some(AnnotationDto::Line {
+        common,
+        points,
+        arrow,
+        border: Stroke { color: if own { snap_rgb(color) } else { color }, width, opacity },
     })
 }
 

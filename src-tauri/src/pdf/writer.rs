@@ -10,7 +10,7 @@ use lopdf::{
 
 use super::appearance::{
     Appearance, TextLine, freetext_appearance, highlight_appearance, image_appearance, ink_appearance,
-    shape_appearance, text_line_appearance,
+    line_appearance, shape_appearance, text_line_appearance,
 };
 use super::date::pdf_date;
 use super::dto::{
@@ -368,6 +368,13 @@ impl Writer {
                     // An old inset or cloudy border effect would no longer
                     // match the new /Rect and appearance.
                     AnnotationDto::Shape { .. } => &[b"RD", b"BE"],
+                    // The other subtype's points, and leader lines, caption,
+                    // fill and measure of a foreign line our appearance does
+                    // not draw.
+                    AnnotationDto::Line { .. } => &[
+                        b"L", b"Vertices", b"LL", b"LLE", b"LLO", b"Cap", b"CP", b"CO", b"IC", b"IT", b"Measure",
+                        b"BE", b"RD",
+                    ],
                     _ => &[],
                 };
                 for key in stale {
@@ -499,6 +506,7 @@ fn common_of(dto: &AnnotationDto) -> &Common {
         | AnnotationDto::Strikeout { common, .. }
         | AnnotationDto::Freetext { common, .. }
         | AnnotationDto::Shape { common, .. }
+        | AnnotationDto::Line { common, .. }
         | AnnotationDto::Image { common, .. } => common,
     }
 }
@@ -646,6 +654,24 @@ fn build_annotation(
             let ap = shape_appearance(*shape, r, border.as_ref(), fill.as_ref());
             Ok(Some((shape_dict(*shape, r, border.as_ref(), fill.as_ref()), ap)))
         }
+        AnnotationDto::Line {
+            points,
+            arrow,
+            border,
+            ..
+        } => {
+            check_finite(
+                points
+                    .iter()
+                    .flatten()
+                    .chain(&border.color)
+                    .chain([&border.width, &border.opacity]),
+            )?;
+            if points.len() < 2 {
+                return Ok(None);
+            }
+            Ok(Some((line_dict(points, *arrow, border), line_appearance(points, *arrow, border))))
+        }
         // The image objects and `/JuliePDF` (with the PNG stream) are added by `upsert`.
         AnnotationDto::Image { rect, .. } => {
             check_finite(rect)?;
@@ -685,6 +711,28 @@ fn shape_dict(shape: ShapeKind, rect: [f64; 4], border: Option<&Stroke>, fill: O
             "rect" => nums(&rect),
         },
     }
+}
+
+/// `/Line` (two points, `/L`) or `/PolyLine` (`/Vertices`); the arrowhead is
+/// the line ending `/OpenArrow` at the last point (`/LE`). `/CA` is the
+/// stroke opacity, as for ink.
+fn line_dict(points: &[[f64; 2]], arrow: bool, border: &Stroke) -> Dictionary {
+    let end = if arrow { "OpenArrow" } else { "None" };
+    let mut d = dictionary! {
+        "C" => nums(&border.color),
+        "CA" => num(border.opacity),
+        "BS" => dictionary! { "W" => num(border.width), "S" => "S" },
+        "LE" => vec![Object::Name(b"None".to_vec()), Object::Name(end.as_bytes().to_vec())],
+        "JuliePDF" => dictionary! { "v" => 1 },
+    };
+    if let [a, b] = points {
+        d.set("Subtype", "Line");
+        d.set("L", nums(&[a[0], a[1], b[0], b[1]]));
+    } else {
+        d.set("Subtype", "PolyLine");
+        d.set("Vertices", nums(&points.concat()));
+    }
+    d
 }
 
 /// `/C` is the background colour; an empty array (transparent) when there is

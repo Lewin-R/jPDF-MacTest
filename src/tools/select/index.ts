@@ -156,14 +156,19 @@ export function createSelectHandler(ctx: ToolContext): ToolHandler {
     }
     const kind = annotationKinds.get(a.kind)
     if (!kind.scale) return a
-    // Ink and shape bounds include half the stroke width, which does not scale.
+    // Ink and shape bounds include half the stroke width, which does not
+    // scale; line bounds also their arrowhead (margins beyond scaleFrame).
+    const bounds = kind.bounds(a)
     const pad = a.kind === 'ink' ? a.width / 2 : a.kind === 'shape' && a.border ? a.border.width / 2 : 0
-    const min = (INK_MIN_SIZE + 2 * pad) * vp.scale
+    const from = kind.scaleFrame?.(a) ?? inset(bounds, pad)
+    const m = [from[0] - bounds[0], from[1] - bounds[1], bounds[2] - from[2], bounds[3] - from[3]]
+    const min = (INK_MIN_SIZE + Math.max(m[0] + m[2], m[1] + m[3])) * vp.scale
     let r = resizeRect(box, handle, dx, dy, min)
     // Image corners keep the aspect ratio (edges stretch).
     if (a.kind === 'image') r = keepAspect(box, r, handle, [0, 0, vp.width, vp.height], min)
     const to = toPdfRect(r, vp)
-    return { ...kind.scale(a, inset(kind.bounds(a), pad), inset(to, pad)), modifiedAt: now() }
+    const target: Rect = [to[0] + m[0], to[1] + m[1], to[2] - m[2], to[3] - m[3]]
+    return { ...kind.scale(a, from, target), modifiedAt: now() }
   }
 
   function isDoubleClick(a: Annotation, e: PagePointerEvent): boolean {

@@ -11,6 +11,11 @@ export interface AnnotationKind<A extends Annotation = Annotation> {
   hitTest(a: A, p: Point, tolerancePt: number): boolean
   translate(a: A, dx: number, dy: number): A
   scale?(a: A, from: Rect, to: Rect): A
+  /**
+   * The box `scale` maps when resizing, if not the bounds less half the
+   * stroke width (e.g. lines: their points' box, without the arrowhead).
+   */
+  scaleFrame?(a: A): Rect
 }
 
 const kinds = new Map<string, AnnotationKind>()

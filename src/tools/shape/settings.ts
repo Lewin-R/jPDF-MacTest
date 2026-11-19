@@ -15,9 +15,18 @@ export interface StyleMemory {
   lastFill?: ShapeFill
 }
 
+/** Shapes drawn as a LineAnnotation (stroke only) rather than a ShapeAnnotation. */
+export type LineShape = 'line' | 'polyline' | 'arrow'
+
 export interface ShapeSettings extends ShapeStyle, StyleMemory {
-  shape: 'rect' | 'circle'
+  shape: ShapeAnnotation['shape'] | LineShape
 }
+
+export const isLineShape = (s: ShapeSettings['shape']): s is LineShape =>
+  s === 'line' || s === 'polyline' || s === 'arrow'
+
+/** The stroke lines are drawn with: the border, else the remembered one (lines always have one). */
+export const lineBorder = (s: ShapeSettings): ShapeBorder => s.border ?? s.lastBorder ?? DEFAULT_BORDER
 
 /** Border picked when switching the border on (and the tool's default). */
 export const DEFAULT_BORDER: ShapeBorder = { color: [0.898, 0.224, 0.208], width: 2, opacity: 1 }

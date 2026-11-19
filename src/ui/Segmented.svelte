@@ -6,7 +6,8 @@
     label,
   }: {
     options: { value: T; label: string }[]
-    value: T
+    /** undefined: none checked (the first option then takes the Tab focus). */
+    value: T | undefined
     onchange(v: T): void
     label: string
   } = $props()
@@ -24,12 +25,12 @@
 </script>
 
 <div class="segmented" role="radiogroup" aria-label={label} tabindex="-1" onkeydown={onKeydown}>
-  {#each options as o (o.value)}
+  {#each options as o, i (o.value)}
     <button
       type="button"
       role="radio"
       aria-checked={o.value === value}
-      tabindex={o.value === value ? 0 : -1}
+      tabindex={o.value === value || (i === 0 && !options.some((x) => x.value === value)) ? 0 : -1}
       onclick={() => onchange(o.value)}
     >
       {o.label}

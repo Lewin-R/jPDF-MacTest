@@ -131,6 +131,15 @@ pub enum AnnotationDto {
         border: Option<Stroke>,
         fill: Option<Fill>,
     },
+    /// A line (two points), a polyline (more) or either with an open
+    /// arrowhead at its last point; `points` are the centre line of the stroke.
+    Line {
+        #[serde(flatten)]
+        common: Common,
+        points: Vec<[f64; 2]>,
+        arrow: bool,
+        border: Stroke,
+    },
     /// A pasted image drawn upright on screen into `rect` (stretched to fill it).
     Image {
         #[serde(flatten)]
@@ -207,6 +216,14 @@ mod tests {
         let (dto, out, orig) = roundtrip(src);
         assert!(matches!(dto, AnnotationDto::Highlight { .. }));
         assert_eq!(out, orig);
+    }
+
+    #[test]
+    fn dto_line_roundtrip() {
+        let src = r#"{"kind":"line","id":"l","page":1,"sourceRef":null,"modifiedAt":"t","author":"J","points":[[1,2],[3,4],[5,6]],"arrow":true,"border":{"color":[1,0,0],"width":2,"opacity":0.5}}"#;
+        let (dto, input, output) = roundtrip(src);
+        assert!(matches!(dto, AnnotationDto::Line { arrow: true, ref points, .. } if points.len() == 3));
+        assert_eq!(input, output);
     }
 
     #[test]

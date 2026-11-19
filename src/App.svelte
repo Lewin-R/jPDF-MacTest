@@ -116,6 +116,13 @@
   })
 
   function onKeydown(e: KeyboardEvent) {
+    const t = e.target
+    const editable = t instanceof HTMLElement && t.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')
+    // The active tool first (e.g. Enter finishes a polyline, Escape drops it).
+    if (!editable && !e.defaultPrevented && router.handler?.onKeyDown?.(e)) {
+      e.preventDefault()
+      return
+    }
     if (keybindings.handle(e)) e.preventDefault()
   }
 

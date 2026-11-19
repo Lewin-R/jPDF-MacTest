@@ -284,6 +284,10 @@
   }
 
   function onPointerMove(e: PointerEvent) {
+    if (!gesture) {
+      if (tool?.onHover && vp && e.buttons === 0) tool.onHover(toPageEvent(e, vp))
+      return
+    }
     const g = forGesture(e)
     if (!g) return
     lastMove = e

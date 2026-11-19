@@ -143,6 +143,13 @@
         commit({ border: s.border, fill: s.fill })
       }}
     />
+  {:else if annotation.kind === 'line'}
+    <StyleControls
+      strokeOnly
+      style={shown('style', { border: annotation.border, fill: null })}
+      onchange={(s) => preview('style', s)}
+      oncommit={(s) => commit({ border: s.border })}
+    />
   {:else if annotation.kind === 'image'}
     <p class="hint">Drag to move, drag a handle to resize, Delete removes it.</p>
   {/if}

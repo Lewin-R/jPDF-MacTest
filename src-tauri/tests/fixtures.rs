@@ -240,6 +240,40 @@ pub fn pdf_with_foreign_shapes() -> Vec<u8> {
     }))
 }
 
+/// Page 0 has foreign `/Line` and `/PolyLine` annotations without
+/// `/JuliePDF`: a line with an arrow at its start (`/LE [/ClosedArrow /None]`)
+/// and leader lines (`/LL 10`), a polyline (`/Border` width 3, `/CA 0.5`)
+/// and a line without a colour (undrawable).
+#[allow(dead_code)] // used by roundtrip.rs only
+pub fn pdf_with_foreign_lines() -> Vec<u8> {
+    save(build(1, |doc, pages| {
+        let line = doc.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Line", "NM" => Object::string_literal("line"),
+            "Rect" => vec![0.into(), 0.into(), 300.into(), 300.into()],
+            "L" => vec![100.into(), 100.into(), 200.into(), 100.into()],
+            "LL" => 10,
+            "LE" => vec![Object::Name(b"ClosedArrow".to_vec()), Object::Name(b"None".to_vec())],
+            "C" => vec![0.into(), 1.into(), 0.into()],
+            "BS" => dictionary! { "W" => 2 },
+        });
+        let poly = doc.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "PolyLine", "NM" => Object::string_literal("poly"),
+            "Rect" => vec![0.into(), 0.into(), 300.into(), 300.into()],
+            "Vertices" => vec![10.into(), 10.into(), 50.into(), 60.into(), 90.into(), 10.into()],
+            "C" => vec![0.into(), 0.into(), 1.into()],
+            "CA" => Object::Real(0.5),
+            "Border" => vec![0.into(), 0.into(), 3.into()],
+        });
+        let colourless = doc.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Line", "NM" => Object::string_literal("colourless"),
+            "Rect" => vec![0.into(), 0.into(), 300.into(), 300.into()],
+            "L" => vec![0.into(), 0.into(), 10.into(), 10.into()],
+        });
+        let annots = [line, poly, colourless].map(Object::Reference).to_vec();
+        doc.get_dictionary_mut(pages[0]).unwrap().set("Annots", annots);
+    }))
+}
+
 /// Page 0 has a foreign `/Stamp` (`/Name /Approved`, no `/JuliePDF`) and one
 /// whose `/JuliePDF` is not an image (`/kind /other`).
 #[allow(dead_code)] // used by image.rs only

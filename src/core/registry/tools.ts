@@ -27,6 +27,12 @@ export interface ToolHandler {
   onPointerUp?(e: PagePointerEvent): void
   /** The gesture was aborted (pointercancel, lost capture, page unmounted): discard it, do not commit. */
   onPointerCancel?(e: PagePointerEvent): void
+  /**
+   * A pointer moved over a page while no gesture is in progress and no button
+   * is pressed (e.g. the polyline's next segment follows the pointer).
+   */
+  onHover?(e: PagePointerEvent): void
+  /** A key pressed outside editable fields while the tool is active; true = consumed (no shortcut runs). */
   onKeyDown?(e: KeyboardEvent): boolean
   onDeactivate?(): void
   /**

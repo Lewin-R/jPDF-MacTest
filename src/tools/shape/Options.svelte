@@ -1,7 +1,7 @@
 <script lang="ts">
   import Segmented from '../../ui/Segmented.svelte'
   import StyleControls from './StyleControls.svelte'
-  import type { ShapeSettings, ShapeStyle, StyleMemory } from './settings'
+  import { isLineShape, lineBorder, type ShapeSettings, type ShapeStyle, type StyleMemory } from './settings'
 
   let { settings, update }: { settings: ShapeSettings; update(patch: Partial<ShapeSettings>): void } = $props()
 
@@ -23,15 +23,38 @@
       { value: 'rect', label: 'Rectangle' },
       { value: 'circle', label: 'Circle' },
     ]}
-    value={settings.shape}
+    value={isLineShape(settings.shape) ? undefined : settings.shape}
     onchange={(shape) => update({ shape })}
   />
+  <Segmented
+    label="Line"
+    options={[
+      { value: 'line', label: 'Line' },
+      { value: 'polyline', label: 'Polyline' },
+      { value: 'arrow', label: 'Arrow' },
+    ]}
+    value={isLineShape(settings.shape) ? settings.shape : undefined}
+    onchange={(shape) => update({ shape })}
+  />
+  {#if isLineShape(settings.shape)}
+    <!-- Lines always have a stroke: the border (or the one last turned off). -->
+    <StyleControls
+      strokeOnly
+      style={{ border: lineBorder(settings), fill: null }}
+      onchange={(s) => update({ border: s.border })}
+      oncommit={(s) => update({ border: s.border })}
+    />
+    {#if settings.shape === 'polyline'}
+      <p class="hint">Click to add points, double-click or Enter to finish.</p>
+    {/if}
+  {:else}
   <StyleControls
     style={{ border: settings.border, fill: settings.fill }}
     memory={{ lastBorder: settings.lastBorder, lastFill: settings.lastFill }}
     onchange={style}
     oncommit={commit}
   />
+  {/if}
 </div>
 
 <style>
@@ -39,5 +62,11 @@
     display: flex;
     flex-direction: column;
     gap: 14px;
+  }
+  .hint {
+    margin: 0;
+    max-width: 200px;
+    font-size: 12px;
+    color: var(--text-muted);
   }
 </style>

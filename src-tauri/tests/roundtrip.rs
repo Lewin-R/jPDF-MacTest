@@ -67,6 +67,15 @@ fn shape(id: &str, page: u32, kind: ShapeKind, border: Option<Stroke>, fill: Opt
     }
 }
 
+fn line(id: &str, page: u32, points: Vec<[f64; 2]>, arrow: bool) -> AnnotationDto {
+    AnnotationDto::Line {
+        common: common(&ink(id, page, [0.0; 3])).clone(),
+        points,
+        arrow,
+        border: red_border().unwrap(),
+    }
+}
+
 fn red_border() -> Option<Stroke> {
     Some(Stroke { color: [0.898, 0.224, 0.208], width: 2.5, opacity: 0.75 })
 }
@@ -92,6 +101,7 @@ fn common(a: &AnnotationDto) -> &Common {
         | AnnotationDto::Strikeout { common, .. }
         | AnnotationDto::Freetext { common, .. }
         | AnnotationDto::Shape { common, .. }
+        | AnnotationDto::Line { common, .. }
         | AnnotationDto::Image { common, .. } => common,
     }
 }
@@ -104,6 +114,7 @@ fn with_ref(mut a: AnnotationDto, r: &str) -> AnnotationDto {
         | AnnotationDto::Strikeout { common, .. }
         | AnnotationDto::Freetext { common, .. }
         | AnnotationDto::Shape { common, .. }
+        | AnnotationDto::Line { common, .. }
         | AnnotationDto::Image { common, .. } => common.source_ref = Some(r.into()),
     }
     a
@@ -1353,4 +1364,85 @@ fn saved_annotation_moved_to_another_page_changes_pages() {
     let got = read_annotations(&out2).unwrap();
     assert_eq!(got.len(), 1);
     assert_eq!(got, vec![with_ref(ink("a", 1, [0.0; 3]), &refs1["a"])]);
+}
+
+#[test]
+fn line_polyline_and_arrow_roundtrip() {
+    let orig = fixtures::simple_pdf(1);
+    let plain = line("l", 0, vec![[100.5, 200.0], [250.0, 300.25]], false);
+    let arrow = line("a", 0, vec![[10.0, 10.0], [60.0, 10.0]], true);
+    let poly = line("p", 0, vec![[10.0, 100.0], [50.0, 150.0], [90.0, 100.0], [130.0, 150.0]], true);
+    let (out, refs) = write(&orig, &[plain.clone(), arrow.clone(), poly.clone()], &[]);
+    let got = read_annotations(&out).unwrap();
+    assert_eq!(got, vec![with_ref(plain, &refs["l"]), with_ref(arrow, &refs["a"]), with_ref(poly, &refs["p"])]);
+
+    let doc = Document::load_mem(&out).unwrap();
+    let name = |d: &lopdf::Dictionary, k: &[u8]| d.get(k).unwrap().as_name().unwrap().to_vec();
+    let endings = |d: &lopdf::Dictionary| -> Vec<Vec<u8>> {
+        d.get(b"LE").unwrap().as_array().unwrap().iter().map(|n| n.as_name().unwrap().to_vec()).collect()
+    };
+    let l = annot_dict(&doc, &refs["l"]);
+    assert_eq!(name(l, b"Subtype"), b"Line");
+    assert_eq!(floats(l.get(b"L").unwrap()), [100.5, 200.0, 250.0, 300.25]);
+    assert_eq!(endings(l), [b"None".to_vec(), b"None".to_vec()]);
+    assert_eq!(l.get(b"CA").unwrap().as_float().unwrap(), 0.75);
+    let a = annot_dict(&doc, &refs["a"]);
+    assert_eq!(endings(a), [b"None".to_vec(), b"OpenArrow".to_vec()]);
+    // The /Rect covers the arrowhead: wings 3 * 2.5 + 6 = 13.5pt long, 30° off.
+    let rect = floats(a.get(b"Rect").unwrap());
+    assert!(rect[1] < 10.0 - 13.5 / 2.0 && rect[3] > 10.0 + 13.5 / 2.0, "{rect:?}");
+    let p = annot_dict(&doc, &refs["p"]);
+    assert_eq!(name(p, b"Subtype"), b"PolyLine");
+    assert_eq!(floats(p.get(b"Vertices").unwrap()).len(), 8);
+    let content = String::from_utf8(ap_stream(&doc, p).decompressed_content().unwrap()).unwrap();
+    assert!(content.contains("10 100 m
+50 150 l
+90 100 l
+130 150 l
+"), "{content}");
+    assert_eq!(content.matches("S
+").count(), 1, "{content}");
+}
+
+#[test]
+fn line_edit_after_save_keeps_object() {
+    let orig = fixtures::simple_pdf(1);
+    let (out1, refs1) = write(&orig, &[line("l", 0, vec![[0.0, 0.0], [10.0, 10.0]], true)], &[]);
+    let edited = with_ref(line("l", 0, vec![[5.0, 5.0], [20.0, 30.0]], false), &refs1["l"]);
+    let (out2, refs2) = write(&out1, std::slice::from_ref(&edited), &[]);
+    assert_eq!(refs2["l"], refs1["l"]);
+    assert_eq!(read_annotations(&out2).unwrap(), vec![edited]);
+}
+
+#[test]
+fn foreign_lines_are_read() {
+    let orig = fixtures::pdf_with_foreign_lines();
+    let got = read_annotations(&orig).unwrap();
+    let ids: Vec<_> = got.iter().map(|a| common(a).id.as_str()).collect();
+    assert_eq!(ids, ["line", "poly"], "the line without a colour is skipped");
+    let AnnotationDto::Line { points, arrow, border, .. } = &got[0] else { panic!("{got:?}") };
+    // Leader lines 10pt clockwise of the direction (+x): the line sits 10pt lower;
+    // the arrow at the start becomes the end.
+    assert_eq!(*points, vec![[200.0, 90.0], [100.0, 90.0]]);
+    assert!(*arrow);
+    assert_eq!(*border, Stroke { color: [0.0, 1.0, 0.0], width: 2.0, opacity: 1.0 });
+    let AnnotationDto::Line { points, arrow, border, .. } = &got[1] else { panic!("{got:?}") };
+    assert_eq!(*points, vec![[10.0, 10.0], [50.0, 60.0], [90.0, 10.0]]);
+    assert!(!*arrow);
+    assert_eq!(*border, Stroke { color: [0.0, 0.0, 1.0], width: 3.0, opacity: 0.5 });
+
+    // Saving the foreign line drops its leader lines (the appearance draws none).
+    let r = common(&got[0]).source_ref.clone().unwrap();
+    let (out, _) = write(&orig, &[got[0].clone()], &[]);
+    let doc = Document::load_mem(&out).unwrap();
+    assert!(annot_dict(&doc, &r).get(b"LL").is_err());
+    let AnnotationDto::Line { points: p, arrow: a, border: b, .. } = &read_annotations(&out).unwrap()[0] else {
+        panic!()
+    };
+    assert_eq!((p, a, b), (points_of(&got[0]), &true, &Stroke { color: [0.0, 1.0, 0.0], width: 2.0, opacity: 1.0 }));
+}
+
+fn points_of(a: &AnnotationDto) -> &Vec<[f64; 2]> {
+    let AnnotationDto::Line { points, .. } = a else { panic!("{a:?}") };
+    points
 }

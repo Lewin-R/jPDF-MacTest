@@ -10,14 +10,18 @@
   // shape. Every change reports the whole style: `onchange` for each step of a
   // drag (slider, custom colour), `oncommit` for the final value, with the
   // style memory (the border/fill last turned off, restored when turned on).
+  // `strokeOnly` (lines): only the border's colour, width and opacity; the
+  // border cannot be turned off and there is no fill.
   let {
     style,
     memory = {},
+    strokeOnly = false,
     onchange,
     oncommit,
   }: {
     style: ShapeStyle
     memory?: StyleMemory
+    strokeOnly?: boolean
     onchange(s: ShapeStyle): void
     oncommit(s: ShapeStyle, memory: StyleMemory): void
   } = $props()
@@ -30,8 +34,10 @@
 
   const pct = (v: number) => `${v}%`
   const pt = (v: number) => `${v} pt`
+  const stroke = $derived(strokeOnly ? 'Line' : 'Border')
 </script>
 
+{#if !strokeOnly}
 <Segmented
   label="Border"
   options={[
@@ -41,17 +47,18 @@
   value={style.border ? 'border' : 'none'}
   onchange={(v) => toggled(toggleBorder(style, v === 'border', memory))}
 />
+{/if}
 {#if style.border}
   {@const b = style.border}
   <ColorPicker
-    label="Border colour"
+    label={`${stroke} colour`}
     value={b.color}
     presets={PEN_PRESETS}
     onchange={(color) => onchange({ ...style, border: { ...b, color } })}
     oncommit={(color) => commit({ ...style, border: { ...b, color } })}
   />
   <Slider
-    label="Border width"
+    label={`${stroke} width`}
     min={0.5}
     max={20}
     step={0.5}
@@ -61,7 +68,7 @@
     oncommit={(width) => commit({ ...style, border: { ...b, width } })}
   />
   <Slider
-    label="Border opacity"
+    label={`${stroke} opacity`}
     min={10}
     max={100}
     step={5}
@@ -71,6 +78,7 @@
     oncommit={(v) => commit({ ...style, border: { ...b, opacity: v / 100 } })}
   />
 {/if}
+{#if !strokeOnly}
 <Segmented
   label="Fill"
   options={[
@@ -99,4 +107,5 @@
     onchange={(v) => onchange({ ...style, fill: { ...f, opacity: v / 100 } })}
     oncommit={(v) => commit({ ...style, fill: { ...f, opacity: v / 100 } })}
   />
+{/if}
 {/if}

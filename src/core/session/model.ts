@@ -29,6 +29,17 @@ export interface ShapeAnnotation extends Base {
   fill: { color: RGB; opacity: number } | null
 }
 /**
+ * A straight line (two points), a polyline (more) or either with an arrowhead
+ * at its last point. `points` are the centre line of the stroke. Saved as
+ * /Line (two points) or /PolyLine, the arrowhead as line ending /OpenArrow.
+ */
+export interface LineAnnotation extends Base {
+  kind: 'line'
+  points: Point[]
+  arrow: boolean
+  border: { color: RGB; width: number; opacity: number }
+}
+/**
  * A pasted image, drawn upright on screen and stretched to fill `rect`
  * (x1 < x2, y1 < y2). `image` is the PNG (base64, no `data:` prefix) and its
  * pixel size. Saved as a /Stamp annotation.
@@ -38,7 +49,7 @@ export interface ImageAnnotation extends Base {
   rect: Rect
   image: { width: number; height: number; png: string }
 }
-export type Annotation = HighlightAnnotation | TextLineAnnotation | InkAnnotation | FreeTextAnnotation | ShapeAnnotation | ImageAnnotation;
+export type Annotation = HighlightAnnotation | TextLineAnnotation | InkAnnotation | FreeTextAnnotation | ShapeAnnotation | LineAnnotation | ImageAnnotation;
 
 /** `page` is 0-based here (session.currentPage / goToPage are 1-based). */
 export function newId(): string {

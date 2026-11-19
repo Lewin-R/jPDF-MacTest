@@ -13,13 +13,14 @@ export const ALL_HANDLES: readonly Handle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 
 const WIDTH_HANDLES: readonly Handle[] = ['e', 'w']
 const NO_HANDLES: readonly Handle[] = []
 
-/** Handles a selected annotation offers: text boxes resize in width, ink, shapes and images in any direction, highlights not at all. */
+/** Handles a selected annotation offers: text boxes resize in width, ink, shapes, lines and images in any direction, highlights not at all. */
 export function handlesFor(a: Annotation): readonly Handle[] {
   switch (a.kind) {
     case 'freetext':
       return WIDTH_HANDLES
     case 'ink':
     case 'shape':
+    case 'line':
     case 'image':
       return ALL_HANDLES
     default:

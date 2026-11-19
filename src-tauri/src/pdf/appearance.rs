@@ -480,8 +480,123 @@ pub fn shape_appearance(shape: ShapeKind, rect: [f64; 4], border: Option<&Stroke
     }
 }
 
+/// Length of an arrowhead's wings for stroke width `w` (same formula as the TS `arrowLength`).
+pub fn arrow_length(w: f64) -> f64 {
+    3.0 * w + 6.0
+}
+
+/// The open arrowhead at the last point of `points`: [left wing end, tip,
+/// right wing end], its wings 30° off the last segment of non-zero length
+/// (same as the TS `arrowHead`); `None` when all points coincide.
+pub fn arrow_head(points: &[[f64; 2]], width: f64) -> Option<[[f64; 2]; 3]> {
+    let tip = *points.last()?;
+    let back = points.iter().rev().skip(1).find(|p| p[0] != tip[0] || p[1] != tip[1])?;
+    let (dx, dy) = (back[0] - tip[0], back[1] - tip[1]);
+    let len = dx.hypot(dy);
+    let (ux, uy) = (dx / len, dy / len);
+    let l = arrow_length(width);
+    let (sin, cos) = std::f64::consts::FRAC_PI_6.sin_cos();
+    let left = [tip[0] + l * (ux * cos - uy * sin), tip[1] + l * (ux * sin + uy * cos)];
+    let right = [tip[0] + l * (ux * cos + uy * sin), tip[1] + l * (-ux * sin + uy * cos)];
+    Some([left, tip, right])
+}
+
+/// Line/PolyLine appearance: one stroked path (round caps and joins) through
+/// `points` and, with `arrow`, the arrowhead's wings, so a translucent stroke
+/// is not darkened twice where they meet. Opacity in `GS0`; `bbox` = the
+/// points and wing ends, expanded by half the width plus 1. Callers pass at
+/// least one point.
+pub fn line_appearance(points: &[[f64; 2]], arrow: bool, border: &Stroke) -> Appearance {
+    let head = if arrow { arrow_head(points, border.width) } else { None };
+    let (mut x1, mut y1, mut x2, mut y2) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+    for p in points.iter().chain(head.iter().flatten()) {
+        x1 = x1.min(p[0]);
+        y1 = y1.min(p[1]);
+        x2 = x2.max(p[0]);
+        y2 = y2.max(p[1]);
+    }
+    let pad = border.width / 2.0 + 1.0;
+    let c = border.color;
+    let mut out = format!(
+        "q
+/GS0 gs
+{} w
+1 J
+1 j
+{} {} {} RG
+",
+        fmt_num(border.width),
+        fmt_num(c[0]),
+        fmt_num(c[1]),
+        fmt_num(c[2])
+    );
+    for (i, p) in points.iter().enumerate() {
+        out.push_str(&format!("{} {}
+", pt(*p), if i == 0 { "m" } else { "l" }));
+    }
+    if let Some([left, tip, right]) = head {
+        out.push_str(&format!("{} m
+{} l
+{} l
+", pt(left), pt(tip), pt(right)));
+    }
+    out.push_str("S
+Q
+");
+    Appearance {
+        bbox: [x1 - pad, y1 - pad, x2 + pad, y2 + pad],
+        content: out.into_bytes(),
+        opacity: border.opacity,
+        multiply: false,
+        uses_helvetica: false,
+        matrix: None,
+        gstates: Vec::new(),
+        group: None,
+        image: false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn arrow_head_points_back_along_the_last_segment() {
+        // Horizontal line to the right, width 2: wings 12pt long, 30° off.
+        let [l, t, r] = super::arrow_head(&[[0.0, 0.0], [100.0, 0.0], [100.0, 0.0]], 2.0).unwrap();
+        let close = |a: f64, b: f64| (a - b).abs() < 1e-9;
+        assert_eq!(t, [100.0, 0.0]);
+        let (dx, dy) = (12.0 * (3f64.sqrt() / 2.0), 6.0);
+        assert!(close(l[0], 100.0 - dx) && close(l[1], -dy), "{l:?}");
+        assert!(close(r[0], 100.0 - dx) && close(r[1], dy), "{r:?}");
+        assert!(super::arrow_head(&[[1.0, 1.0], [1.0, 1.0]], 2.0).is_none());
+    }
+
+    #[test]
+    fn line_appearance_strokes_line_and_arrowhead_in_one_path() {
+        let border = super::Stroke { color: [1.0, 0.0, 0.0], width: 2.0, opacity: 0.5 };
+        let a = super::line_appearance(&[[0.0, 0.0], [50.0, 0.0], [50.0, 40.0]], true, &border);
+        let c = String::from_utf8(a.content.clone()).unwrap();
+        assert!(c.starts_with("q
+/GS0 gs
+2 w
+1 J
+1 j
+1 0 0 RG
+0 0 m
+50 0 l
+50 40 l
+"), "{c}");
+        assert_eq!(c.matches(" m
+").count(), 2, "{c}");
+        assert_eq!(c.matches("S
+").count(), 1, "{c}");
+        assert_eq!(a.opacity, 0.5);
+        // Arrowhead at (50, 40) pointing up: wings reach down to y = 40 - 12 cos 30°.
+        assert_eq!(a.bbox[3], 42.0);
+        assert!(a.group.is_none());
+        let plain = super::line_appearance(&[[0.0, 0.0], [50.0, 0.0]], false, &border);
+        assert_eq!(plain.bbox, [-2.0, -2.0, 52.0, 2.0]);
+    }
+
     #[test]
     fn text_line_band_sits_under_the_baseline_or_through_the_middle() {
         // 14pt tall quad from y=0 to y=14: thickness 1pt.

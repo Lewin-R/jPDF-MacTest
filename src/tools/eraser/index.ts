@@ -8,7 +8,7 @@ import Icon from './Icon.svelte'
 export const ERASER_RADIUS_PX = 6
 
 const erasable = (a: Annotation): boolean =>
-  a.kind === 'ink' || a.kind === 'highlight' || a.kind === 'underline' || a.kind === 'strikeout' || a.kind === 'shape'
+  a.kind === 'ink' || a.kind === 'highlight' || a.kind === 'underline' || a.kind === 'strikeout' || a.kind === 'shape' || a.kind === 'line'
 
 export function createEraserHandler(ctx: ToolContext): ToolHandler {
   let erased: Map<string, Annotation> | null = null
