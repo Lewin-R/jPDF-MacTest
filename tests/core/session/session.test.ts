@@ -361,3 +361,63 @@ describe('DocumentSession page operations', () => {
     expect(commit).toHaveBeenCalledOnce()
   })
 })
+
+describe('DocumentSession page plan and reload', () => {
+  async function open() {
+    mocks.annotations = []
+    mocks.doc = fakeDoc(uniform)
+    const session = await DocumentSession.open('C:/docs/r.pdf')
+    await session.pageSizesLoaded
+    session.setViewport(1000, 500)
+    return session
+  }
+
+  it('pagePlan is null while the pages are the file order', async () => {
+    const session = await open()
+    expect(session.pagePlan()).toBeNull()
+    session.duplicatePage(0)
+    session.history.undo()
+    expect(session.pagePlan()).toBeNull()
+  })
+
+  it('pagePlan lists the pages with absolute rotations', async () => {
+    const session = await open()
+    const doc = mocks.doc as ReturnType<typeof fakeDoc>
+    doc.getPage.mockImplementation(async (i: number) => ({ getViewport: () => uniform[i - 1], rotate: i === 1 ? 90 : 0 }))
+    session.duplicatePage(0)
+    session.deletePage(3)
+    expect(await session.pagePlan()).toEqual([
+      { kind: 'source', index: 0, rotate: 90 },
+      { kind: 'source', index: 0, rotate: 90 },
+      { kind: 'source', index: 1, rotate: 0 },
+      { kind: 'source', index: 3, rotate: 0 },
+    ])
+  })
+
+  it('reload replaces doc, pages, annotations and history and keeps the view', async () => {
+    const session = await open()
+    session.duplicatePage(1)
+    session.goToPage(3)
+    const top = session.scrollTop
+    const old = mocks.doc as ReturnType<typeof fakeDoc>
+    const saved = fakeDoc(Array.from({ length: 5 }, () => uniform[0]))
+    mocks.doc = saved
+    mocks.annotations = [{
+      kind: 'ink', id: 'x', page: 2, sourceRef: '40R', modifiedAt: '', author: '',
+      strokes: [[[0, 0], [1, 1]]], color: [0, 0, 0], width: 1, opacity: 1, blend: 'normal', role: 'pen',
+    }]
+    const evict = vi.spyOn(renderCache, 'evictPrefix')
+    await session.reload()
+    expect(session.doc).toBe(saved)
+    expect(old.destroy).toHaveBeenCalled()
+    expect(evict).toHaveBeenCalledWith(`${session.id}:`)
+    expect(session.pages).toHaveLength(5)
+    expect(session.pagePlan()).toBeNull()
+    expect(session.store.get('x')!.sourceRef).toBe('40R')
+    expect(saved.suppressAnnotations).toHaveBeenCalled()
+    expect(session.history.canUndo).toBe(false)
+    expect(session.dirty).toBe(false)
+    expect(session.scrollTop).toBe(top)
+    expect(session.currentPage).toBe(3)
+  })
+})

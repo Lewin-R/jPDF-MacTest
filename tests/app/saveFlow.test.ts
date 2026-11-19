@@ -19,6 +19,7 @@ import { commands } from '../../src/core/registry/commands'
 import { addAnnotations, deleteAnnotations, updateAnnotation } from '../../src/core/session/commands'
 import { History } from '../../src/core/session/history.svelte'
 import type { InkAnnotation } from '../../src/core/session/model'
+import type { PageSpec } from '../../src/core/session/pages'
 import type { DocumentSession } from '../../src/core/session/session.svelte'
 import { AnnotationStore } from '../../src/core/session/store.svelte'
 import { tabs } from '../../src/app/tabs.svelte'
@@ -51,6 +52,15 @@ function fakeSession(path = 'C:\\docs\\a.pdf', loaded: InkAnnotation[] = []) {
       s.fileName = p.split('\\').pop()!
     }),
     suppress: vi.fn(),
+    /** Page plan to save (null: pages unchanged), see DocumentSession.pagePlan. */
+    plan: null as PageSpec[] | null,
+    pagePlan: vi.fn((): Promise<PageSpec[]> | null => (s.plan ? Promise.resolve(s.plan) : null)),
+    /** What reload() reads from the saved file. */
+    reloaded: [] as InkAnnotation[],
+    reload: vi.fn(async () => {
+      store.load(s.reloaded)
+      history.reset()
+    }),
     pendingEdit: null as (() => void) | null,
     commitPendingEdit() {
       const commit = s.pendingEdit
@@ -181,6 +191,75 @@ describe('saveSession', () => {
     first.resolve({ refs: { a: '20R' } })
     expect(await Promise.all([one, two])).toEqual([true, true])
     expect(h.savePdf.mock.calls[1].slice(0, 3)).toEqual(['C:\\docs\\a.pdf', 'C:\\docs\\copy.pdf', []])
+  })
+})
+
+describe('saving page changes', () => {
+  const plan: PageSpec[] = [{ kind: 'source', index: 0, rotate: 90 }, { kind: 'blank', width: 10, height: 20, rotate: 0 }]
+
+  it('sends no page plan and keeps the history when the pages are unchanged', async () => {
+    const s = fakeSession()
+    s.history.execute(addAnnotations([ink('a')]))
+    h.savePdf.mockResolvedValue({ refs: { a: '20R' } })
+    await saveSession(s)
+    expect(h.savePdf.mock.calls[0]).toHaveLength(4)
+    expect(s.reload).not.toHaveBeenCalled()
+    expect(s.history.canUndo).toBe(true)
+  })
+
+  it('sends the page plan, then reloads from the saved file with an empty history', async () => {
+    const s = fakeSession('C:\\docs\\a.pdf', [ink('old', '10R')])
+    s.history.execute(addAnnotations([ink('a')]))
+    s.plan = plan
+    s.reloaded = [ink('old', '30R'), ink('a', '31R')]
+    h.savePdf.mockResolvedValue({ refs: { a: '20R' } })
+    expect(await saveSession(s)).toBe(true)
+    expect(h.savePdf).toHaveBeenCalledWith('C:\\docs\\a.pdf', 'C:\\docs\\a.pdf', [ink('a')], [], plan)
+    expect(s.reload).toHaveBeenCalledOnce()
+    expect(s.store.get('a')!.sourceRef).toBe('31R')
+    expect(s.history.canUndo).toBe(false)
+    expect(s.history.canRedo).toBe(false)
+    expect(s.dirty).toBe(false)
+  })
+
+  it('Save As with page changes reloads from the new file', async () => {
+    const s = fakeSession('C:\\docs\\a.pdf')
+    s.plan = plan
+    h.savePdf.mockResolvedValue({ refs: {} })
+    s.reload.mockImplementation(async () => expect(s.path).toBe('D:\\out\\b.pdf'))
+    expect(await saveSession(s, 'D:\\out\\b.pdf')).toBe(true)
+    expect(s.reload).toHaveBeenCalledOnce()
+  })
+
+  it('keeps annotation edits made while saving (dirty, undoable) across the reload', async () => {
+    const s = fakeSession('C:\\docs\\a.pdf', [ink('old', '10R'), ink('gone', '11R')])
+    s.plan = plan
+    s.reloaded = [ink('old', '30R'), ink('gone', '31R')]
+    const first = deferred<{ refs: Record<string, string> }>()
+    h.savePdf.mockReturnValueOnce(first.promise)
+    const saving = saveSession(s)
+    s.history.execute(addAnnotations([ink('b')]))
+    s.history.execute(updateAnnotation(s.store.get('old')!, { ...ink('old', '10R'), width: 7 }))
+    s.history.execute(deleteAnnotations([s.store.get('gone')!]))
+    first.resolve({ refs: {} })
+    expect(await saving).toBe(true)
+    expect(s.store.all().map((a) => [a.id, a.sourceRef, (a as InkAnnotation).width])).toEqual([
+      ['old', '30R', 7],
+      ['b', null, 2],
+    ])
+    expect(s.dirty).toBe(true)
+    s.history.undo()
+    expect(s.store.all().map((a) => a.id)).toEqual(['old', 'gone'])
+    expect(s.history.canUndo).toBe(false)
+  })
+
+  it('reports a failed reload without failing the save', async () => {
+    const s = fakeSession()
+    s.plan = plan
+    h.savePdf.mockResolvedValue({ refs: {} })
+    s.reload.mockRejectedValue(new Error('gone'))
+    expect(await saveSession(s)).toBe(true)
+    expect(toasts.items.at(-1)?.message).toContain('could not be reloaded')
   })
 })
 

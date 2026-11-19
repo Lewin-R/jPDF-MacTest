@@ -58,6 +58,15 @@ export class History {
     return true
   }
 
+  /** Forgets every step (nothing to undo or redo); the current state counts as saved. */
+  reset(): void {
+    this.stack = []
+    this.index = 0
+    this.baseId = ++this.seq
+    this.cleanId = this.baseId
+    this._version++
+  }
+
   /** Marks the position `stateId` (default: the current one) as the saved state. */
   markClean(stateId: number = this.currentId()): void {
     this.cleanId = stateId

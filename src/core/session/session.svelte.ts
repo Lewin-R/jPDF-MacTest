@@ -9,7 +9,7 @@ import { toasts } from '../../ui/toasts.svelte'
 import { History } from './history.svelte'
 import type { Annotation } from './model'
 import { deletePage, duplicatePage, insertBlankPage, rotatePage } from './pageCommands'
-import { identityPages, pageSizesOf, type PageEntry, type PageSize } from './pages'
+import { identityPages, isIdentity, pagePlan, pageSizesOf, type PageEntry, type PageSize, type PageSpec } from './pages'
 import { AnnotationStore } from './store.svelte'
 import { SessionToolState } from './toolState.svelte'
 
@@ -76,7 +76,11 @@ export class DocumentSession {
   /** Where the document is saved; changes on Save As. */
   path: string = $state('')
   fileName: string = $state('')
-  doc: PdfDoc
+  #doc: PdfDoc = $state.raw(null as unknown as PdfDoc)
+  /** The pdf.js document; replaced when a save that changed pages reloads the file. */
+  get doc(): PdfDoc {
+    return this.#doc
+  }
   /**
    * The pages as shown, in order (page operations edit this list; see
    * pageCommands). Annotation.page indexes this list.
@@ -132,7 +136,7 @@ export class DocumentSession {
 
   private constructor(path: string, doc: PdfDoc, first: PageSize, annotations: Annotation[]) {
     this.setPath(path)
-    this.doc = doc
+    this.#doc = doc
     // Before the first render: pdf.js must not draw what the overlay draws.
     this.suppress(annotations.flatMap((a) => (a.sourceRef ? [a.sourceRef] : [])))
     this.store.load(annotations)
@@ -351,6 +355,58 @@ export class DocumentSession {
     const fileRotation = await this.fileRotation(entry)
     if (this.pages[i] !== entry) return
     this.history.execute(rotatePage(this, i, delta, fileRotation))
+  }
+
+  /**
+   * The page list as a save plan, or null when it is the file's own order
+   * (nothing to write). Taken from the page list at the call.
+   */
+  pagePlan(): Promise<PageSpec[]> | null {
+    const pages = this.pages
+    const doc = this.doc
+    if (isIdentity(pages, doc.numPages)) return null
+    return (async () => {
+      const rotations: number[] = []
+      const sources = new Set(pages.flatMap((p) => (p.kind === 'source' ? [p.source] : [])))
+      await Promise.all([...sources].map(async (i) => (rotations[i] = (await doc.getPage(i + 1)).rotate)))
+      return pagePlan(pages, rotations)
+    })()
+  }
+
+  /**
+   * Re-opens the document from `path` in place (after a save that changed
+   * pages): new pdf.js document, the file's page order, its annotations and
+   * an empty history. The shown pages keep their sizes, so the view stays put.
+   */
+  async reload(): Promise<void> {
+    const path = this.path
+    const [bytes, read] = await Promise.all([openPdf(path), readManaged(path)])
+    const doc = await loadPdf(bytes)
+    let annotations: Annotation[]
+    try {
+      annotations = await withFreeTextLines(doc, read)
+    } catch (e) {
+      await doc.destroy()
+      throw e
+    }
+    if (this.disposed) {
+      await doc.destroy()
+      return
+    }
+    const old = this.doc
+    const shown = this.pageSizes
+    renderCache.evictPrefix(`${this.id}:`)
+    this.#doc = doc
+    this.suppress(annotations.flatMap((a) => (a.sourceRef ? [a.sourceRef] : [])))
+    this.store.load(annotations)
+    this.history.reset()
+    // The saved file has the pages as they were shown: same sizes.
+    this.sourceSizes = Array.from({ length: doc.numPages }, (_, i) => shown[i] ?? shown[0])
+    this.pages = identityPages(doc.numPages)
+    void old.destroy()
+    this.loadRemainingSizes().catch((e: unknown) => {
+      if (!this.disposed) console.error(`Failed to read page sizes of ${path}`, e)
+    })
   }
 
   dispose(): Promise<void> {

@@ -2,6 +2,8 @@ import { save as saveDialog } from '@tauri-apps/plugin-dialog'
 import { isAppError, pathExists, savePdf } from '../core/ipc/api'
 import { commands } from '../core/registry/commands'
 import { keybindings } from '../core/registry/keybindings'
+import { addAnnotations, compositeCommand, deleteAnnotations, updateAnnotation } from '../core/session/commands'
+import type { Command } from '../core/session/history.svelte'
 import type { Annotation } from '../core/session/model'
 import type { DocumentSession } from '../core/session/session.svelte'
 import { toasts } from '../ui/toasts.svelte'
@@ -42,14 +44,26 @@ async function writeSession(s: DocumentSession, target: string): Promise<boolean
   const upserts = store.changedSince().map(withAuthor)
   const before = new Map(store.all().map((a) => [a.id, a]))
   const savedState = history.stateId
+  const pages = s.pages
+  const planning = s.pagePlan()
 
   let refs: Record<string, string>
+  let plan: Awaited<typeof planning> = null
   try {
-    ;({ refs } = await savePdf(s.path, target, upserts, deletes))
+    plan = planning && (await planning)
+    ;({ refs } = await (plan
+      ? savePdf(s.path, target, upserts, deletes, plan)
+      : savePdf(s.path, target, upserts, deletes)))
   } catch (e) {
     console.error(`Failed to save ${s.path} to ${target}`, e)
     showSaveError(s, e)
     return false
+  }
+
+  if (plan) {
+    if (!samePath(target, s.path)) s.setPath(target)
+    await reloadSaved(s, before, pages !== s.pages)
+    return true
   }
 
   // Edits made while the file was being written are not in it: keep them
@@ -68,6 +82,38 @@ async function writeSession(s: DocumentSession, target: string): Promise<boolean
   // The file now matches the history position the save started from.
   history.markClean(savedState)
   return true
+}
+
+/**
+ * After a save that changed pages: reloads the session from the saved file
+ * (fresh history). Annotation edits made while the file was being written
+ * are carried over as one undoable step; after a page operation in that time
+ * they cannot be placed and are dropped (with a warning).
+ */
+async function reloadSaved(s: DocumentSession, before: Map<string, Annotation>, pagesChanged: boolean): Promise<void> {
+  const { store, history } = s
+  const changed = store.all().filter((a) => before.get(a.id) !== a)
+  const removed = [...before.keys()].filter((id) => !store.get(id))
+  try {
+    await s.reload()
+  } catch (e) {
+    console.error(`Failed to reload ${s.path}`, e)
+    toasts.show(`${s.fileName} was saved but could not be reloaded. Close and reopen it.`, 'error')
+    return
+  }
+  if (changed.length === 0 && removed.length === 0) return
+  if (pagesChanged) {
+    toasts.show('Changes made while saving were not kept', 'warning')
+    return
+  }
+  const parts: Command[] = []
+  const gone = removed.flatMap((id) => store.get(id) ?? [])
+  if (gone.length) parts.push(deleteAnnotations(gone))
+  for (const a of changed) {
+    const saved = store.get(a.id)
+    parts.push(saved ? updateAnnotation(saved, a) : addAnnotations([a]))
+  }
+  history.execute(compositeCommand('Edit annotation', parts))
 }
 
 /**

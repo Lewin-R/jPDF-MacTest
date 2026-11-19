@@ -1,6 +1,7 @@
 import type { DeletedRef } from '../session/store.svelte'
 import { invoke } from '@tauri-apps/api/core'
 import type { Annotation } from '../session/model'
+import type { PageSpec } from '../session/pages'
 
 export type AppErrorCode =
   | 'NotFound'
@@ -31,14 +32,22 @@ export function readAnnotations(path: string): Promise<Annotation[]> {
   return invoke<Annotation[]>('read_annotations', { path })
 }
 
-/** Writes `upserts`/`deletes` as an incremental update of `sourcePath` to `targetPath`; `refs` maps annotation id -> sourceRef. */
+/**
+ * Writes `upserts`/`deletes` as an incremental update of `sourcePath` to
+ * `targetPath`; `refs` maps annotation id -> sourceRef. With `pages` the
+ * saved document has exactly those pages in that order (annotation `page`
+ * indexes the plan); without, the pages stay as they are.
+ */
 export function savePdf(
   sourcePath: string,
   targetPath: string,
   upserts: Annotation[],
   deletes: DeletedRef[],
+  pages?: PageSpec[],
 ): Promise<{ refs: Record<string, string> }> {
-  return invoke<{ refs: Record<string, string> }>('save_pdf', { sourcePath, targetPath, upserts, deletes })
+  return invoke<{ refs: Record<string, string> }>('save_pdf', {
+    sourcePath, targetPath, upserts, deletes, pages: pages ?? null,
+  })
 }
 
 /** Whether a file exists at `path` (true when that cannot be determined). */
