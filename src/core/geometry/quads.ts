@@ -48,7 +48,8 @@ export function rectsToQuads(
   for (const r of sorted) {
     const i = merged.findIndex((m) => joinable(m, r, lineTolerancePx))
     if (i >= 0) merged[i] = union(merged[i], r)
-    else merged.push({ ...r })
+    // Copy the edges explicitly: DOMRect keeps them as prototype getters, so `{ ...r }` would be empty.
+    else merged.push({ left: r.left, top: r.top, right: r.right, bottom: r.bottom })
   }
   // A merge can widen a fragment until it reaches another one.
   for (let changed = true; changed; ) {

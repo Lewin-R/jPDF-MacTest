@@ -25,6 +25,21 @@ describe('rectsToQuads', () => {
     expect(quads).toEqual([[20, 200, 40, 200, 20, 210, 40, 210]])
   })
 
+  it('accepts DOMRect-like rects whose edges are prototype getters (Range.getClientRects)', () => {
+    class Rect {
+      constructor(private x: number, private y: number, private w: number, private h: number) {}
+      get left() { return this.x }
+      get top() { return this.y }
+      get right() { return this.x + this.w }
+      get bottom() { return this.y + this.h }
+    }
+    const quads = rectsToQuads([new Rect(10, 100, 40, 10), new Rect(10, 120, 40, 10)], id)
+    expect(quads).toEqual([
+      [10, 100, 50, 100, 10, 110, 50, 110],
+      [10, 120, 50, 120, 10, 130, 50, 130],
+    ])
+  })
+
   it('quad corner order is TL,TR,BL,BR in PDF space', () => {
     expect(rectsToQuads([r(10, 100, 50, 110)], flip)).toEqual([[10, 700, 50, 700, 10, 690, 50, 690]])
   })
