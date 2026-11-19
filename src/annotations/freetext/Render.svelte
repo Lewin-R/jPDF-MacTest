@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { PageViewport } from 'pdfjs-dist'
   import type { FreeTextAnnotation } from '../../core/session/model'
-  import { ASCENT, LINE_HEIGHT, TEXT_PADDING } from '../../core/geometry/textLayout'
+  import { ASCENT, LINE_HEIGHT, lineX, TEXT_PADDING } from '../../core/geometry/textLayout'
   import { cssColor, FREETEXT_FONT, screenBox } from './screen'
 
   let { a, vp }: { a: FreeTextAnnotation; vp: PageViewport; selected: boolean } = $props()
@@ -11,6 +11,8 @@
   const box = $derived(screenBox(a.rect, vp))
   const s = $derived(vp.scale)
   const firstBaseline = $derived(box.top + (TEXT_PADDING + a.fontSize * ASCENT) * s)
+  /** Width of the text area (pt): the box without the padding on both sides. */
+  const inner = $derived(box.width / s - 2 * TEXT_PADDING)
 </script>
 
 <g>
@@ -26,7 +28,7 @@
   {/if}
   {#each a.lines as line, i (i)}
     <text
-      x={box.left + TEXT_PADDING * s}
+      x={box.left + (TEXT_PADDING + lineX(line, a.fontSize, inner, a.align)) * s}
       y={firstBaseline + i * a.fontSize * LINE_HEIGHT * s}
       font-family={FREETEXT_FONT}
       font-size={a.fontSize * s}

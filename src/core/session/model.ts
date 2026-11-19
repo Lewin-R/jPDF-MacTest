@@ -21,7 +21,9 @@ export interface TextLineAnnotation extends Base { kind: 'underline' | 'strikeou
 /** Annotations made from selected text (their quads are the text's line boxes). */
 export type TextMarkupAnnotation = HighlightAnnotation | TextLineAnnotation
 export interface InkAnnotation extends Base { kind: 'ink'; strokes: Point[][]; color: RGB; width: number; opacity: number; blend: 'normal' | 'multiply'; role: 'pen' | 'marker' }
-export interface FreeTextAnnotation extends Base { kind: 'freetext'; rect: Rect; text: string; lines: string[]; fontSize: number; textColor: RGB; background: { color: RGB; opacity: number } | null }
+/** Horizontal alignment of a text box's lines; saved as /Q (0, 1, 2). */
+export type TextAlign = 'left' | 'center' | 'right'
+export interface FreeTextAnnotation extends Base { kind: 'freetext'; rect: Rect; text: string; lines: string[]; fontSize: number; textColor: RGB; background: { color: RGB; opacity: number } | null; align: TextAlign }
 /**
  * Rectangle or circle. `rect` is the geometric outline (centre of the border
  * stroke, x1 < x2, y1 < y2), for circles the circle's bounding box (an

@@ -26,12 +26,12 @@ const SETTINGS: TextSettings = { textColor: [0, 0, 1], fontSize: 10, background:
 function box(over: Partial<FreeTextAnnotation> = {}): FreeTextAnnotation {
   return {
     id: 'box', page: 1, sourceRef: '7R', modifiedAt: '2026-01-01T00:00:00Z', author: 'Someone', kind: 'freetext',
-    rect: [100, 468, 300, 500], text: 'old', lines: ['old'], fontSize: 10, textColor: [1, 0, 0], background: null,
+    rect: [100, 468, 300, 500], text: 'old', lines: ['old'], fontSize: 10, textColor: [1, 0, 0], background: null, align: 'left',
     ...over,
   }
 }
 
-function setup(loaded: FreeTextAnnotation[] = []) {
+function setup(loaded: FreeTextAnnotation[] = [], settings: TextSettings = SETTINGS) {
   const store = new AnnotationStore()
   store.load(loaded)
   const history = new History(store)
@@ -54,7 +54,7 @@ function setup(loaded: FreeTextAnnotation[] = []) {
     textEdit: { set: (e: TextEdit | null) => void (edit = e) },
     hidden: { set: (ids: Iterable<string>) => void (hidden = [...ids]) },
   } as unknown as ToolContext
-  const handler = createTextHandler(ctx, () => SETTINGS)
+  const handler = createTextHandler(ctx, () => settings)
   const click = (p: Point, rotation = 0) => {
     handler.onPointerDown!(ev(p, rotation))
     handler.onPointerUp!(ev(p, rotation))
@@ -72,9 +72,19 @@ const texts = (store: AnnotationStore) => store.all().map((a) => (a as FreeTextA
 
 describe('text tool', () => {
   it('default settings match the toolbar default', () => {
-    expect(textTool.defaultSettings).toEqual({ textColor: [0.1, 0.1, 0.1], fontSize: 12, background: null })
+    expect(textTool.defaultSettings).toEqual({ textColor: [0.1, 0.1, 0.1], fontSize: 12, background: null, align: 'left' })
     expect(textTool.shortcut).toBe('T')
     expect(textTool.allowMultipleInstances).toBe(true)
+  })
+
+  it('new boxes take the alignment from the settings, left when saved settings have none', () => {
+    const right = setup([], { ...SETTINGS, align: 'right' })
+    right.click([100, 500])
+    expect(right.edit()!.draft.align).toBe('right')
+    // Settings saved before alignment existed have no `align`.
+    const old = setup([], SETTINGS)
+    old.click([100, 500])
+    expect(old.edit()!.draft.align).toBe('left')
   })
 
   it('click creates a box at the click point in edit state', () => {

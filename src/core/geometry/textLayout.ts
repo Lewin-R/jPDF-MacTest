@@ -1,4 +1,4 @@
-import type { Point, Rect } from '../session/model'
+import type { Point, Rect, TextAlign } from '../session/model'
 
 /**
  * Inner padding of a text box and line height factor (pt). The padding keeps
@@ -50,6 +50,17 @@ export function measureHelvetica(s: string, size: number): number {
   let units = 0
   for (const ch of s) units += WIDTHS.get(ch.codePointAt(0)!) ?? UNKNOWN_WIDTH
   return (units * size) / 1000
+}
+
+/**
+ * Where a wrapped line starts (pt from the inner left edge of a text area
+ * `innerWidth` wide): left-aligned at 0, centred, or flush right. Measured
+ * with Helvetica's metrics, as the saved appearance places it.
+ */
+export function lineX(line: string, fontSize: number, innerWidth: number, align: TextAlign): number {
+  if (align !== 'center' && align !== 'right') return 0
+  const free = innerWidth - measureHelvetica(line, fontSize)
+  return align === 'center' ? free / 2 : free
 }
 
 /** Splits a word wider than maxWidth into pieces that fit (at least one character each). */

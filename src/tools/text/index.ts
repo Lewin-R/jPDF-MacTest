@@ -82,6 +82,7 @@ export function createTextHandler(ctx: ToolContext, settings: () => TextSettings
       fontSize: s.fontSize,
       textColor: s.textColor,
       background: s.background,
+      align: s.align ?? 'left',
     }
   }
 
@@ -141,7 +142,7 @@ export const textTool: ToolDefinition<TextSettings> = {
   description: 'Add a text box',
   shortcut: 'T',
   Icon,
-  defaultSettings: { textColor: [0.1, 0.1, 0.1], fontSize: 12, background: null },
+  defaultSettings: { textColor: [0.1, 0.1, 0.1], fontSize: 12, background: null, align: 'left' },
   Options,
   cursor: () => 'text',
   defaultLocked: false,

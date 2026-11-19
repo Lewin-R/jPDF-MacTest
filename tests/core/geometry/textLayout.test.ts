@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  boxRect, defaultBoxWidth, frameOrigin, frameSize, LINE_HEIGHT, measureHelvetica, minBoxWidth, pageBoxRect, PLACEHOLDER,
+  boxRect, defaultBoxWidth, frameOrigin, frameSize, LINE_HEIGHT, lineX, measureHelvetica, minBoxWidth, pageBoxRect, PLACEHOLDER,
   screenDx, TEXT_PADDING, wrapText,
 } from '../../../src/core/geometry/textLayout'
 
@@ -99,5 +99,19 @@ describe('measureHelvetica', () => {
   it('measures unknown characters (one per code point) like the "?" they are saved as', () => {
     expect(measureHelvetica('😀', 1000)).toBe(556)
     expect(measureHelvetica('あ', 1000)).toBe(556)
+  })
+})
+
+describe('lineX', () => {
+  // "Hi" at 10 pt is 9.44 wide (H 722 + i 222).
+  it('starts left-aligned lines at the inner left edge', () => {
+    expect(lineX('Hi', 10, 20, 'left')).toBe(0)
+  })
+  it('centres lines in the text area', () => {
+    expect(lineX('Hi', 10, 20, 'center')).toBeCloseTo((20 - 9.44) / 2, 9)
+  })
+  it('puts right-aligned lines flush with the right edge', () => {
+    expect(lineX('Hi', 10, 20, 'right')).toBeCloseTo(20 - 9.44, 9)
+    expect(lineX('', 10, 20, 'right')).toBe(20)
   })
 })

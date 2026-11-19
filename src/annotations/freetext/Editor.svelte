@@ -85,6 +85,7 @@
   style:font-family={FREETEXT_FONT}
   style:font-size="{a.fontSize * s}px"
   style:color={cssColor(a.textColor)}
+  style:text-align={a.align}
   style:background
   oninput={onInput}
   onkeydown={onKeydown}

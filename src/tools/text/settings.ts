@@ -1,4 +1,4 @@
-import type { RGB } from '../../core/session/model'
+import type { RGB, TextAlign } from '../../core/session/model'
 
 /** Font size range of text boxes, in pt. Small enough for dense forms and footnotes. */
 export const FONT_SIZE_MIN = 6
@@ -8,6 +8,8 @@ export interface TextSettings {
   textColor: RGB
   fontSize: number
   background: { color: RGB; opacity: number } | null
+  /** Absent in settings saved before alignment existed: left. */
+  align?: TextAlign
 }
 
 /** Background colour picked when switching from Transparent to Colour. */
