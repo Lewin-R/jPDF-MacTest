@@ -1,7 +1,5 @@
 import { fireEvent, render, within } from '@testing-library/svelte'
 import { describe, expect, it, vi } from 'vitest'
-import type { ShapeAnnotation } from '../../../src/core/session/model'
-import SelectionOptions from '../../../src/tools/select/SelectionOptions.svelte'
 import Options from '../../../src/tools/shape/Options.svelte'
 import { DEFAULT_FILL, type ShapeSettings } from '../../../src/tools/shape/settings'
 
@@ -9,11 +7,6 @@ const settings: ShapeSettings = {
   shape: 'rect',
   border: { color: [0.898, 0.224, 0.208], width: 2, opacity: 1 },
   fill: null,
-}
-
-const shape: ShapeAnnotation = {
-  id: 's', page: 0, sourceRef: null, modifiedAt: '', author: '', kind: 'shape', shape: 'circle',
-  rect: [0, 0, 10, 10], border: { color: [1, 0, 0], width: 2, opacity: 1 }, fill: { color: [0, 0, 1], opacity: 0.5 },
 }
 
 describe('shape tool options', () => {
@@ -77,39 +70,5 @@ describe('shape tool options', () => {
     slider.value = '5.5'
     await fireEvent.input(slider)
     expect(update).toHaveBeenLastCalledWith({ border: { ...settings.border, width: 5.5 }, fill: null })
-  })
-})
-
-describe('shape selection options', () => {
-  it('edits border and fill of a selected shape, one step per committed change', async () => {
-    const update = vi.fn()
-    const r = render(SelectionOptions, { props: { annotation: shape, update } })
-    const opacity = r.getByRole('slider', { name: 'Fill opacity' }) as HTMLInputElement
-    opacity.value = '20'
-    await fireEvent.input(opacity)
-    expect(update).not.toHaveBeenCalled()
-    expect(r.getByText('20%')).toBeTruthy()
-    await fireEvent.change(opacity)
-    expect(update).toHaveBeenCalledOnce()
-    expect(update.mock.calls[0][0]).toMatchObject({ id: 's', fill: { color: [0, 0, 1], opacity: 0.2 }, border: shape.border })
-
-    await fireEvent.click(within(r.getByRole('radiogroup', { name: 'Fill' })).getByRole('radio', { name: 'None' }))
-    expect(update.mock.calls[1][0]).toMatchObject({ fill: null, border: shape.border })
-  })
-
-  it("turning a selected shape's fill off and on again restores its fill, also after the flyout reopens", async () => {
-    const update = vi.fn()
-    const first = render(SelectionOptions, { props: { annotation: shape, update } })
-    await fireEvent.click(within(first.getByRole('radiogroup', { name: 'Fill' })).getByRole('radio', { name: 'None' }))
-    expect(update.mock.lastCall![0]).toMatchObject({ fill: null })
-    first.unmount()
-    const r = render(SelectionOptions, { props: { annotation: { ...shape, fill: null }, update } })
-    await fireEvent.click(within(r.getByRole('radiogroup', { name: 'Fill' })).getByRole('radio', { name: 'Fill' }))
-    expect(update.mock.lastCall![0]).toMatchObject({ fill: shape.fill, border: shape.border })
-    // Another shape does not get this one's fill.
-    r.unmount()
-    const other = render(SelectionOptions, { props: { annotation: { ...shape, id: 'other', fill: null }, update } })
-    await fireEvent.click(within(other.getByRole('radiogroup', { name: 'Fill' })).getByRole('radio', { name: 'Fill' }))
-    expect(update.mock.lastCall![0]).toMatchObject({ fill: DEFAULT_FILL })
   })
 })

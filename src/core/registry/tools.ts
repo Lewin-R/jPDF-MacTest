@@ -143,11 +143,6 @@ export interface ToolDefinition<S = any> {
   Icon: Component<{ settings: S; size: number }>
   defaultSettings: S
   Options: Component<{ settings: S; update(patch: Partial<S>): void }> | null
-  /**
-   * Shown in the tool's flyout instead of Options while an annotation is
-   * selected: edits it, `update` committing one undo step per call.
-   */
-  SelectionOptions?: Component<{ annotation: Annotation; update(after: Annotation): void }>
   cursor?(settings: S): string
   /**
    * Whether a new instance is locked: a locked tool stays active after each

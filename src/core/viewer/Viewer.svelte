@@ -27,6 +27,7 @@
     toolSelection = [],
     crossDrag = null,
     frames,
+    onstyle,
   }: {
     session: DocumentSession
     /** Active tool's handler (see ToolRouter); page overlays forward pointer input to it. */
@@ -52,6 +53,8 @@
     crossDrag?: { page: number; at?: number } | null
     /** Registry the page overlays put their frames in (see SessionToolState.frames). */
     frames?: Map<number, () => PageFrame | null>
+    /** Commits a style edit of the selection from the selection bar's Style card (one undo step). */
+    onstyle?: (afters: Annotation[]) => void
   } = $props()
 
   const WHEEL_COMMIT_MS = 150
@@ -304,6 +307,7 @@
             {onpagemenu}
             {frames}
             rescrollMoves={!!crossDrag}
+            {onstyle}
             cursor={panning ? 'grabbing' : spaceHeld ? 'grab' : cursor}
           />
         </PageView>

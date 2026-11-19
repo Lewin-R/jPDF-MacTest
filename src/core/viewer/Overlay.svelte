@@ -55,6 +55,9 @@
     type Handle,
   } from '../../tools/select/handles'
   import { eraserTool } from '../../tools/eraser'
+  import { layoutFreeText } from '../../tools/text/editing'
+  import { normalizeRotation } from '../geometry/textLayout'
+  import { isEditable, type FreeTextAnnotation } from '../session/model'
 
   let {
     doc,
@@ -75,6 +78,7 @@
     onpagemenu,
     frames,
     rescrollMoves = false,
+    onstyle,
   }: {
     doc?: PdfDoc
     /** 1-based position in the page list; Annotation.page is 0-based. */
@@ -122,6 +126,8 @@
      * every scroll (auto-scroll during a cross-page drag moves the page, not the pointer).
      */
     rescrollMoves?: boolean
+    /** Commits a style edit of the selection from its Style card (one undo step); no Style button without it. */
+    onstyle?: (afters: Annotation[]) => void
   } = $props()
 
   let loaded = $state<PageViewport | null>(null)
@@ -180,9 +186,17 @@
     return all.some((a) => a.flattened) ? [...all.filter((a) => a.flattened), ...all.filter((a) => !a.flattened)] : all
   })
 
+  /**
+   * The selection as styled while a Style card control is dragged (by id);
+   * drawn instead of the stored annotations until the preview is over.
+   */
+  let styleLive = $state.raw<ReadonlyMap<string, Annotation> | null>(null)
+
   /** Annotation `id` as drawn now: its preview while dragged, nothing while hidden. */
   function drawn(id: string): Annotation | undefined {
     if (preview?.id === id) return preview
+    const live = styleLive?.get(id)
+    if (live) return live
     const p = previews.find((x) => x.id === id)
     if (p) return p
     return hidden?.has(id) ? undefined : store.get(id)
@@ -223,6 +237,39 @@
     if (!vp || !lasso || lasso.page !== pageNumber - 1) return null
     return lasso.points.map((p) => vp!.convertToViewportPoint(p[0], p[1]).join(',')).join(' ')
   })
+
+  /**
+   * The selection bar (actions and Style) next to the selection on this page:
+   * the group's box, or the single selected annotation's while it is not being
+   * moved, resized or edited as text. Its annotations are the selected ones on
+   * this page as stored (not as previewed).
+   */
+  const bar = $derived.by(() => {
+    if (!vp || textEdit) return null
+    let rect: Rect
+    if (group) {
+      if (group.moving || lassoPoints) return null
+      rect = group.rect
+    } else if (selected) {
+      const id = selection[0]
+      if (preview?.id === id || hidden?.has(id) || previews.some((p) => p.id === id)) return null
+      rect = selected.rect
+    } else {
+      return null
+    }
+    const list = selection.flatMap((id) => {
+      const a = store.get(id)
+      return a && a.page === pageNumber - 1 && isEditable(a) ? [a] : []
+    })
+    return list.length > 0 ? { rect, annotations: list } : null
+  })
+
+  function setStyleLive(list: Annotation[] | null) {
+    styleLive = list && new Map(list.map((a) => [a.id, a]))
+  }
+
+  /** Lays out a text box restyled in the Style card (e.g. its font size dragged) as its page shows it. */
+  const relayoutBox = (a: FreeTextAnnotation) => layoutFreeText(a, a.text, normalizeRotation(vp?.rotation))
 
   let el: SVGSVGElement
   /**
@@ -501,8 +548,9 @@
   preserveAspectRatio="none"
 >
   {#if vp}
-    {#each annotations as a (a.id)}
-      {#if !hidden?.has(a.id)}
+    {#each annotations as stored (stored.id)}
+      {#if !hidden?.has(stored.id)}
+        {@const a = styleLive?.get(stored.id) ?? stored}
         {@const K = annotationKinds.get(a.kind)}
         <K.Render {a} {vp} selected={false} />
       {/if}
@@ -569,8 +617,15 @@
 {#if vp && textEdit}
   <TextEditor edit={textEdit} {vp} />
 {/if}
-{#if vp && group && !group.moving && !lassoPoints}
-  <SelectionBar rect={group.rect} {vp} count={group.boxes.length} />
+{#if vp && bar}
+  <SelectionBar
+    rect={bar.rect}
+    {vp}
+    annotations={bar.annotations}
+    {onstyle}
+    onlive={setStyleLive}
+    relayout={relayoutBox}
+  />
 {/if}
 
 <style>

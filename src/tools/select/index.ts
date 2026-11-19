@@ -11,7 +11,6 @@ import {
   HANDLE_CURSORS, HANDLE_PILL, HANDLE_TOLERANCE_PX, handleAt, handlesFor, inRect, keepAspect, resizeRect, toPdfRect, toScreenRect, type Handle,
 } from './handles'
 import Icon from './Icon.svelte'
-import SelectionOptions from './SelectionOptions.svelte'
 import { clampShift, dragAcrossPages, type CrossPageDrag, type PageFrame } from './crossPage'
 import { createTextLookup, type TextLookup } from '../../core/viewer/textBoxes'
 
@@ -363,7 +362,6 @@ export const selectTool: ToolDefinition<Record<string, never>> = {
   Icon,
   defaultSettings: {},
   Options: null,
-  SelectionOptions,
   cursor: () => 'default',
   allowMultipleInstances: false,
   createHandler: (ctx) => createSelectHandler(ctx),

@@ -22,7 +22,7 @@
   import { activeTool } from './toolbar/activeTool.svelte'
   import { registerToolShortcuts } from './toolbar/toolShortcuts'
   import { activateSelectTool, afterToolUse } from './toolbar/toolLock'
-  import { editSelected, registerSelectionCommands } from './tools/select/commands'
+  import { editAnnotations, registerSelectionCommands } from './tools/select/commands'
   import { createEraserHandler } from './tools/eraser'
   import type { Annotation } from './core/session/model'
   import Toast from './ui/Toast.svelte'
@@ -122,15 +122,9 @@
   /** The toolbar shows once the persisted layout is loaded (no flash of defaults). */
   let settingsLoaded = $state(false)
 
-  /** The selected annotation of the active tab (edited through the select tool's flyout). */
-  const selectedAnnotation = $derived.by(() => {
-    const s = tabs.active
-    const id = s ? router.stateOf(s).selection[0] : undefined
-    return (s && id !== undefined && s.store.get(id)) || null
-  })
-
-  function editSelection(after: Annotation) {
-    if (tabs.active) void editSelected(tabs.active, after)
+  /** A style edit from the selection bar's Style card, on the active tab. */
+  function editStyle(afters: Annotation[]) {
+    if (tabs.active) void editAnnotations(tabs.active, afters)
   }
 
   function closeActive() {
@@ -277,6 +271,7 @@
           crossDrag={router.stateOf(tabs.active).crossDrag}
           frames={router.stateOf(tabs.active).frames}
           onpagemenu={openPageMenu}
+          onstyle={editStyle}
         />
       {/key}
     {:else}
@@ -284,7 +279,7 @@
     {/if}
   </main>
   <aside class="toolbar-region">
-    {#if settingsLoaded}<Toolbar selected={selectedAnnotation} onEditSelected={editSelection} />{/if}
+    {#if settingsLoaded}<Toolbar />{/if}
   </aside>
   <div class="statusbar-region">
     <StatusBar session={tabs.active} {builderOpen} ontogglebuilder={toggleBuilder} />

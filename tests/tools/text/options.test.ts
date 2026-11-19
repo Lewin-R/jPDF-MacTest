@@ -1,16 +1,9 @@
 import { fireEvent, render, within } from '@testing-library/svelte'
 import { describe, expect, it, vi } from 'vitest'
-import type { FreeTextAnnotation } from '../../../src/core/session/model'
-import SelectionOptions from '../../../src/tools/select/SelectionOptions.svelte'
 import Options from '../../../src/tools/text/Options.svelte'
 import { FONT_SIZE_MAX, FONT_SIZE_MIN, type TextSettings } from '../../../src/tools/text/settings'
 
 const settings: TextSettings = { textColor: [0, 0, 0], fontSize: 12, background: null }
-
-const box: FreeTextAnnotation = {
-  id: 't', page: 0, sourceRef: null, modifiedAt: '', author: '', kind: 'freetext',
-  rect: [0, 0, 100, 20], text: 'hi', lines: ['hi'], fontSize: 12, textColor: [0, 0, 0], background: null, align: 'left',
-}
 
 describe('text tool options', () => {
   it('font sizes go down to 6 pt', () => {
@@ -56,13 +49,5 @@ describe('text alignment option', () => {
     const r = render(Options, { props: { settings, update } })
     await fireEvent.click(r.getByRole('radio', { name: 'Right' }))
     expect(update).toHaveBeenCalledWith({ align: 'right' })
-  })
-})
-
-describe('selected text box options', () => {
-  it('match the tool: 6 pt minimum and a Background section', () => {
-    const r = render(SelectionOptions, { props: { annotation: box, update: vi.fn() } })
-    expect((r.getByRole('slider', { name: 'Font size' }) as HTMLInputElement).min).toBe('6')
-    expect(r.getByRole('region', { name: 'Background' })).toBeTruthy()
   })
 })

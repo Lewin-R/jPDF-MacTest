@@ -1,4 +1,4 @@
-import { fireEvent, render } from '@testing-library/svelte'
+import { fireEvent, render, within } from '@testing-library/svelte'
 import type { PageViewport } from 'pdfjs-dist'
 import { describe, expect, it, vi } from 'vitest'
 import '../../../src/annotations'
@@ -19,7 +19,7 @@ const vp = {
 
 const box: FreeTextAnnotation = {
   id: 'a', page: 0, sourceRef: null, modifiedAt: '', author: '', kind: 'freetext',
-  rect: [10, 70, 60, 90], text: 'hi', lines: ['hi'], fontSize: 10, textColor: [0, 0, 0], background: null,
+  rect: [10, 70, 60, 90], text: 'hi', lines: ['hi'], fontSize: 10, textColor: [0, 0, 0], background: null, align: 'left',
 }
 const ink: InkAnnotation = {
   id: 'i', page: 0, sourceRef: null, modifiedAt: '', author: '', kind: 'ink',
@@ -137,5 +137,63 @@ describe('Overlay hover pass-through', () => {
     const { svg, container } = mount({ tool })
     await fireEvent.pointerMove(container, { clientX: 20, clientY: 20, buttons: 1 })
     expect(svg.classList.contains('interactive')).toBe(false)
+  })
+})
+
+describe('Overlay selection bar', () => {
+  const image: Annotation = {
+    id: 'img', page: 0, sourceRef: null, modifiedAt: '', author: '', kind: 'image',
+    rect: [10, 10, 30, 30], image: { width: 1, height: 1, png: '' },
+  }
+
+  it('shows the actions and a Style button next to a single selection', () => {
+    const r = mount({ selection: ['a'], onstyle: vi.fn() })
+    const bar = r.getByRole('toolbar', { name: 'Selection actions' })
+    expect(within(bar).getByRole('button', { name: 'Style' })).toBeTruthy()
+    expect(within(bar).getByRole('button', { name: /Delete/ })).toBeTruthy()
+    // One element: no count.
+    expect(within(bar).queryByText(/selected/)).toBeNull()
+  })
+
+  it('has no Style button for an image', () => {
+    const r = mount({ selection: ['img'], onstyle: vi.fn() }, [image])
+    expect(r.getByRole('toolbar', { name: 'Selection actions' })).toBeTruthy()
+    expect(r.queryByRole('button', { name: 'Style' })).toBeNull()
+  })
+
+  it('has no Style button for a group of different kinds', () => {
+    const r = mount({ selection: ['a', 'i'], onstyle: vi.fn(), tool: { groupSelection: true } })
+    expect(r.getByText('2 selected')).toBeTruthy()
+    expect(r.queryByRole('button', { name: 'Style' })).toBeNull()
+  })
+
+  it('opens the Style card with the controls of the selected kind; a change is committed through onstyle', async () => {
+    const onstyle = vi.fn()
+    const r = mount({ selection: ['a'], onstyle })
+    await fireEvent.click(r.getByRole('button', { name: 'Style' }))
+    const card = r.getByRole('dialog', { name: 'Style' })
+    await fireEvent.click(within(card).getByRole('radio', { name: 'Right' }))
+    expect(onstyle).toHaveBeenCalledWith([{ ...box, align: 'right' }])
+  })
+
+  it('draws the live style while a control is dragged, and the stored one after Escape', async () => {
+    const r = mount({ selection: ['i'], onstyle: vi.fn() })
+    await fireEvent.click(r.getByRole('button', { name: 'Style' }))
+    const slider = within(r.getByRole('dialog', { name: 'Style' })).getByRole('slider', { name: 'Width' }) as HTMLInputElement
+    slider.value = '10'
+    await fireEvent.input(slider)
+    const path = () => r.container.querySelector('svg [stroke-width]')
+    expect(Number(path()!.getAttribute('stroke-width'))).toBe(20)
+    await fireEvent.keyDown(window, { key: 'Escape' })
+    expect(r.queryByRole('dialog', { name: 'Style' })).toBeNull()
+    expect(Number(path()!.getAttribute('stroke-width'))).toBe(4)
+  })
+
+  it('hides the bar while a text box is edited and while the selection is dragged', () => {
+    const edit = { draft: box, rotation: 0, setText: vi.fn(), commit: vi.fn() }
+    const editing = mount({ selection: ['a'], onstyle: vi.fn(), textEdit: edit })
+    expect(editing.queryByRole('toolbar', { name: 'Selection actions' })).toBeNull()
+    const dragging = mount({ selection: ['a'], onstyle: vi.fn(), preview: { ...box, rect: [20, 70, 70, 90] } })
+    expect(dragging.queryByRole('toolbar', { name: 'Selection actions' })).toBeNull()
   })
 })

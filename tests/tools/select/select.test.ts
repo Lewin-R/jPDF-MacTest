@@ -104,7 +104,6 @@ describe('select tool', () => {
     expect(selectTool.shortcut).toBe('V')
     expect(selectTool.allowMultipleInstances).toBe(false)
     expect(selectTool.Options).toBeNull()
-    expect(selectTool.SelectionOptions).toBeDefined()
     expect(selectTool.cursor!({})).toBe('default')
   })
 
