@@ -131,6 +131,14 @@ describe('AnnotationStore', () => {
     expect(s.get('a')?.sourceRef).toBeNull()
   })
 
+  it('deletedRefs pairs each deleted sourceRef with its annotation id', () => {
+    const s = new AnnotationStore()
+    s.load([hl('a', 0, '7R'), hl('b', 0, '8R'), hl('c', 0)])
+    s.remove('a')
+    s.remove('c')
+    expect(s.deletedRefs()).toEqual([{ id: 'a', sourceRef: '7R' }])
+  })
+
   it('refs of annotations removed after a save stay in deletedSourceRefs', () => {
     const s = new AnnotationStore()
     s.add(hl('a'))

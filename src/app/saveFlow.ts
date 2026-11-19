@@ -38,7 +38,7 @@ function showSaveError(s: DocumentSession, e: unknown): void {
 async function writeSession(s: DocumentSession, target: string): Promise<boolean> {
   const { store, history } = s
   const present = new Set(store.all().map((a) => a.sourceRef).filter((r) => r !== null))
-  const deletes = store.deletedSourceRefs().filter((r) => !present.has(r))
+  const deletes = store.deletedRefs().filter((d) => !present.has(d.sourceRef))
   const upserts = store.changedSince().map(withAuthor)
   const before = new Map(store.all().map((a) => [a.id, a]))
   const savedState = history.stateId
@@ -56,7 +56,10 @@ async function writeSession(s: DocumentSession, target: string): Promise<boolean
   // pending. Deletions need nothing (the store keeps refs of removed ids).
   const changedDuring = store.all().filter((a) => before.get(a.id) !== a).map((a) => a.id)
 
-  store.markSaved(refs, deletes)
+  store.markSaved(
+    refs,
+    deletes.map((d) => d.sourceRef),
+  )
   // The pdf.js document still holds the old bytes; new refs are not in them,
   // but keep every ref this document has known suppressed.
   s.suppress(Object.values(refs))

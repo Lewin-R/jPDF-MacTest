@@ -7,7 +7,7 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::error::AppError;
-use crate::pdf::dto::AnnotationDto;
+use crate::pdf::dto::{AnnotationDto, DeleteRef};
 use crate::pdf::writer::write_incremental;
 
 /// Windows ERROR_SHARING_VIOLATION: file is open in another process.
@@ -64,7 +64,7 @@ pub fn save_to_path(
     source: &Path,
     target: &Path,
     upserts: &[AnnotationDto],
-    deletes: &[String],
+    deletes: &[DeleteRef],
 ) -> Result<SaveResult, AppError> {
     let original = read_file(&source.to_string_lossy())?;
     let (bytes, refs) = write_incremental(&original, upserts, deletes)?;
@@ -97,7 +97,7 @@ pub async fn save_pdf(
     source_path: String,
     target_path: String,
     upserts: Vec<AnnotationDto>,
-    deletes: Vec<String>,
+    deletes: Vec<DeleteRef>,
 ) -> Result<SaveResult, AppError> {
     blocking(move || save_to_path(Path::new(&source_path), Path::new(&target_path), &upserts, &deletes)).await
 }

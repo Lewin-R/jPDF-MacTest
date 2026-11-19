@@ -11,6 +11,15 @@ pub struct Common {
     pub author: String,
 }
 
+/// An annotation deleted in the app: the writer only detaches `source_ref`
+/// if that object is still the annotation `id` was read as.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteRef {
+    pub id: String,
+    pub source_ref: String,
+}
+
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum Blend {

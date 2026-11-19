@@ -89,7 +89,7 @@ describe('saveSession', () => {
     s.history.execute(addAnnotations([ink('new')]))
     h.savePdf.mockResolvedValue({ refs: { new: '20R' } })
     expect(await saveSession(s)).toBe(true)
-    expect(h.savePdf).toHaveBeenCalledWith('C:\\docs\\a.pdf', 'C:\\docs\\a.pdf', [ink('new')], ['10R'])
+    expect(h.savePdf).toHaveBeenCalledWith('C:\\docs\\a.pdf', 'C:\\docs\\a.pdf', [ink('new')], [{ id: 'old1', sourceRef: '10R' }])
   })
 
   it('on success calls markSaved(refs) and markClean', async () => {
@@ -165,7 +165,7 @@ describe('saveSession', () => {
       ['a', '20R', 5],
       ['b', null, 2],
     ])
-    expect(deletes).toEqual(['10R'])
+    expect(deletes).toEqual([{ id: 'old', sourceRef: '10R' }])
     expect(s.dirty).toBe(false)
   })
 
@@ -201,11 +201,11 @@ describe('sourceRefs across undo and saves', () => {
   })
 
   it('load, delete, save, undo, save: re-added as a new object, 10R not deleted again', async () => {
-    const s = fakeSession('C:\docs\a.pdf', [ink('old', '10R')])
+    const s = fakeSession('C:\\docs\\a.pdf', [ink('old', '10R')])
     s.history.execute(deleteAnnotations([s.store.get('old')!]))
     h.savePdf.mockResolvedValueOnce({ refs: {} })
     await saveSession(s)
-    expect(h.savePdf.mock.calls[0][3]).toEqual(['10R'])
+    expect(h.savePdf.mock.calls[0][3]).toEqual([{ id: 'old', sourceRef: '10R' }])
     s.history.undo()
     expect(s.store.get('old')!.sourceRef).toBeNull()
     h.savePdf.mockResolvedValueOnce({ refs: { old: '30R' } })
@@ -217,13 +217,13 @@ describe('sourceRefs across undo and saves', () => {
   })
 
   it('undo during an in-flight save still ends with correct refs', async () => {
-    const s = fakeSession('C:\docs\a.pdf', [ink('old', '10R')])
+    const s = fakeSession('C:\\docs\\a.pdf', [ink('old', '10R')])
     s.history.execute(addAnnotations([ink('a')]))
     s.history.execute(deleteAnnotations([s.store.get('old')!]))
     const first = deferred<{ refs: Record<string, string> }>()
     h.savePdf.mockReturnValueOnce(first.promise)
     const saving = saveSession(s)
-    expect(h.savePdf.mock.calls[0].slice(2)).toEqual([[ink('a')], ['10R']])
+    expect(h.savePdf.mock.calls[0].slice(2)).toEqual([[ink('a')], [{ id: 'old', sourceRef: '10R' }]])
     s.history.undo() // re-adds old (its file object is being deleted)
     s.history.undo() // removes a (its file object is being written)
     first.resolve({ refs: { a: '20R' } })
@@ -235,7 +235,7 @@ describe('sourceRefs across undo and saves', () => {
     await saveSession(s)
     const [, , upserts, deletes] = h.savePdf.mock.calls[1]
     expect(upserts.map((a: InkAnnotation) => [a.id, a.sourceRef])).toEqual([['old', null]])
-    expect(deletes).toEqual(['20R'])
+    expect(deletes).toEqual([{ id: 'a', sourceRef: '20R' }])
     expect(s.dirty).toBe(false)
   })
 

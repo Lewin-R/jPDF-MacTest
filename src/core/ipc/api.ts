@@ -1,3 +1,4 @@
+import type { DeletedRef } from '../session/store.svelte'
 import { invoke } from '@tauri-apps/api/core'
 import type { Annotation } from '../session/model'
 
@@ -35,7 +36,7 @@ export function savePdf(
   sourcePath: string,
   targetPath: string,
   upserts: Annotation[],
-  deletes: string[],
+  deletes: DeletedRef[],
 ): Promise<{ refs: Record<string, string> }> {
   return invoke<{ refs: Record<string, string> }>('save_pdf', { sourcePath, targetPath, upserts, deletes })
 }

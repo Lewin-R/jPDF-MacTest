@@ -10,7 +10,7 @@ use lopdf::{
 
 use super::appearance::{Appearance, freetext_appearance, highlight_appearance, ink_appearance};
 use super::date::pdf_date;
-use super::dto::{AnnotationDto, Background, Blend, Common, InkRole};
+use super::dto::{AnnotationDto, Background, Blend, Common, DeleteRef, InkRole};
 use super::fmt::fmt_num;
 use super::{annotation_nm, format_source_ref, load_document, nm_owners, parse_source_ref};
 use crate::error::AppError;
@@ -41,7 +41,7 @@ struct Writer {
 pub fn write_incremental(
     original: &[u8],
     upserts: &[AnnotationDto],
-    deletes: &[String],
+    deletes: &[DeleteRef],
 ) -> Result<(Vec<u8>, HashMap<String, String>), AppError> {
     let doc = load_document(original)?;
     let mut w = Writer::new(original, doc);
@@ -51,8 +51,12 @@ pub fn write_incremental(
             refs.insert(id, source_ref);
         }
     }
-    for r in deletes {
-        if let Some(id) = parse_source_ref(r) {
+    for d in deletes {
+        // A ref that now names another annotation (the file changed since it
+        // was loaded) is left alone, like upserts.
+        if let Some(id) = parse_source_ref(&d.source_ref)
+            && w.is_same_annotation(id, &d.id)
+        {
             w.detach(id);
         }
     }

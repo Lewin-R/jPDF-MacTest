@@ -16,6 +16,9 @@ import type { Annotation } from './model'
  * are the refs of ids that have a file object but are currently absent;
  * re-adding one drops it from that set.
  */
+/** A deleted annotation's id and the file object it was saved as. */
+export interface DeletedRef { id: string; sourceRef: string }
+
 export class AnnotationStore {
   private byId = new SvelteMap<string, Annotation>()
   private pages = new SvelteMap<number, Annotation[]>()
@@ -84,6 +87,13 @@ export class AnnotationStore {
     }
     for (const [p, l] of perPage) this.pages.set(p, l)
     this.changed.clear()
+  }
+
+  /** Deleted annotations that exist in the file, as id + sourceRef (the writer checks both match). */
+  deletedRefs(): DeletedRef[] {
+    const out: DeletedRef[] = []
+    for (const [id, sourceRef] of this.refs) if (!this.byId.has(id)) out.push({ id, sourceRef })
+    return out
   }
 
   deletedSourceRefs(): string[] {

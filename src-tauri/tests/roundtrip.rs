@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use juliepdf_lib::commands::files::save_to_path;
 use juliepdf_lib::error::AppError;
 use juliepdf_lib::pdf::appearance::freetext_appearance;
-use juliepdf_lib::pdf::dto::{AnnotationDto, Background, Blend, Common, InkRole};
+use juliepdf_lib::pdf::dto::{AnnotationDto, Background, Blend, Common, DeleteRef, InkRole};
 use juliepdf_lib::pdf::reader::read_annotations;
 use juliepdf_lib::pdf::writer::write_incremental;
 use lopdf::{Document, Object, ObjectId};
@@ -84,9 +84,12 @@ fn with_ref(mut a: AnnotationDto, r: &str) -> AnnotationDto {
 fn write(
     original: &[u8],
     upserts: &[AnnotationDto],
-    deletes: &[&str],
+    deletes: &[(&str, &str)],
 ) -> (Vec<u8>, std::collections::HashMap<String, String>) {
-    let deletes: Vec<String> = deletes.iter().map(|s| s.to_string()).collect();
+    let deletes: Vec<DeleteRef> = deletes
+        .iter()
+        .map(|(id, r)| DeleteRef { id: id.to_string(), source_ref: r.to_string() })
+        .collect();
     write_incremental(original, upserts, &deletes).unwrap()
 }
 
@@ -304,7 +307,7 @@ fn update_with_ref_to_non_annotation_is_written_as_new() {
 fn delete_removes_from_annots() {
     let orig = fixtures::simple_pdf(1);
     let (out1, refs) = write(&orig, &[ink("a", 0, [1.0, 0.0, 0.0])], &[]);
-    let (out2, _) = write(&out1, &[], &[&refs["a"], "garbage", "999R"]);
+    let (out2, _) = write(&out1, &[], &[("a", &refs["a"]), ("x", "garbage"), ("y", "999R")]);
     assert!(read_annotations(&out2).unwrap().is_empty());
     assert!(page_annots(&Document::load_mem(&out2).unwrap(), 0).is_empty());
 }
@@ -466,7 +469,7 @@ fn xref_stream_original_roundtrip() {
     let got = read_annotations(&out2).unwrap();
     assert_eq!(got.len(), 2);
     assert!(got.iter().any(|a| matches!(a, AnnotationDto::Ink { common, color, .. } if common.id == "a" && *color == [0.0, 1.0, 0.0])));
-    let (out3, _) = write(&out2, &[], &[&refs["a"]]);
+    let (out3, _) = write(&out2, &[], &[("a", &refs["a"])]);
     assert_eq!(read_annotations(&out3).unwrap().len(), 1);
 }
 
@@ -890,6 +893,27 @@ fn update_of_object_with_other_nm_is_written_as_new() {
     let mut ids: Vec<_> = read_annotations(&out2).unwrap().iter().map(|a| common(a).id.clone()).collect();
     ids.sort();
     assert_eq!(ids, ["mine", "theirs"]);
+}
+
+#[test]
+fn delete_of_object_with_other_nm_keeps_it() {
+    // The file on disk changed since loading: the deleted ref now names another annotation.
+    let orig = fixtures::simple_pdf(1);
+    let (out1, refs1) = write(&orig, &[ink("theirs", 0, [1.0, 0.0, 0.0])], &[]);
+    let (out2, _) = write(&out1, &[], &[("mine", &refs1["theirs"])]);
+    let ids: Vec<_> = read_annotations(&out2).unwrap().iter().map(|a| common(a).id.clone()).collect();
+    assert_eq!(ids, ["theirs"], "another annotation must not be detached");
+}
+
+#[test]
+fn delete_of_foreign_annotation_detaches_only_it() {
+    let orig = fixtures::pdf_with_foreign_annots();
+    let before = read_annotations(&orig).unwrap();
+    let target = common(&before[0]).clone();
+    let (out, _) = write(&orig, &[], &[(&target.id, target.source_ref.as_deref().unwrap())]);
+    let after: Vec<_> = read_annotations(&out).unwrap().iter().map(|a| common(a).id.clone()).collect();
+    assert_eq!(after.len(), before.len() - 1);
+    assert!(!after.contains(&target.id));
 }
 
 #[test]
