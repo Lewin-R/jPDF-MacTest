@@ -130,4 +130,14 @@ describe('Overlay pointer routing', () => {
     await fireEvent.pointerDown(svg, { button: 0, clientX: 30, clientY: 60, pointerId: 7 })
     expect(b.events.map(([k]) => k)).toEqual(['down'])
   })
+
+  it('registers its page frame (viewport and client origin) while mounted', () => {
+    const frames = new Map()
+    const r = render(Overlay, { props: { pageNumber: 3, scale: 2, store: new AnnotationStore(), viewport: vp, frames } })
+    const svg = r.container.querySelector('svg')!
+    svg.getBoundingClientRect = () => ({ left: 10, top: 20, width: 200, height: 200, right: 210, bottom: 220, x: 10, y: 20 }) as DOMRect
+    expect(frames.get(2)!()).toEqual({ vp, origin: [10, 20] })
+    r.unmount()
+    expect(frames.has(2)).toBe(false)
+  })
 })

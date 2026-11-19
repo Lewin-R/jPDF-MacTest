@@ -4,6 +4,12 @@ import type { Command } from '../session/history.svelte'
 import type { Annotation, FreeTextAnnotation, Point, RGB } from '../session/model'
 import type { DocumentSession } from '../session/session.svelte'
 
+/** A mounted page: its viewport and its top-left corner in client px. */
+export interface PageFrame {
+  vp: PageViewport
+  origin: Point
+}
+
 export interface PagePointerEvent {
   /** 0-based, matches Annotation.page */
   page: number
@@ -69,6 +75,13 @@ export interface ToolContext {
   cursor: { set(c: string | null): void }
   /** Opens (or with null closes) the text box editor; cleared when the tool changes. */
   textEdit: { set(e: TextEdit | null): void }
+  /** Frames of the pages currently mounted (0-based); null for others. */
+  pages?: { frame(page: number): PageFrame | null }
+  /**
+   * A drag that may carry an element across pages, started on `page`: the
+   * viewer keeps that page mounted and auto-scrolls near its edges; null ends it.
+   */
+  crossDrag?: { set(d: { page: number } | null): void }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

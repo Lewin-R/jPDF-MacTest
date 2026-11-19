@@ -157,6 +157,22 @@ describe('ToolRouter', () => {
     expect(router.cursor).toBeUndefined()
   })
 
+  it('exposes mounted page frames and cross-page drag state, cleared when the tool changes', () => {
+    const { router, created, store } = setup()
+    router.sync()
+    const ctx = created[0].ctx
+    const state = router.stateOf(ctx.session)
+    const frame = { vp: {} as never, origin: [10, 20] as [number, number] }
+    state.frames.set(3, () => frame)
+    expect(ctx.pages!.frame(3)).toBe(frame)
+    expect(ctx.pages!.frame(4)).toBeNull()
+    ctx.crossDrag!.set({ page: 3 })
+    expect(state.crossDrag).toEqual({ page: 3 })
+    store.setActive('p2')
+    router.sync()
+    expect(state.crossDrag).toBeNull()
+  })
+
   it('exposes the tool cursor', () => {
     const { router, registry, store } = setup()
     registry.get('pen').cursor = (s: { width: number }) => `cell-${s.width}`

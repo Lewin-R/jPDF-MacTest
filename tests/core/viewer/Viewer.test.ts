@@ -60,4 +60,20 @@ describe('Viewer', () => {
     expect(setSpy).not.toHaveBeenCalled()
     await session.dispose()
   })
+
+  it('keeps the page a cross-page drag started on mounted', async () => {
+    const { doc } = fakeRenderDoc(20)
+    mocks.doc = doc
+    const session = await DocumentSession.open('C:/docs/v.pdf')
+    await session.pageSizesLoaded
+    const { container, rerender } = render(Viewer, { props: { session } })
+    session.setViewport(800, 600)
+    await tick()
+    expect(container.querySelectorAll('.page')).toHaveLength(2)
+    await rerender({ session, crossDrag: { page: 15 } })
+    expect(container.querySelectorAll('.page')).toHaveLength(3)
+    await rerender({ session, crossDrag: null })
+    expect(container.querySelectorAll('.page')).toHaveLength(2)
+    await session.dispose()
+  })
 })

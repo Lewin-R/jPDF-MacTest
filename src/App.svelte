@@ -227,6 +227,8 @@
           toolHidden={router.stateOf(tabs.active).hidden}
           toolTextEdit={router.stateOf(tabs.active).textEdit}
           toolSelection={router.stateOf(tabs.active).selection}
+          crossDrag={router.stateOf(tabs.active).crossDrag}
+          frames={router.stateOf(tabs.active).frames}
           onpagemenu={openPageMenu}
         />
       {/key}

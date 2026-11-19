@@ -39,7 +39,7 @@
   import type { AnnotationStore } from '../session/store.svelte'
   import type { Annotation, Point } from '../session/model'
   import type { PageMenuPoint } from './viewerMath'
-  import type { PagePointerEvent, TextEdit, ToolHandler } from '../registry/tools'
+  import type { PageFrame, PagePointerEvent, TextEdit, ToolHandler } from '../registry/tools'
   import { annotationKinds } from '../registry/annotationKinds'
   import { pageHasText } from './textContent'
   import { clientToPdf as mapClientToPdf } from './viewerMath'
@@ -62,6 +62,7 @@
     selection = [],
     viewport,
     onpagemenu,
+    frames,
   }: {
     doc?: PdfDoc
     /** 1-based position in the page list; Annotation.page is 0-based. */
@@ -98,6 +99,8 @@
      * open the page menu for this page (0-based) at client coordinates.
      */
     onpagemenu?: (page: number, clientX: number, clientY: number, at?: PageMenuPoint) => void
+    /** Registry of mounted pages' frames (see SessionToolState.frames): this page registers itself. */
+    frames?: Map<number, () => PageFrame | null>
   } = $props()
 
   let loaded = $state<PageViewport | null>(null)
@@ -343,6 +346,23 @@
       page.removeEventListener('pointerdown', onPagePointerDown)
       page.removeEventListener('pointerdown', onPageRightDown, { capture: true })
       page.removeEventListener('contextmenu', onContextMenu)
+    }
+  })
+
+  /** This page's viewport and client origin, for tools that move things between pages. */
+  function frame(): PageFrame | null {
+    if (!vp || !el) return null
+    const r = el.getBoundingClientRect()
+    return { vp, origin: [r.left, r.top] }
+  }
+
+  $effect(() => {
+    const registry = frames
+    const page = pageNumber - 1
+    if (!registry) return
+    registry.set(page, frame)
+    return () => {
+      if (registry.get(page) === frame) registry.delete(page)
     }
   })
 

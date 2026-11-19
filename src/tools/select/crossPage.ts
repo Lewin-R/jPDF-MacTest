@@ -1,13 +1,10 @@
 import type { PageViewport } from 'pdfjs-dist'
 import { annotationKinds } from '../../core/registry/annotationKinds'
+import type { PageFrame } from '../../core/registry/tools'
 import type { Annotation, Point } from '../../core/session/model'
 import { toScreenRect } from './handles'
 
-/** A mounted page: its viewport and its top-left corner in client px. */
-export interface PageFrame {
-  vp: PageViewport
-  origin: Point
-}
+export type { PageFrame }
 
 /** Drag state: the element as placed on `base.page` when the pointer was at `anchor` (client px). */
 export interface CrossPageDrag {

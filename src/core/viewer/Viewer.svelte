@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import type { TextEdit, ToolHandler } from '../registry/tools'
+  import type { PageFrame, TextEdit, ToolHandler } from '../registry/tools'
   import type { Annotation } from '../session/model'
   import { firstOccurrences } from '../session/pages'
   import type { DocumentSession } from '../session/session.svelte'
@@ -22,6 +22,8 @@
     toolHidden,
     toolTextEdit = null,
     toolSelection = [],
+    crossDrag = null,
+    frames,
   }: {
     session: DocumentSession
     /** Active tool's handler (see ToolRouter); page overlays forward pointer input to it. */
@@ -39,6 +41,10 @@
     toolTextEdit?: TextEdit | null
     /** Selected annotation ids (outlined by the overlays). */
     toolSelection?: readonly string[]
+    /** Cross-page drag in progress: its page stays mounted (see ToolContext.crossDrag). */
+    crossDrag?: { page: number } | null
+    /** Registry the page overlays put their frames in (see SessionToolState.frames). */
+    frames?: Map<number, () => PageFrame | null>
   } = $props()
 
   const WHEEL_COMMIT_MS = 150
@@ -60,9 +66,16 @@
   const firsts = $derived(firstOccurrences(session.pages))
   const width = $derived(contentWidth(layout, session.viewportW))
   const range = $derived(visibleRange(layout, session.scrollTop, session.viewportH, 1))
-  const pages = $derived(
-    Array.from({ length: Math.max(0, range.last - range.first + 1) }, (_, k) => range.first + k),
-  )
+  const pages = $derived.by(() => {
+    const list = Array.from({ length: Math.max(0, range.last - range.first + 1) }, (_, k) => range.first + k)
+    // The page a cross-page drag started on owns the gesture: it must not unmount.
+    const pinned = crossDrag?.page
+    if (pinned !== undefined && pinned < session.pages.length && !list.includes(pinned)) {
+      list.push(pinned)
+      list.sort((a, b) => a - b)
+    }
+    return list
+  })
 
   function onScroll() {
     session.setScroll(el.scrollTop, el.scrollLeft)
@@ -244,6 +257,7 @@
             {tool}
             {eraser}
             {onpagemenu}
+            {frames}
             cursor={panning ? 'grabbing' : spaceHeld ? 'grab' : cursor}
           />
         </PageView>

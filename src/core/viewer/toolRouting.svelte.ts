@@ -146,6 +146,7 @@ export class ToolRouter {
       state.hidden = new Set()
       state.cursor = null
       state.textEdit = null
+      state.crossDrag = null
     }
   }
 
@@ -193,6 +194,14 @@ export class ToolRouter {
       textEdit: {
         set: (e) => {
           state.textEdit = e
+        },
+      },
+      pages: {
+        frame: (page) => state.frames.get(page)?.() ?? null,
+      },
+      crossDrag: {
+        set: (d) => {
+          state.crossDrag = d
         },
       },
     }
