@@ -199,3 +199,48 @@ describe('Overlay selection bar', () => {
     expect(dragging.queryByRole('toolbar', { name: 'Selection actions' })).toBeNull()
   })
 })
+
+describe('Overlay selection bar over page text', () => {
+  // The select tool over text: presses go through to the text layer (deselect).
+  function passingTool() {
+    return { passThroughAt: () => true, onPassThroughDown: vi.fn(), onContextMenu: vi.fn(() => false) }
+  }
+
+  it('a press on the bar is not a press on the text under it', async () => {
+    const tool = passingTool()
+    const r = mount({ selection: ['a'], onstyle: vi.fn(), tool })
+    const del = r.getByRole('button', { name: /Delete/ })
+    await fireEvent.pointerMove(del, { clientX: 30, clientY: 10, buttons: 0 })
+    await fireEvent.pointerDown(del, { clientX: 30, clientY: 10, button: 0 })
+    expect(tool.onPassThroughDown).not.toHaveBeenCalled()
+    await fireEvent.pointerDown(r.getByRole('button', { name: 'Style' }), { clientX: 10, clientY: 10, button: 0 })
+    expect(tool.onPassThroughDown).not.toHaveBeenCalled()
+  })
+
+  it('presses in the Style card do not reach the page either', async () => {
+    const tool = passingTool()
+    const onstyle = vi.fn()
+    const r = mount({ selection: ['a'], onstyle, tool })
+    await fireEvent.click(r.getByRole('button', { name: 'Style' }))
+    const right = within(r.getByRole('dialog', { name: 'Style' })).getByRole('radio', { name: 'Right' })
+    await fireEvent.pointerDown(right, { button: 0 })
+    await fireEvent.click(right)
+    expect(tool.onPassThroughDown).not.toHaveBeenCalled()
+    expect(onstyle).toHaveBeenCalledOnce()
+  })
+
+  it('a right-click on the bar neither erases nor opens the page menu', async () => {
+    const tool = passingTool()
+    const eraser = { onPointerDown: vi.fn() }
+    const onpagemenu = vi.fn()
+    const r = mount({ selection: ['a'], onstyle: vi.fn(), tool, eraser, onpagemenu })
+    const bar = r.getByRole('toolbar', { name: 'Selection actions' })
+    await fireEvent.pointerDown(bar, { clientX: 10, clientY: 10, button: 2 })
+    expect(eraser.onPointerDown).not.toHaveBeenCalled()
+    const menu = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 })
+    bar.dispatchEvent(menu)
+    expect(onpagemenu).not.toHaveBeenCalled()
+    // No browser menu either.
+    expect(menu.defaultPrevented).toBe(true)
+  })
+})

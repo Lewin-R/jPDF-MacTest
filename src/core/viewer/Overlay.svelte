@@ -285,6 +285,15 @@
   const ERASER_CURSOR = eraserTool.cursor!({})
   /** Elements where a right click keeps its native behaviour (text box editor). */
   const EDITABLE = 'textarea, input, [contenteditable]:not([contenteditable="false"])'
+  /**
+   * Controls drawn on the page (the selection bar): pointer input there is
+   * theirs, never the page's (no text pass-through, erasing or page menu).
+   * The page listens with native listeners, which a control's own Svelte
+   * handlers cannot stop: Svelte 5 delegates those to the app root, so the
+   * event has passed the page before they run.
+   */
+  const PAGE_UI = '[data-page-ui]'
+  const onPageUi = (e: Event) => e.target instanceof Element && e.target.closest(PAGE_UI) !== null
 
   /** The handler a gesture of this kind belongs to now (it is stale once that changed). */
   const handlerFor = (erase: boolean) => (erase ? eraser : tool)
@@ -340,7 +349,7 @@
    * pointerdown (Chromium reports chorded buttons as pointermove).
    */
   function onPageRightDown(e: PointerEvent) {
-    if (e.button !== 2 || !eraser || !vp || gesture) return
+    if (e.button !== 2 || !eraser || !vp || gesture || onPageUi(e)) return
     const t = e.target
     if (t instanceof Element && t.closest(EDITABLE)) return
     e.preventDefault()
@@ -374,7 +383,7 @@
     const t = e.target
     if (t instanceof Element && t.closest(EDITABLE)) return
     e.preventDefault()
-    if (eraser) return
+    if (eraser || onPageUi(e)) return
     if (!vp) return onpagemenu?.(pageNumber - 1, e.clientX, e.clientY)
     // The tool first: it may select what was right-clicked for the menu.
     const onSelection = tool?.onContextMenu?.(toPageEvent(e as PointerEvent, vp)) ?? false
@@ -444,6 +453,11 @@
   function onHover(e: PointerEvent) {
     // While dragging, the grabbed handle stays enlarged.
     if (gesture) return
+    // Over the bar: nothing of the page is under the pointer.
+    if (onPageUi(e)) {
+      hoverHandle = null
+      return
+    }
     hoverHandle = vp && e.buttons === 0 ? handleUnder(toPageEvent(e, vp).screen) : null
     if (!tool?.passThroughAt || !vp || e.buttons !== 0) return
     passAt = tool.passThroughAt(toPageEvent(e, vp))
@@ -460,7 +474,7 @@
 
   /** A press that went through to the text layer (not to the overlay or a text box editor). */
   function onPagePointerDown(e: PointerEvent) {
-    if (!tool?.passThroughAt || !hoverPassing || !passAt || !vp || e.button !== 0) return
+    if (!tool?.passThroughAt || !hoverPassing || !passAt || !vp || e.button !== 0 || onPageUi(e)) return
     const t = e.target
     if (t instanceof Node && el.contains(t)) return
     if (t instanceof HTMLElement && t.closest('textarea')) return

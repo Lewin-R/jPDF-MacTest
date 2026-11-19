@@ -131,9 +131,11 @@
   })
 </script>
 
-<!-- A sibling of the overlay: its presses never reach the tool or the text layer. -->
+<!-- A sibling of the overlay, above the text layer: its presses never reach the
+     tool or the text layer, and data-page-ui keeps the page's own listeners off them. -->
 <div
   class="selection-bar"
+  data-page-ui
   role="toolbar"
   aria-label="Selection actions"
   tabindex="-1"
