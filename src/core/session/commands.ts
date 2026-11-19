@@ -33,3 +33,21 @@ export function deleteAnnotations(list: Annotation[]): Command {
     },
   }
 }
+
+/** One undo step made of `parts`: done in order, undone in reverse. */
+export function compositeCommand(label: string, parts: Command[]): Command {
+  return {
+    label,
+    do: (s) => parts.forEach((c) => c.do(s)),
+    undo: (s) => [...parts].reverse().forEach((c) => c.undo(s)),
+  }
+}
+
+/**
+ * Merges `absorbed` into `before` (the survivor, which keeps its id, file
+ * object and z-position) as `after`. Undo restores every original, in its
+ * original order.
+ */
+export function mergeAnnotations(before: Annotation, after: Annotation, absorbed: Annotation[]): Command {
+  return compositeCommand('Merge annotations', [deleteAnnotations(absorbed), updateAnnotation(before, after)])
+}

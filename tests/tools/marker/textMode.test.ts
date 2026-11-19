@@ -5,6 +5,7 @@ import type { MarkerSettings } from '../../../src/tools/marker/settings'
 import type { PagePointerEvent, ToolContext } from '../../../src/core/registry/tools'
 import type { Annotation, HighlightAnnotation, Point } from '../../../src/core/session/model'
 import type { Command } from '../../../src/core/session/history.svelte'
+import { AnnotationStore } from '../../../src/core/session/store.svelte'
 import { registerTextLayer } from '../../../src/core/viewer/textLayers'
 import { settings as appSettings } from '../../../src/core/settings/settings.svelte'
 import { toasts } from '../../../src/ui/toasts.svelte'
@@ -35,6 +36,7 @@ function setup(s: MarkerSettings = textSettings) {
   const ctx = {
     execute: (c: Command) => executed.push(c),
     preview: { set: () => {} },
+    session: { store: new AnnotationStore() },
   } as unknown as ToolContext
   const handler = createMarkerHandler(ctx, () => s)
   const committed = () => {

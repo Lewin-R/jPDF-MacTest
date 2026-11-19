@@ -4,6 +4,7 @@ import { settings as appSettings } from '../../core/settings/settings.svelte'
 import type { ToolContext, ToolHandler } from '../../core/registry/tools'
 import { createStrokeCapture } from '../shared/strokeCapture'
 import type { MarkerSettings } from './settings'
+import { markerStrokeCommand } from './merging'
 
 /** Shift-constrained marker stroke: just the two end points. */
 export function straightLine(start: Point, current: Point): Point[] {
@@ -14,6 +15,8 @@ export function createFreehandHandler(ctx: ToolContext, settings: () => MarkerSe
   return createStrokeCapture({
     ctx,
     straight: straightLine,
+    // Overlapping marker strokes of one style become one layer (no double darkening).
+    commit: (a) => markerStrokeCommand(ctx.session.store, a),
     build(pts, page): InkAnnotation {
       const s = settings()
       return {

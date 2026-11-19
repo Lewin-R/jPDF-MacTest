@@ -1,3 +1,4 @@
+import type { Command } from '../../core/session/history.svelte'
 import type { InkAnnotation, Point } from '../../core/session/model'
 import { addAnnotations } from '../../core/session/commands'
 import { dedupe, simplify } from '../../core/geometry/stroke'
@@ -13,10 +14,12 @@ export interface StrokeCaptureOptions {
    * (committed and previewed) with `straight(start, current)`.
    */
   straight?(start: Point, current: Point): Point[]
+  /** The command committing the finished stroke (default: add it). */
+  commit?(a: InkAnnotation): Command
 }
 
 /** Pointer-driven freehand stroke capture shared by the pen and the marker. */
-export function createStrokeCapture({ ctx, build, straight }: StrokeCaptureOptions): ToolHandler {
+export function createStrokeCapture({ ctx, build, straight, commit }: StrokeCaptureOptions): ToolHandler {
   let points: Point[] | null = null
   let page = 0
   let shifted = false
@@ -66,7 +69,8 @@ export function createStrokeCapture({ ctx, build, straight }: StrokeCaptureOptio
       const pts = shifted && straight ? current() : simplify(dedupe(raw, 0.5 / scale), 0.35 / scale)
       const pg = page
       reset()
-      ctx.execute(addAnnotations([build(pts, pg)]))
+      const a = build(pts, pg)
+      ctx.execute(commit ? commit(a) : addAnnotations([a]))
     },
     onPointerCancel() {
       reset()

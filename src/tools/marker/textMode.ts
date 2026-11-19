@@ -1,12 +1,12 @@
 import type { HighlightAnnotation, Quad } from '../../core/session/model'
 import { newId } from '../../core/session/model'
-import { addAnnotations } from '../../core/session/commands'
 import { rectsToQuads, type ScreenRect } from '../../core/geometry/quads'
 import type { ToolContext } from '../../core/registry/tools'
 import { textLayers, type TextLayerPage } from '../../core/viewer/textLayers'
 import { settings as appSettings } from '../../core/settings/settings.svelte'
 import { toasts } from '../../ui/toasts.svelte'
 import type { MarkerSettings } from './settings'
+import { highlightsCommand } from './merging'
 
 export const FALLBACK_HINT = 'markerFallback'
 export const FALLBACK_MESSAGE = 'No selectable text on this page — using freehand marker'
@@ -82,7 +82,8 @@ export function listenForTextSelection(ctx: ToolContext, settings: () => MarkerS
       opacity: s.opacity,
     }))
     if (highlights.length === 0) return
-    ctx.execute(addAnnotations(highlights))
+    // Overlapping highlights of one colour become one layer (no double darkening).
+    ctx.execute(highlightsCommand(ctx.session.store, highlights))
     sel.removeAllRanges()
   }
   window.addEventListener('pointerdown', onPointerDown, true)

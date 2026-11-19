@@ -4,6 +4,7 @@ import { createFreehandHandler } from '../../../src/tools/marker/freehand'
 import type { PagePointerEvent, ToolContext } from '../../../src/core/registry/tools'
 import type { Annotation, InkAnnotation, Point } from '../../../src/core/session/model'
 import type { Command } from '../../../src/core/session/history.svelte'
+import { AnnotationStore } from '../../../src/core/session/store.svelte'
 import { settings as appSettings } from '../../../src/core/settings/settings.svelte'
 
 function ev(pdf: Point, native: Partial<PointerEvent> = {}): PagePointerEvent {
@@ -24,6 +25,7 @@ function setup(make: typeof createFreehandHandler = createFreehandHandler) {
   const ctx = {
     execute: (c: Command) => executed.push(c),
     preview: { set: (a: Annotation | null) => previews.push(a) },
+    session: { store: new AnnotationStore() },
   } as unknown as ToolContext
   const handler = make(ctx, () => ({ mode: 'freehand', color: [1, 0.9, 0], opacity: 0.4, width: 14 }))
   const committed = () => {

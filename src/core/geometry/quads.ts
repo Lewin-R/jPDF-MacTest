@@ -13,12 +13,8 @@ const MAX_GAP_PX = 4
 
 const centre = (r: ScreenRect) => (r.top + r.bottom) / 2
 
-function joinable(a: ScreenRect, b: ScreenRect, tol: number): boolean {
-  return (
-    Math.abs(centre(a) - centre(b)) <= tol &&
-    b.left - a.right <= MAX_GAP_PX &&
-    a.left - b.right <= MAX_GAP_PX
-  )
+function joinable(a: ScreenRect, b: ScreenRect, tol: number, maxGap: number): boolean {
+  return Math.abs(centre(a) - centre(b)) <= tol && b.left - a.right <= maxGap && a.left - b.right <= maxGap
 }
 
 function union(a: ScreenRect, b: ScreenRect): ScreenRect {
@@ -28,6 +24,38 @@ function union(a: ScreenRect, b: ScreenRect): ScreenRect {
     right: Math.max(a.right, b.right),
     bottom: Math.max(a.bottom, b.bottom),
   }
+}
+
+/**
+ * Merges rects on one line (vertical centres within `lineTolerance`,
+ * horizontal gap ≤ `maxGap`, overlaps included) into one rect per line
+ * fragment, repeating until no two fragments join. Result sorted top to
+ * bottom, left to right. Shared by selection rects (rectsToQuads) and saved
+ * highlight quads (merge.ts).
+ */
+export function mergeLineRects(rects: ScreenRect[], lineTolerance: number, maxGap: number): ScreenRect[] {
+  const merged: ScreenRect[] = []
+  for (const r of rects.slice().sort((a, b) => a.left - b.left)) {
+    const i = merged.findIndex((m) => joinable(m, r, lineTolerance, maxGap))
+    if (i >= 0) merged[i] = union(merged[i], r)
+    // Copy the edges explicitly: DOMRect keeps them as prototype getters, so `{ ...r }` would be empty.
+    else merged.push({ left: r.left, top: r.top, right: r.right, bottom: r.bottom })
+  }
+  // A merge can widen a fragment until it reaches another one.
+  for (let changed = true; changed; ) {
+    changed = false
+    outer: for (let i = 0; i < merged.length; i++) {
+      for (let j = i + 1; j < merged.length; j++) {
+        if (joinable(merged[i], merged[j], lineTolerance, maxGap)) {
+          merged[i] = union(merged[i], merged[j])
+          merged.splice(j, 1)
+          changed = true
+          break outer
+        }
+      }
+    }
+  }
+  return merged.sort((a, b) => a.top - b.top || a.left - b.left)
 }
 
 /**
@@ -41,32 +69,8 @@ export function rectsToQuads(
   toPdf: (x: number, y: number) => Point,
   lineTolerancePx = 3,
 ): Quad[] {
-  const merged: ScreenRect[] = []
-  const sorted = rects
-    .filter((r) => r.right - r.left >= 1 && r.bottom - r.top >= 1)
-    .sort((a, b) => a.left - b.left)
-  for (const r of sorted) {
-    const i = merged.findIndex((m) => joinable(m, r, lineTolerancePx))
-    if (i >= 0) merged[i] = union(merged[i], r)
-    // Copy the edges explicitly: DOMRect keeps them as prototype getters, so `{ ...r }` would be empty.
-    else merged.push({ left: r.left, top: r.top, right: r.right, bottom: r.bottom })
-  }
-  // A merge can widen a fragment until it reaches another one.
-  for (let changed = true; changed; ) {
-    changed = false
-    outer: for (let i = 0; i < merged.length; i++) {
-      for (let j = i + 1; j < merged.length; j++) {
-        if (joinable(merged[i], merged[j], lineTolerancePx)) {
-          merged[i] = union(merged[i], merged[j])
-          merged.splice(j, 1)
-          changed = true
-          break outer
-        }
-      }
-    }
-  }
-  merged.sort((a, b) => a.top - b.top || a.left - b.left)
-  return merged.map((r) => {
+  const visible = rects.filter((r) => r.right - r.left >= 1 && r.bottom - r.top >= 1)
+  return mergeLineRects(visible, lineTolerancePx, MAX_GAP_PX).map((r) => {
     const tl = toPdf(r.left, r.top)
     const tr = toPdf(r.right, r.top)
     const bl = toPdf(r.left, r.bottom)
