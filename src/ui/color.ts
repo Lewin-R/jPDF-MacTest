@@ -19,3 +19,28 @@ export function hexToRgb(hex: string): RGB | null {
   const c = (s: string) => Math.round((parseInt(s, 16) / 255) * 1000) / 1000
   return [c(m[1]), c(m[2]), c(m[3])]
 }
+
+/**
+ * Whether a colour is too dark to stand out on the dark toolbar strip
+ * (relative luminance below 0.2): tool icons then add a light halo.
+ */
+export function isDark([r, g, b]: RGB): boolean {
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.2
+}
+
+/** WCAG relative luminance of an sRGB colour (0..1 channels). */
+function luminance([r, g, b]: RGB): number {
+  const lin = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+}
+
+/**
+ * Whether dark ink reads better than light ink on `color` drawn at `opacity`
+ * over `backdrop` (browsers blend in sRGB): compares the contrast against
+ * black and white.
+ */
+export function prefersDarkInk(color: RGB, opacity: number, backdrop: RGB): boolean {
+  const mix = (i: number) => backdrop[i] + (color[i] - backdrop[i]) * opacity
+  const l = luminance([mix(0), mix(1), mix(2)])
+  return (l + 0.05) / 0.05 > 1.05 / (l + 0.05)
+}
