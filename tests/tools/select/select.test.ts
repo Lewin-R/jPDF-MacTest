@@ -65,7 +65,7 @@ function setup(loaded: Annotation[], pageCount = 1) {
     hidden: [] as string[],
     cursor: null as string | null,
     edit: null as TextEdit | null,
-    crossDrag: null as { page: number } | null,
+    crossDrag: null as { page: number; at?: number } | null,
   }
   const ctx = {
     session,
@@ -86,7 +86,7 @@ function setup(loaded: Annotation[], pageCount = 1) {
     cursor: { set: (c: string | null) => void (state.cursor = c) },
     textEdit: { set: (e: TextEdit | null) => void (state.edit = e) },
     pages: { frame: (page: number) => (page >= 0 && page < pageCount ? { vp: currentVp, origin: [0, pageTop(page)] } : null) },
-    crossDrag: { set: (d: { page: number } | null) => void (state.crossDrag = d) },
+    crossDrag: { set: (d: { page: number; at?: number } | null) => void (state.crossDrag = d) },
   } as unknown as ToolContext
   const h = createSelectHandler(ctx)
   const drag = (from: Point, ...to: Point[]) => {
@@ -169,6 +169,7 @@ describe('select tool', () => {
     // Pointer at client y 201 + 20: more than half (21px) out.
     t.h.onPointerMove!(ev([30, -0.5]))
     expect(t.state.preview!.page).toBe(1)
+    expect(t.state.crossDrag).toEqual({ page: 0, at: 1 })
     expect((t.state.preview as ImageAnnotation).rect).toEqual([20, 80, 40, 100])
     t.h.onPointerUp!(ev([30, -0.5]))
     expect(t.state.crossDrag).toBeNull()

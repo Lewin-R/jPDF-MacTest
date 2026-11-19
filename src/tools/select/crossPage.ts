@@ -54,7 +54,8 @@ export function dragAcrossPages(
   let frame = start
   let left = box0[0] + dx
   let snapped = false
-  // Each pass moves one page; a page count bound keeps it finite.
+  // Each pass moves one page, always in the same direction (a snap down never
+  // asks for the page above and vice versa), until a page has no neighbour.
   for (;;) {
     const box = toScreenRect(kind.bounds(drag.base), frame.vp)
     const h = box[3] - box[1]

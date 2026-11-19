@@ -4,7 +4,7 @@
   import type { Annotation } from '../session/model'
   import { firstOccurrences } from '../session/pages'
   import type { DocumentSession } from '../session/session.svelte'
-  import { autoScrollSpeed } from './autoScroll'
+  import { autoScrollArmed, autoScrollSpeed } from './autoScroll'
   import { clampScale, contentWidth, pageLeft, visibleRange } from './layout'
   import Overlay from './Overlay.svelte'
   import PageView from './PageView.svelte'
@@ -43,7 +43,7 @@
     /** Selected annotation ids (outlined by the overlays). */
     toolSelection?: readonly string[]
     /** Cross-page drag in progress: its page stays mounted (see ToolContext.crossDrag). */
-    crossDrag?: { page: number } | null
+    crossDrag?: { page: number; at?: number } | null
     /** Registry the page overlays put their frames in (see SessionToolState.frames). */
     frames?: Map<number, () => PageFrame | null>
   } = $props()
@@ -69,25 +69,31 @@
   const range = $derived(visibleRange(layout, session.scrollTop, session.viewportH, 1))
   const pages = $derived.by(() => {
     const list = Array.from({ length: Math.max(0, range.last - range.first + 1) }, (_, k) => range.first + k)
-    // The page a cross-page drag started on owns the gesture: it must not unmount.
-    const pinned = crossDrag?.page
-    if (pinned !== undefined && pinned < session.pages.length && !list.includes(pinned)) {
-      list.push(pinned)
-      list.sort((a, b) => a - b)
+    // The page a cross-page drag started on owns the gesture, and the dragged
+    // element is drawn on (and placed from) the page it is on: neither may unmount.
+    for (const pinned of [crossDrag?.page, crossDrag?.at]) {
+      if (pinned !== undefined && pinned < session.pages.length && !list.includes(pinned)) list.push(pinned)
     }
-    return list
+    return list.sort((a, b) => a - b)
   })
 
   // Cross-page drag: scroll while the pointer is near the top/bottom edge.
   $effect(() => {
     if (!crossDrag) return
     let pointerY: number | null = null
+    let startY: number | null = null
+    let armed = false
     let frame = 0
     const track = (e: PointerEvent) => {
       pointerY = e.clientY
+      startY ??= e.clientY
     }
     const step = () => {
-      if (pointerY !== null) {
+      if (pointerY !== null && startY !== null) {
+        const r = el.getBoundingClientRect()
+        armed ||= autoScrollArmed(startY, pointerY, r.top, r.bottom)
+      }
+      if (armed && pointerY !== null) {
         const r = el.getBoundingClientRect()
         const speed = autoScrollSpeed(pointerY, r.top, r.bottom)
         if (speed !== 0) el.scrollTop += speed

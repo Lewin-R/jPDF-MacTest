@@ -9,7 +9,7 @@ Move inserted elements (images, text boxes, ink, shapes) between pages with one 
 - First/last page: no neighbour, so the element can go at most half out.
 - Release keeps the element where it is, cut off if it overlaps an edge.
 - The move is one undo step; a page change is part of it.
-- Auto-scroll while dragging near the top/bottom of the viewer window (speed grows towards the edge).
+- Auto-scroll while dragging near the top/bottom of the viewer window (speed grows towards the edge). A drag that starts inside an edge band scrolls only once the pointer heads further towards that edge (or leaves the band).
 - Highlights do not change pages (they belong to the text under them).
 
 ## Approaches
@@ -17,5 +17,5 @@ Move inserted elements (images, text boxes, ink, shapes) between pages with one 
 2. Re-dispatching the gesture to whichever page overlay is under the pointer — rejected: breaks the one-overlay-owns-the-gesture model and fails when the press page virtualises away.
 
 ## Builder calls
-- Different page sizes/rotations: the element keeps its screen x relative to the page left edge, clamped to the new page's width.
+- Different page sizes/rotations: the element keeps its on-screen x (stays under the pointer, also between pages centred at different x), clamped onto the new page's width.
 - The snapped element's anchor is re-based so it follows the pointer delta from the snap point.

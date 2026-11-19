@@ -72,6 +72,9 @@ describe('Viewer', () => {
     expect(container.querySelectorAll('.page')).toHaveLength(2)
     await rerender({ session, crossDrag: { page: 15 } })
     expect(container.querySelectorAll('.page')).toHaveLength(3)
+    // The page the element is on now stays mounted too.
+    await rerender({ session, crossDrag: { page: 15, at: 17 } })
+    expect(container.querySelectorAll('.page')).toHaveLength(4)
     await rerender({ session, crossDrag: null })
     expect(container.querySelectorAll('.page')).toHaveLength(2)
     await session.dispose()

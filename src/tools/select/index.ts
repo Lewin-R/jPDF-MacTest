@@ -132,6 +132,7 @@ export function createSelectHandler(ctx: ToolContext): ToolHandler {
 
   function movedAcross(pr: Press & { cross: CrossPageDrag }, e: PagePointerEvent): Annotation {
     const r = dragAcrossPages(pr.cross, clientOf(e), (page) => frameOf(e, page))
+    if (r.annotation.page !== pr.cross.base.page) ctx.crossDrag?.set({ page: e.page, at: r.annotation.page })
     pr.cross = r.drag
     return { ...r.annotation, modifiedAt: now() }
   }

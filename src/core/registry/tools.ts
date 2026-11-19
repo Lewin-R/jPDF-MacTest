@@ -78,10 +78,11 @@ export interface ToolContext {
   /** Frames of the pages currently mounted (0-based); null for others. */
   pages?: { frame(page: number): PageFrame | null }
   /**
-   * A drag that may carry an element across pages, started on `page`: the
-   * viewer keeps that page mounted and auto-scrolls near its edges; null ends it.
+   * A drag that may carry an element across pages, started on `page`, the
+   * element now on `at`: the viewer keeps both pages mounted and auto-scrolls
+   * near its edges; null ends it.
    */
-  crossDrag?: { set(d: { page: number } | null): void }
+  crossDrag?: { set(d: { page: number; at?: number } | null): void }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -16,7 +16,7 @@ export class SessionToolState {
   cursor = $state<string | null>(null)
   textEdit = $state.raw<TextEdit | null>(null)
   /** Cross-page drag in progress, started on this page (0-based). */
-  crossDrag = $state.raw<{ page: number } | null>(null)
+  crossDrag = $state.raw<{ page: number; at?: number } | null>(null)
   /** Mounted pages' frames by 0-based page, registered by their overlays (not reactive). */
   readonly frames = new Map<number, () => PageFrame | null>()
 }
