@@ -4,7 +4,7 @@ import '../../../src/annotations'
 import { createSelectHandler, selectTool } from '../../../src/tools/select'
 import type { PagePointerEvent, TextEdit, ToolContext } from '../../../src/core/registry/tools'
 import { History } from '../../../src/core/session/history.svelte'
-import type { Annotation, FreeTextAnnotation, InkAnnotation, Point, ShapeAnnotation } from '../../../src/core/session/model'
+import type { Annotation, FreeTextAnnotation, ImageAnnotation, InkAnnotation, Point, ShapeAnnotation } from '../../../src/core/session/model'
 import { ALL_HANDLES, handlesFor } from '../../../src/tools/select/handles'
 import { AnnotationStore } from '../../../src/core/session/store.svelte'
 import { boxHeight, layoutLines, pageBoxRect } from '../../../src/core/geometry/textLayout'
@@ -238,6 +238,35 @@ describe('select tool', () => {
     t.drag([18, 42], [8, 52])
     expect((t.store.get('s') as ShapeAnnotation).rect).toEqual([10, 20, 40, 50])
     expect(t.history.canUndo).toBe(true)
+  })
+
+  it('images have all 8 handles; a corner keeps the aspect ratio', () => {
+    const im: ImageAnnotation = {
+      ...base, id: 'im', kind: 'image', rect: [20, 20, 60, 40], image: { width: 4, height: 2, png: 'AA==' },
+    }
+    expect(handlesFor(im)).toEqual(ALL_HANDLES)
+    const t = setup([im])
+    t.click([40, 30])
+    expect(t.state.selection).toEqual(['im'])
+    // se corner = pdf (60, 20). Free: 60 x 25; the larger factor (1.5) wins,
+    // anchored at the nw corner (20, 40).
+    t.drag([60, 20], [80, 15])
+    expect((t.store.get('im') as ImageAnnotation).rect).toEqual([20, 10, 80, 40])
+  })
+
+  it('an image corner stops where the scaled image would leave the page', () => {
+    const t = setup([{ ...base, id: 'im', kind: 'image', rect: [20, 20, 60, 40], image: { width: 4, height: 2, png: 'AA==' } } as ImageAnnotation])
+    t.click([40, 30])
+    // Wide drag: 4.5x would need 90pt of height below y = 40; only 40 are left (2x).
+    t.drag([60, 20], [300, 20])
+    expect((t.store.get('im') as ImageAnnotation).rect).toEqual([20, 0, 100, 40])
+  })
+
+  it('an image edge handle stretches it freely', () => {
+    const t = setup([{ ...base, id: 'im', kind: 'image', rect: [20, 20, 60, 40], image: { width: 4, height: 2, png: 'AA==' } } as ImageAnnotation])
+    t.click([40, 30])
+    t.drag([60, 30], [70, 30])
+    expect((t.store.get('im') as ImageAnnotation).rect).toEqual([20, 20, 70, 40])
   })
 
   it('double-click on a text box opens its editor', () => {

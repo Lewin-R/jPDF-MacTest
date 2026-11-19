@@ -14,6 +14,8 @@ annotationKinds.register({
 annotationKinds.register({ kind: 'freetext', hitTest: () => true } as never)
 // shape = hit anywhere with x >= 200.
 annotationKinds.register({ kind: 'shape', hitTest: (_a: Annotation, p: Point) => p[0] >= 200 } as never)
+// image = hit everywhere (but never erased).
+annotationKinds.register({ kind: 'image', hitTest: () => true } as never)
 
 const stroke = (id: string, y: number) => ({ id, kind: 'ink', page: 0, y }) as unknown as Annotation
 const text = { id: 't', kind: 'freetext', page: 0 } as Annotation
@@ -77,6 +79,17 @@ describe('eraser', () => {
     expect(hidden()).toEqual(['s'])
     handler.onPointerUp!(ev(250, 500))
     expect(executed).toHaveLength(1)
+  })
+
+  it('never erases pasted images', () => {
+    const image = { id: 'im', kind: 'image', page: 0 } as Annotation
+    const { handler, executed, ev, hidden } = setup(2, [image])
+    handler.onPointerDown!(ev(250, 500))
+    handler.onPointerMove!(ev(50, 10))
+    expect(hidden()).not.toContain('im')
+    handler.onPointerUp!(ev(50, 10))
+    expect(executed).toHaveLength(1)
+    expect(hidden()).toEqual([])
   })
 
   it('cancel and deactivate clear hidden without deleting', () => {

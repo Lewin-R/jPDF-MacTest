@@ -2,6 +2,12 @@ import type { PageViewport } from 'pdfjs-dist'
 import type { Point } from '../session/model'
 import { clampScale } from './layout'
 
+/** Where a page was right-clicked: the point in PDF space and the page's viewport. */
+export interface PageMenuPoint {
+  pdf: Point
+  vp: PageViewport
+}
+
 /**
  * Client coordinates → PDF user space for a page box at `box` (client rect of
  * the element covering the page) drawn with viewport `v`. The box can be

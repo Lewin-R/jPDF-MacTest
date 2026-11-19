@@ -16,6 +16,7 @@
     "core:window:allow-set-title",
     "dialog:allow-open",
     "dialog:allow-save",
-    "dialog:allow-message"
+    "dialog:allow-message",
+    "clipboard-manager:allow-read-image"
   ]
 }

@@ -6,7 +6,7 @@ import { frameOrigin, normalizeRotation } from '../../core/geometry/textLayout'
 import { updateAnnotation } from '../../core/session/commands'
 import type { Annotation, Point, Rect } from '../../core/session/model'
 import { createTextEditing, resizeFreeText } from '../text/editing'
-import { HANDLE_CURSORS, handleAt, handlesFor, inRect, resizeRect, toPdfRect, toScreenRect, type Handle } from './handles'
+import { HANDLE_CURSORS, handleAt, handlesFor, inRect, keepAspect, resizeRect, toPdfRect, toScreenRect, type Handle } from './handles'
 import Icon from './Icon.svelte'
 import SelectionOptions from './SelectionOptions.svelte'
 
@@ -20,7 +20,7 @@ const DRAG_THRESHOLD_PX = 3
 const DOUBLE_CLICK_MS = 500
 /** Narrowest a text box can be resized to (pt). */
 export const FREETEXT_MIN_WIDTH = 24
-/** Smallest extent (pt, without the stroke width) ink and shapes can be resized to. */
+/** Smallest extent (pt, without the stroke width) ink, shapes and images can be resized to. */
 const INK_MIN_SIZE = 4
 
 interface Press {
@@ -72,7 +72,8 @@ const inset = (r: Rect, d: number): Rect => [r[0] + d, r[1] + d, r[2] - d, r[3] 
 /**
  * The default tool. A press selects the topmost annotation under the pointer
  * (empty space deselects) and dragging moves it; the selected annotation's
- * handles resize it (text boxes in width, ink and shapes in any direction). A drag is
+ * handles resize it (text boxes in width, ink, shapes and images in any
+ * direction; image corners keep the aspect ratio). A drag is
  * previewed live and committed as one update on release. Elsewhere pointer
  * input passes through to the text layer (native selection, Ctrl+C copies).
  * Double-clicking a text box opens its editor.
@@ -140,7 +141,10 @@ export function createSelectHandler(ctx: ToolContext): ToolHandler {
     // Ink and shape bounds include half the stroke width, which does not scale.
     const pad = a.kind === 'ink' ? a.width / 2 : a.kind === 'shape' && a.border ? a.border.width / 2 : 0
     const min = (INK_MIN_SIZE + 2 * pad) * vp.scale
-    const to = toPdfRect(resizeRect(box, handle, dx, dy, min), vp)
+    let r = resizeRect(box, handle, dx, dy, min)
+    // Image corners keep the aspect ratio (edges stretch).
+    if (a.kind === 'image') r = keepAspect(box, r, handle, [0, 0, vp.width, vp.height])
+    const to = toPdfRect(r, vp)
     return { ...kind.scale(a, inset(kind.bounds(a), pad), inset(to, pad)), modifiedAt: now() }
   }
 

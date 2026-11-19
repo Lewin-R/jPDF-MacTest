@@ -146,7 +146,7 @@ describe('Overlay: hold right button = temporary eraser', () => {
     const menu = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 33, clientY: 44 })
     page.dispatchEvent(menu)
     expect(menu.defaultPrevented).toBe(true)
-    expect(onpagemenu).toHaveBeenCalledWith(3, 33, 44)
+    expect(onpagemenu).toHaveBeenCalledWith(3, 33, 44, { pdf: expect.any(Array), vp })
 
     // Not in the text box editor: the native menu stays there.
     const textarea = document.createElement('textarea')

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { History } from '../../../src/core/session/history.svelte'
-import type { Annotation, FreeTextAnnotation } from '../../../src/core/session/model'
+import type { Annotation, FreeTextAnnotation, ImageAnnotation } from '../../../src/core/session/model'
 import {
   deletePage, duplicatePage, insertBlankPage, rotatePage, type PageHost,
 } from '../../../src/core/session/pageCommands'
@@ -19,6 +19,13 @@ function text(id: string, page: number): FreeTextAnnotation {
     id, page, sourceRef: null, modifiedAt: '2026-01-01T00:00:00Z', author: 'a', kind: 'freetext',
     rect: [0, 0, 200, 40], text: 'one two three four five six', lines: ['one two three four five six'],
     fontSize: 12, textColor: [0, 0, 0], background: null,
+  }
+}
+
+function image(id: string, page: number): ImageAnnotation {
+  return {
+    id, page, sourceRef: '12R', modifiedAt: '2026-01-01T00:00:00Z', author: 'a', kind: 'image',
+    rect: [100, 200, 180, 240], image: { width: 4, height: 2, png: 'AA==' },
   }
 }
 
@@ -52,6 +59,17 @@ describe('duplicatePage', () => {
     expect(store.byPage(0).map((a) => a.id)).toEqual(['a', 'b'])
     expect(store.byPage(2).map((a) => a.id)).toEqual(['c'])
     expect(store.byPage(3).map((a) => a.id)).toEqual(['d'])
+  })
+
+  it('copies pasted images too', () => {
+    const store = new AnnotationStore()
+    store.load([image('im', 0)])
+    const host: PageHost = { pages: identityPages(1) }
+    new History(store).execute(duplicatePage(host, 0))
+    const [copy] = store.byPage(1)
+    expect(copy).toMatchObject({ kind: 'image', page: 1, sourceRef: null, rect: [100, 200, 180, 240] })
+    expect(copy.id).not.toBe('im')
+    expect((copy as ImageAnnotation).image).toEqual(image('im', 0).image)
   })
 
   it('marks shifted annotations and the copies as changed', () => {
@@ -153,5 +171,21 @@ describe('rotatePage', () => {
     expect(store.changedSince().map((a) => a.id)).toEqual(['t'])
     history.undo()
     expect(store.get('t')).toBe(t)
+  })
+
+  it('keeps pasted images upright and unstretched: their rect turns about its centre', () => {
+    const store = new AnnotationStore()
+    const im = image('im', 0)
+    store.load([im])
+    const host: PageHost = { pages: identityPages(1) }
+    const history = new History(store)
+    // 80 x 40 centred on (140, 220) becomes 40 x 80.
+    history.execute(rotatePage(host, 0, 90, 0))
+    expect((store.get('im') as ImageAnnotation).rect).toEqual([120, 180, 160, 260])
+    history.execute(rotatePage(host, 0, 90, 0))
+    expect((store.get('im') as ImageAnnotation).rect).toEqual([100, 200, 180, 240])
+    history.undo()
+    history.undo()
+    expect(store.get('im')).toBe(im)
   })
 })

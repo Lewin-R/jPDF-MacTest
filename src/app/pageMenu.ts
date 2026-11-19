@@ -1,3 +1,4 @@
+import type { ClipboardImage } from '../core/ipc/clipboard'
 import type { MenuItem } from '../ui/ContextMenu.svelte'
 import { toasts } from '../ui/toasts.svelte'
 
@@ -10,18 +11,26 @@ export interface PageMenuActions {
   canDeletePage(): boolean
 }
 
+/** Pasting the clipboard image onto the page ("Insert as…"). */
+export interface PageMenuPaste {
+  /** The clipboard image read when the menu opened; null while unknown or when there is none. */
+  image: ClipboardImage | null
+  insert(image: ClipboardImage): void | Promise<void>
+}
+
 /**
  * Items of the page context menu (right-click with select, hand or the
  * text-selection marker) for `page` (1-based) of the document `actions`
- * belongs to. Each operation is one undo step. "Insert as…" is a placeholder.
+ * belongs to. Each operation is one undo step. "Insert as…" pastes the
+ * clipboard image (`paste`); it is disabled while there is none.
  */
-export function pageMenuItems(page: number, actions: PageMenuActions): MenuItem[] {
+export function pageMenuItems(page: number, actions: PageMenuActions, paste?: PageMenuPaste): MenuItem[] {
   const i = page - 1
   /** Runs an operation; a failure is reported to the user, never thrown. */
-  const attempt = (what: string, op: () => void | Promise<void>) => () => {
+  const attempt = (what: string, op: () => void | Promise<void>, failure = `Could not ${what} the page`) => () => {
     const fail = (e: unknown) => {
       console.error(`Could not ${what} page ${page}`, e)
-      toasts.show(`Could not ${what} the page`, 'error')
+      toasts.show(failure, 'error')
     }
     try {
       void Promise.resolve(op()).catch(fail)
@@ -30,7 +39,17 @@ export function pageMenuItems(page: number, actions: PageMenuActions): MenuItem[
     }
   }
   return [
-    { label: 'Insert as…', run: () => {} },
+    {
+      label: 'Insert as…',
+      disabled: !paste?.image,
+      run: attempt(
+        'insert the image on',
+        () => {
+          if (paste?.image) return paste.insert(paste.image)
+        },
+        'Could not insert the image',
+      ),
+    },
     { label: `Duplicate page ${page}`, run: attempt('duplicate', () => actions.duplicatePage(i)) },
     {
       label: `Delete page ${page}`,

@@ -135,6 +135,8 @@
         commit({ border: s.border, fill: s.fill })
       }}
     />
+  {:else if annotation.kind === 'image'}
+    <p class="hint">Drag to move, drag a handle to resize, Delete removes it.</p>
   {/if}
 </div>
 
@@ -143,5 +145,11 @@
     display: flex;
     flex-direction: column;
     gap: 14px;
+  }
+  .hint {
+    margin: 0;
+    max-width: 200px;
+    font-size: 12px;
+    color: var(--text-muted);
   }
 </style>

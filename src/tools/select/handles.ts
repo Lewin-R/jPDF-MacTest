@@ -13,13 +13,14 @@ export const ALL_HANDLES: readonly Handle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 
 const WIDTH_HANDLES: readonly Handle[] = ['e', 'w']
 const NO_HANDLES: readonly Handle[] = []
 
-/** Handles a selected annotation offers: text boxes resize in width, ink and shapes in any direction, highlights not at all. */
+/** Handles a selected annotation offers: text boxes resize in width, ink, shapes and images in any direction, highlights not at all. */
 export function handlesFor(a: Annotation): readonly Handle[] {
   switch (a.kind) {
     case 'freetext':
       return WIDTH_HANDLES
     case 'ink':
     case 'shape':
+    case 'image':
       return ALL_HANDLES
     default:
       return NO_HANDLES
@@ -56,6 +57,31 @@ export function resizeRect(r: Rect, h: Handle, dx: number, dy: number, minSize: 
   if (h.includes('n')) y1 = Math.min(y1 + dy, y2 - minSize)
   if (h.includes('s')) y2 = Math.max(y2 + dy, y1 + minSize)
   return [x1, y1, x2, y2]
+}
+
+/**
+ * `r`, the result of dragging corner handle `h` of `box` (both y-down), with
+ * the aspect ratio of `box`: scaled by the larger of the two factors, at most
+ * as far as fits in `bounds`, anchored at the opposite corner. Edge handles
+ * return `r` unchanged.
+ */
+export function keepAspect(box: Rect, r: Rect, h: Handle, bounds: Rect): Rect {
+  if (h.length !== 2) return r
+  const w0 = box[2] - box[0]
+  const h0 = box[3] - box[1]
+  if (w0 <= 0 || h0 <= 0) return r
+  const west = h.includes('w')
+  const north = h.includes('n')
+  const ax = west ? box[2] : box[0]
+  const ay = north ? box[3] : box[1]
+  const roomX = (west ? ax - bounds[0] : bounds[2] - ax) / w0
+  const roomY = (north ? ay - bounds[1] : bounds[3] - ay) / h0
+  const k = Math.min(Math.max((r[2] - r[0]) / w0, (r[3] - r[1]) / h0), roomX, roomY)
+  const w = w0 * k
+  const hh = h0 * k
+  const x1 = west ? ax - w : ax
+  const y1 = north ? ay - hh : ay
+  return [x1, y1, x1 + w, y1 + hh]
 }
 
 /**

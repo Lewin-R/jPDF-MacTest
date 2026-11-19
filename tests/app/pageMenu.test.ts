@@ -82,9 +82,31 @@ describe('pageMenuItems', () => {
     err.mockRestore()
   })
 
-  it('Insert as… is still a placeholder', () => {
+  it('Insert as… is disabled without a clipboard image', () => {
+    expect(item(pageMenuItems(2, actions()), 'Insert as…').disabled).toBe(true)
+    const insert = vi.fn()
+    const i = item(pageMenuItems(2, actions(), { image: null, insert }), 'Insert as…')
+    expect(i.disabled).toBe(true)
+  })
+
+  it('Insert as… is enabled with a clipboard image and inserts that image', () => {
+    const image = { width: 1, height: 1, rgba: new Uint8Array(4) }
+    const insert = vi.fn(async () => {})
     const a = actions()
-    item(pageMenuItems(2, a), 'Insert as…').run()
+    const i = item(pageMenuItems(2, a, { image, insert }), 'Insert as…')
+    expect(i.disabled).toBe(false)
+    i.run()
+    expect(insert).toHaveBeenCalledWith(image)
     expect(Object.values(a).filter((f) => typeof f === 'function' && 'mock' in f && f.mock.calls.length)).toEqual([])
+  })
+
+  it('reports a failed insert with a toast', async () => {
+    const insert = vi.fn(async () => {
+      throw new Error('boom')
+    })
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    item(pageMenuItems(1, actions(), { image: { width: 1, height: 1, rgba: new Uint8Array(4) }, insert }), 'Insert as…').run()
+    await vi.waitFor(() => expect(toasts.items.at(-1)?.message).toBe('Could not insert the image'))
+    err.mockRestore()
   })
 })

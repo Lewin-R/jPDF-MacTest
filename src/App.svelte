@@ -27,7 +27,10 @@
   import Toast from './ui/Toast.svelte'
   import ContextMenu from './ui/ContextMenu.svelte'
   import { rightClickErases } from './tools/rightClick'
-  import { pageMenuItems } from './app/pageMenu'
+  import { pageMenuItems, type PageMenuPaste } from './app/pageMenu'
+  import { insertImage } from './app/insertImage'
+  import { readClipboardImage, type ClipboardImage } from './core/ipc/clipboard'
+  import type { PageMenuPoint } from './core/viewer/viewerMath'
 
   // Hold the right mouse button to erase with the drawing tools; the others
   // (select, hand, text-selection marker) open the page menu on right-click.
@@ -36,10 +39,38 @@
     enabledFor: (a) => rightClickErases(a?.def.type, a?.instance.settings),
   })
 
-  /** Open page context menu: position (client) and 1-based page number. */
-  let pageMenu = $state<{ x: number; y: number; page: number } | null>(null)
-  function openPageMenu(page: number, x: number, y: number) {
-    pageMenu = { x, y, page: page + 1 }
+  /** Open page context menu: position (client), 1-based page number and the point clicked on the page. */
+  let pageMenu = $state<{ x: number; y: number; page: number; at: PageMenuPoint | null } | null>(null)
+  /** The clipboard image read when the page menu opened (enables "Insert as…"). */
+  let menuImage = $state.raw<ClipboardImage | null>(null)
+  let menuToken = 0
+  function openPageMenu(page: number, x: number, y: number, at?: PageMenuPoint) {
+    pageMenu = { x, y, page: page + 1, at: at ?? null }
+    menuImage = null
+    const token = ++menuToken
+    if (!at) return
+    void readClipboardImage().then((img) => {
+      if (token === menuToken && pageMenu) menuImage = img
+    })
+  }
+  function closePageMenu() {
+    pageMenu = null
+    menuImage = null
+    menuToken++
+  }
+
+  /** "Insert as…" of the page menu: the image read at menu open (captured; closing the menu clears it). */
+  function menuPaste(session: DocumentSession, page: number, at: PageMenuPoint | null): PageMenuPaste {
+    const image = at ? menuImage : null
+    return { image, insert: (img) => (at ? pasteImage(session, page, at, img) : undefined) }
+  }
+
+  /** "Insert as…": pastes `img` where the page was right-clicked; selected if the select tool is active. */
+  async function pasteImage(session: DocumentSession, page: number, at: PageMenuPoint, img: ClipboardImage) {
+    const a = await insertImage(session, page - 1, at.pdf, at.vp, img, settings.data.author)
+    if (activeTool.current?.def.type === 'select' && tabs.active === session) {
+      router.stateOf(session).selection = [a.id]
+    }
   }
   /** The toolbar shows once the persisted layout is loaded (no flash of defaults). */
   let settingsLoaded = $state(false)
@@ -190,8 +221,8 @@
   <ContextMenu
     x={pageMenu.x}
     y={pageMenu.y}
-    items={pageMenuItems(pageMenu.page, tabs.active)}
-    onclose={() => (pageMenu = null)}
+    items={pageMenuItems(pageMenu.page, tabs.active, menuPaste(tabs.active, pageMenu.page, pageMenu.at))}
+    onclose={closePageMenu}
   />
 {/if}
 

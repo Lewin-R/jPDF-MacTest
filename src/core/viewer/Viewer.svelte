@@ -8,7 +8,7 @@
   import Overlay from './Overlay.svelte'
   import PageView from './PageView.svelte'
   import { blurAfterPointerClick, isSpacePanBlocked } from './spacePan'
-  import { wheelZoomFactor } from './viewerMath'
+  import { wheelZoomFactor, type PageMenuPoint } from './viewerMath'
 
   // Mount one Viewer per session ({#key session.id}); scroll and scale live on
   // the session, so switching tabs restores them.
@@ -28,8 +28,8 @@
     tool?: ToolHandler | null
     /** Temporary right-button eraser (see ToolRouter.eraser). */
     eraser?: ToolHandler | null
-    /** Right-click without the temporary eraser: open the page menu (page 0-based, client coordinates). */
-    onpagemenu?: (page: number, clientX: number, clientY: number) => void
+    /** Right-click without the temporary eraser: open the page menu (page 0-based, client coordinates, the point on the page). */
+    onpagemenu?: (page: number, clientX: number, clientY: number, at?: PageMenuPoint) => void
     cursor?: string
     /** The tool's live, uncommitted annotation, drawn on its page. */
     toolPreview?: Annotation | null

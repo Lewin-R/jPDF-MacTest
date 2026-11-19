@@ -1,6 +1,6 @@
-import { frameSize, layoutLines } from '../geometry/textLayout'
+import { frameSize, layoutLines, normalizeRotation } from '../geometry/textLayout'
 import type { Command } from './history.svelte'
-import { newId, type Annotation } from './model'
+import { newId, type Annotation, type Rect } from './model'
 import {
   insertEntry, remapForDelete, remapForInsert, removeEntry, rotateEntry, type PageEntry,
 } from './pages'
@@ -102,11 +102,21 @@ export function insertBlankPage(
   )
 }
 
+/** `r` turned a quarter about its centre (width and height swapped). */
+function turnedRect(r: Rect): Rect {
+  const cx = (r[0] + r[2]) / 2
+  const cy = (r[1] + r[3]) / 2
+  const hw = (r[3] - r[1]) / 2
+  const hh = (r[2] - r[0]) / 2
+  return [cx - hw, cy - hh, cx + hw, cy + hh]
+}
+
 /**
  * Turns page `i` by `delta` (±90) degrees. `fileRotation` is the /Rotate of
  * its file page (0 for an empty page, whose rotation is absolute): text boxes
  * on the page stay upright on screen, so they are wrapped again to their
- * width at the new rotation.
+ * width at the new rotation; pasted images stay upright and keep their shape
+ * on screen, so their rect turns a quarter about its centre.
  */
 export function rotatePage(host: PageHost, i: number, delta: number, fileRotation: number): Command {
   return pageCommand(
@@ -116,8 +126,11 @@ export function rotatePage(host: PageHost, i: number, delta: number, fileRotatio
       const next = rotateEntry(pages, i, delta)
       const rotation = fileRotation + next[i].rotate
       for (const a of s.byPage(i)) {
-        if (a.kind !== 'freetext') continue
-        s.update(a.id, { ...a, lines: layoutLines(a.text, a.fontSize, frameSize(a.rect, rotation).width) })
+        if (a.kind === 'freetext') {
+          s.update(a.id, { ...a, lines: layoutLines(a.text, a.fontSize, frameSize(a.rect, rotation).width) })
+        } else if (a.kind === 'image' && normalizeRotation(delta) % 180 !== 0) {
+          s.update(a.id, { ...a, rect: turnedRect(a.rect) })
+        }
       }
       return next
     },

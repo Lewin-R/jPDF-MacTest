@@ -20,7 +20,17 @@ export interface ShapeAnnotation extends Base {
   border: { color: RGB; width: number; opacity: number } | null
   fill: { color: RGB; opacity: number } | null
 }
-export type Annotation = HighlightAnnotation | InkAnnotation | FreeTextAnnotation | ShapeAnnotation;
+/**
+ * A pasted image, drawn upright on screen and stretched to fill `rect`
+ * (x1 < x2, y1 < y2). `image` is the PNG (base64, no `data:` prefix) and its
+ * pixel size. Saved as a /Stamp annotation.
+ */
+export interface ImageAnnotation extends Base {
+  kind: 'image'
+  rect: Rect
+  image: { width: number; height: number; png: string }
+}
+export type Annotation = HighlightAnnotation | InkAnnotation | FreeTextAnnotation | ShapeAnnotation | ImageAnnotation;
 
 /** `page` is 0-based here (session.currentPage / goToPage are 1-based). */
 export function newId(): string {

@@ -38,6 +38,7 @@
   import { blankViewport, entryOf, sourceViewport } from './pageSource'
   import type { AnnotationStore } from '../session/store.svelte'
   import type { Annotation, Point } from '../session/model'
+  import type { PageMenuPoint } from './viewerMath'
   import type { PagePointerEvent, TextEdit, ToolHandler } from '../registry/tools'
   import { annotationKinds } from '../registry/annotationKinds'
   import { pageHasText } from './textContent'
@@ -96,7 +97,7 @@
      * Right-click without the temporary eraser (select, hand, text marker):
      * open the page menu for this page (0-based) at client coordinates.
      */
-    onpagemenu?: (page: number, clientX: number, clientY: number) => void
+    onpagemenu?: (page: number, clientX: number, clientY: number, at?: PageMenuPoint) => void
   } = $props()
 
   let loaded = $state<PageViewport | null>(null)
@@ -255,7 +256,7 @@
     const t = e.target
     if (t instanceof Element && t.closest(EDITABLE)) return
     e.preventDefault()
-    if (!eraser) onpagemenu?.(pageNumber - 1, e.clientX, e.clientY)
+    if (!eraser) onpagemenu?.(pageNumber - 1, e.clientX, e.clientY, vp ? { pdf: clientToPdf(e.clientX, e.clientY, vp), vp } : undefined)
   }
 
   /** The gesture's handler and page event for `e`, if `e` belongs to the gesture. */

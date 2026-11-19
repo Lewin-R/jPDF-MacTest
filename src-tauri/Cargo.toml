@@ -26,6 +26,7 @@ tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "2"
 png = "0.18"
 base64 = "0.23"
+tauri-plugin-clipboard-manager = "2"
 
 # Same versions as Tauri's own WebView2 bindings (see Cargo.lock), used to enable touchpad pinch.
 [target.'cfg(windows)'.dependencies]
