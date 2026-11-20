@@ -5,6 +5,7 @@ mod date;
 pub mod dto;
 pub mod fmt;
 pub mod image;
+pub mod merge;
 pub mod reader;
 pub mod winansi;
 pub mod writer;

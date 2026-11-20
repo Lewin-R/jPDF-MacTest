@@ -615,7 +615,7 @@ fn saved_image(doc: &Document, id: ObjectId) -> Option<(ImageObjects, Vec<u8>)> 
     Some((ImageObjects { xobject, png }, bytes))
 }
 
-fn invalid(e: lopdf::Error) -> AppError {
+pub(crate) fn invalid(e: lopdf::Error) -> AppError {
     AppError::InvalidPdf(e.to_string())
 }
 
@@ -929,7 +929,7 @@ fn inherited<'a>(doc: &'a Document, page: &'a Dictionary, key: &[u8]) -> Option<
 
 /// Page `id`'s dictionary as a direct kid of `root` with `/Rotate rotate`:
 /// the attributes it inherited from its old ancestors are copied into it.
-fn flattened_page(doc: &Document, id: ObjectId, root: ObjectId, rotate: i32) -> Result<Dictionary, AppError> {
+pub(crate) fn flattened_page(doc: &Document, id: ObjectId, root: ObjectId, rotate: i32) -> Result<Dictionary, AppError> {
     let page = doc.get_dictionary(id).map_err(invalid)?;
     let mut dict = page.clone();
     for key in [b"MediaBox".as_slice(), b"CropBox", b"Resources"] {
@@ -946,7 +946,7 @@ fn flattened_page(doc: &Document, id: ObjectId, root: ObjectId, rotate: i32) -> 
 
 /// The page's `/Rotate` (inherited through `/Parent`), normalised to 0..360;
 /// 0 when absent or not a multiple of 90.
-fn page_rotation(doc: &Document, page_id: ObjectId) -> i32 {
+pub(crate) fn page_rotation(doc: &Document, page_id: ObjectId) -> i32 {
     let mut node = doc.get_dictionary(page_id).ok();
     // Bounded walk: a malformed /Parent cycle must not hang the save.
     for _ in 0..64 {

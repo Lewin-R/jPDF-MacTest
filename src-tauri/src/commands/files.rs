@@ -8,6 +8,8 @@ use tauri::State;
 
 use crate::error::AppError;
 use crate::pdf::dto::{AnnotationDto, DeleteRef, PageSpec};
+use crate::pdf::load_document;
+use crate::pdf::merge::merge_loaded;
 use crate::pdf::writer::write_incremental_with_pages;
 
 /// Windows ERROR_SHARING_VIOLATION: file is open in another process.
@@ -79,15 +81,43 @@ pub fn save_to_path_with_pages(
 ) -> Result<SaveResult, AppError> {
     let original = read_file(&source.to_string_lossy())?;
     let (bytes, refs) = write_incremental_with_pages(&original, upserts, deletes, pages)?;
+    write_atomic(target, &bytes)?;
+    Ok(SaveResult { refs })
+}
+
+/// Atomically replaces `target` with `bytes`: temp file in the target's
+/// directory, flushed, then renamed over it. On any error `target` is left untouched.
+pub fn write_atomic(target: &Path, bytes: &[u8]) -> Result<(), AppError> {
     let dir = match target.parent() {
         Some(d) if !d.as_os_str().is_empty() => d,
         _ => Path::new("."),
     };
     let mut tmp = tempfile::NamedTempFile::new_in(dir).map_err(|e| write_error(target, e))?;
-    tmp.write_all(&bytes).map_err(|e| write_error(target, e))?;
+    tmp.write_all(bytes).map_err(|e| write_error(target, e))?;
     tmp.as_file().sync_all().map_err(|e| write_error(target, e))?;
     tmp.persist(target).map_err(|e| write_error(target, e.error))?;
-    Ok(SaveResult { refs })
+    Ok(())
+}
+
+/// `e` with its message prefixed by the name of the file it is about (the
+/// merge page reports which file could not be merged).
+fn about_file(path: &Path, e: AppError) -> AppError {
+    let name = path.file_name().map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().into_owned());
+    match e {
+        AppError::Encrypted(m) => AppError::Encrypted(format!("{name}: {m}")),
+        AppError::InvalidPdf(m) => AppError::InvalidPdf(format!("{name}: {m}")),
+        other => other,
+    }
+}
+
+/// Merges the PDFs at `sources` in order into a new file at `target`. Every
+/// source is read before the atomic write, so `target` may be one of them.
+pub fn merge_to_path(sources: &[&Path], target: &Path) -> Result<(), AppError> {
+    let docs = sources
+        .iter()
+        .map(|p| read_file(&p.to_string_lossy()).and_then(|b| load_document(&b)).map_err(|e| about_file(p, e)))
+        .collect::<Result<Vec<_>, _>>()?;
+    write_atomic(target, &merge_loaded(docs)?)
 }
 
 async fn blocking<T: Send + 'static>(
@@ -119,6 +149,15 @@ pub async fn save_pdf(
             &deletes,
             pages.as_deref(),
         )
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn merge_pdfs(paths: Vec<String>, target_path: String) -> Result<(), AppError> {
+    blocking(move || {
+        let sources: Vec<&Path> = paths.iter().map(Path::new).collect();
+        merge_to_path(&sources, Path::new(&target_path))
     })
     .await
 }

@@ -3,7 +3,7 @@ pub mod error;
 pub mod pdf;
 
 use commands::files::{
-    LaunchFiles, get_launch_files, open_pdf, path_exists, pdf_args, read_annotations, save_pdf,
+    LaunchFiles, get_launch_files, merge_pdfs, open_pdf, path_exists, pdf_args, read_annotations, save_pdf,
 };
 use commands::settings::{load_settings, save_settings};
 use tauri::{Emitter, Manager};
@@ -38,7 +38,8 @@ pub fn run() {
             save_settings,
             save_pdf,
             read_annotations,
-            path_exists
+            path_exists,
+            merge_pdfs
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

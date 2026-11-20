@@ -421,6 +421,27 @@ pub fn lecture_pdf(pages: usize, (w, h): (usize, usize)) -> Vec<u8> {
     }))
 }
 
+/// One page with a text field named `name`: its widget is on the page's
+/// `/Annots` and listed in the catalog's `/AcroForm /Fields`.
+#[allow(dead_code)] // used by merge.rs only
+pub fn form_pdf(name: &str) -> Vec<u8> {
+    save(build(1, |doc, pages| {
+        let field = doc.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Widget",
+            "FT" => "Tx",
+            "T" => Object::string_literal(name),
+            "Rect" => vec![72.into(), 600.into(), 272.into(), 620.into()],
+            "P" => pages[0],
+        });
+        doc.get_dictionary_mut(pages[0]).unwrap().set("Annots", vec![Object::Reference(field)]);
+        let root = doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
+        doc.get_dictionary_mut(root)
+            .unwrap()
+            .set("AcroForm", dictionary! { "Fields" => vec![Object::Reference(field)] });
+    }))
+}
+
 /// A document whose trailer carries an `/Encrypt` dictionary that the empty
 /// password does not open.
 pub fn encrypted_pdf() -> Vec<u8> {
