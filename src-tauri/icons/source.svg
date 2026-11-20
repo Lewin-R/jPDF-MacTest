@@ -1,5 +1,26 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- App icon: lineart koala hugging a eucalyptus branch. Shapes are filled
+       with the tile colour so later ones (head, paws) cleanly cover the lines
+       behind them. Keep strokes thick: the icon must read at 16-24 px. -->
   <rect width="1024" height="1024" rx="180" fill="#0F111A"/>
-  <circle cx="590" cy="228" r="88" fill="#FFC107"/>
-  <path d="M590 400 V665 C590 765 535 815 440 815" fill="none" stroke="#FFC107" stroke-width="160" stroke-linecap="round" stroke-linejoin="round"/>
+  <g transform="translate(512 512) scale(.88) translate(-512 -500)" stroke="#FFC107" stroke-width="46" stroke-linecap="round" stroke-linejoin="round" fill="#0F111A">
+    <!-- ears with inner tufts -->
+    <circle cx="300" cy="300" r="122"/>
+    <circle cx="724" cy="300" r="122"/>
+    <path d="M246 328 a60 60 0 0 1 70 -76" fill="none"/>
+    <path d="M778 328 a60 60 0 0 0 -70 -76" fill="none"/>
+    <!-- head, eyes, nose -->
+    <ellipse cx="512" cy="492" rx="236" ry="212"/>
+    <circle cx="422" cy="456" r="22" fill="#FFC107" stroke="none"/>
+    <circle cx="602" cy="456" r="22" fill="#FFC107" stroke="none"/>
+    <ellipse cx="512" cy="546" rx="58" ry="78" fill="#FFC107" stroke="none"/>
+    <!-- branch, twig and eucalyptus leaves -->
+    <path d="M150 846 Q512 760 820 690" fill="none"/>
+    <path d="M716 714 Q770 660 792 610" fill="none"/>
+    <path transform="translate(820 690) rotate(82) scale(.66)" d="M0 0 C48 -52 48 -136 0 -196 C-48 -136 -48 -52 0 0 Z"/>
+    <path transform="translate(792 610) rotate(18) scale(.66)" d="M0 0 C48 -52 48 -136 0 -196 C-48 -136 -48 -52 0 0 Z"/>
+    <!-- paws gripping the branch -->
+    <ellipse cx="402" cy="782" rx="66" ry="52" transform="rotate(-14 402 782)"/>
+    <ellipse cx="630" cy="730" rx="66" ry="52" transform="rotate(-14 630 730)"/>
+  </g>
 </svg>
