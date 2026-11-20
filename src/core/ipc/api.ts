@@ -50,6 +50,14 @@ export function savePdf(
   })
 }
 
+/**
+ * Merges the PDFs at `paths`, in order, into a new file at `targetPath`
+ * (written atomically). Errors name the file that could not be read.
+ */
+export function mergePdfs(paths: string[], targetPath: string): Promise<void> {
+  return invoke<void>('merge_pdfs', { paths, targetPath })
+}
+
 /** Whether a file exists at `path` (true when that cannot be determined). */
 export function pathExists(path: string): Promise<boolean> {
   return invoke<boolean>('path_exists', { path })

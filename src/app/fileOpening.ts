@@ -9,11 +9,34 @@ type OpenHandler = (path: string) => Promise<void>
 
 let openHandler: OpenHandler | null = null
 
+type DropTarget = (paths: string[]) => void
+
+/** Takes dropped PDFs instead of opening them (the merge page lists them). */
+let dropTarget: DropTarget | null = null
+
+/**
+ * Sends dropped PDFs to `target` until the returned function is called
+ * (a newer target replaces it; releasing an old one leaves the newer in place).
+ */
+export function setDropTarget(target: DropTarget): () => void {
+  dropTarget = target
+  return () => {
+    if (dropTarget === target) dropTarget = null
+  }
+}
+
+function onDrop(paths: readonly string[]): void {
+  if (!dropTarget) return void openFiles(paths)
+  const pdfs = pdfPaths(paths)
+  if (pdfs.length > 0) dropTarget(pdfs)
+}
+
 export function pdfPaths(paths: readonly string[]): string[] {
   return paths.filter((p) => p.toLowerCase().endsWith('.pdf'))
 }
 
-async function openAll(paths: readonly string[]): Promise<void> {
+/** Opens each PDF of `paths` in a tab (a failing file is reported and skipped). */
+export async function openFiles(paths: readonly string[]): Promise<void> {
   const open = openHandler
   if (!open) return
   // One failing file must not stop the others.
@@ -33,7 +56,7 @@ export async function pickAndOpen(): Promise<void> {
     filters: [{ name: 'PDF', extensions: ['pdf'] }],
   })
   if (!picked) return
-  await openAll(Array.isArray(picked) ? picked : [picked])
+  await openFiles(Array.isArray(picked) ? picked : [picked])
 }
 
 export function initFileOpening(open: OpenHandler): () => void {
@@ -45,11 +68,11 @@ export function initFileOpening(open: OpenHandler): () => void {
 
   track(
     getCurrentWebview().onDragDropEvent((e) => {
-      if (e.payload.type === 'drop') void openAll(e.payload.paths)
+      if (e.payload.type === 'drop') onDrop(e.payload.paths)
     }),
   )
-  track(listen<string[]>('open-files', (e) => void openAll(e.payload)))
-  void getLaunchFiles().then((files) => openAll(files))
+  track(listen<string[]>('open-files', (e) => void openFiles(e.payload)))
+  void getLaunchFiles().then((files) => openFiles(files))
 
   return () => {
     disposed = true

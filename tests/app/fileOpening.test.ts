@@ -28,7 +28,7 @@ vi.mock('../../src/core/ipc/api', async (orig) => ({
 }))
 
 import { toasts } from '../../src/ui/toasts.svelte'
-import { initFileOpening, pdfPaths, pickAndOpen } from '../../src/app/fileOpening'
+import { initFileOpening, openFiles, pdfPaths, pickAndOpen, setDropTarget } from '../../src/app/fileOpening'
 
 const flush = () => new Promise((r) => setTimeout(r, 0))
 
@@ -104,5 +104,46 @@ describe('fileOpening', () => {
     dispose()
     err.mockRestore()
     show.mockRestore()
+  })
+
+  it('while a drop target is set, dropped PDFs go to it instead of opening', async () => {
+    const open = vi.fn(async () => {})
+    const target = vi.fn()
+    const dispose = initFileOpening(open)
+    await flush()
+    const release = setDropTarget(target)
+    h.dragCb!({ payload: { type: 'drop', paths: ['a.pdf', 'x.doc', 'B.PDF'] } })
+    h.dragCb!({ payload: { type: 'drop', paths: ['y.txt'] } })
+    await flush()
+    expect(target.mock.calls).toEqual([[['a.pdf', 'B.PDF']]])
+    expect(open).not.toHaveBeenCalled()
+    release()
+    h.dragCb!({ payload: { type: 'drop', paths: ['c.pdf'] } })
+    await flush()
+    expect(open.mock.calls.map((c) => c[0])).toEqual(['c.pdf'])
+    dispose()
+  })
+
+  it('releasing a replaced drop target keeps the newer one', async () => {
+    const dispose = initFileOpening(vi.fn(async () => {}))
+    await flush()
+    const first = vi.fn()
+    const second = vi.fn()
+    const releaseFirst = setDropTarget(first)
+    const releaseSecond = setDropTarget(second)
+    releaseFirst()
+    h.dragCb!({ payload: { type: 'drop', paths: ['a.pdf'] } })
+    expect(second).toHaveBeenCalledWith(['a.pdf'])
+    expect(first).not.toHaveBeenCalled()
+    releaseSecond()
+    dispose()
+  })
+
+  it('openFiles opens through the registered handler', async () => {
+    const open = vi.fn(async () => {})
+    const dispose = initFileOpening(open)
+    await openFiles(['m.pdf'])
+    expect(open).toHaveBeenCalledWith('m.pdf')
+    dispose()
   })
 })
