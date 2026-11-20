@@ -1,13 +1,16 @@
 <script lang="ts">
   import Logo from './Logo.svelte'
 
-  let { onOpen }: { onOpen: () => void } = $props()
+  let { onOpen, onMerge }: { onOpen: () => void; onMerge?: () => void } = $props()
 </script>
 
 <div class="empty">
   <Logo size="lg" full />
   <button type="button" class="open" onclick={() => onOpen()}>Open PDF</button>
   <p class="hint">or drop a file here · Ctrl+O</p>
+  {#if onMerge}
+    <button type="button" class="link" onclick={() => onMerge()}>Merge PDFs…</button>
+  {/if}
 </div>
 
 <style>
@@ -32,6 +35,20 @@
   }
   .open:hover {
     filter: brightness(1.1);
+  }
+  .link {
+    background: transparent;
+    border: 0;
+    padding: 4px 8px;
+    color: var(--text);
+    font: inherit;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    cursor: pointer;
+    transition: color var(--transition);
+  }
+  .link:hover {
+    color: var(--text-strong);
   }
   .hint {
     margin: 0;

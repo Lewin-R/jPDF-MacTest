@@ -14,4 +14,16 @@ describe('EmptyState', () => {
     const { getByText } = render(EmptyState, { props: { onOpen: vi.fn() } })
     expect(getByText('julie').className).toContain('logo-j')
   })
+
+  it('offers Merge PDFs when onMerge is given', async () => {
+    const onMerge = vi.fn()
+    const { getByRole } = render(EmptyState, { props: { onOpen: vi.fn(), onMerge } })
+    await fireEvent.click(getByRole('button', { name: 'Merge PDFs…' }))
+    expect(onMerge).toHaveBeenCalledOnce()
+  })
+
+  it('has no merge link without onMerge', () => {
+    const { queryByRole } = render(EmptyState, { props: { onOpen: vi.fn() } })
+    expect(queryByRole('button', { name: 'Merge PDFs…' })).toBeNull()
+  })
 })

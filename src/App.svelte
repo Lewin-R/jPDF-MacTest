@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { initFileOpening, pickAndOpen } from './app/fileOpening'
+  import { initFileOpening, openFiles, pickAndOpen } from './app/fileOpening'
   import { guardPageZoom } from './app/pageZoomGuard'
   import ConfirmClose from './app/ConfirmClose.svelte'
   import { confirmCloseAll, registerSaveCommands } from './app/saveFlow'
@@ -33,6 +33,8 @@
   import { readClipboardImage, type ClipboardImage } from './core/ipc/clipboard'
   import type { PageMenuPoint } from './core/viewer/viewerMath'
   import DocumentBuilder from './builder/DocumentBuilder.svelte'
+  import MergePage from './builder/merge/MergePage.svelte'
+  import { MergeFiles } from './builder/merge/mergeFiles.svelte'
 
   // Hold the right mouse button to erase with the drawing tools; the others
   // (select, lasso, text-selection marker) open the page menu on right-click.
@@ -117,6 +119,27 @@
   function closeBuilder(page?: number) {
     builderOpen = false
     if (page !== undefined) tabs.active?.goToPage(page)
+  }
+
+  /** The merge page opened from the start screen (no document open); null when not shown. */
+  let startMerge = $state.raw<MergeFiles | null>(null)
+  function openStartMerge() {
+    startMerge = new MergeFiles()
+  }
+  function closeStartMerge() {
+    startMerge?.dispose()
+    startMerge = null
+  }
+  // A document opened meanwhile (Ctrl+O) takes over the window.
+  $effect(() => {
+    if (tabs.active && startMerge) closeStartMerge()
+  })
+
+  /** A merge wrote `path`: open it in a tab (the builder or merge page closes). */
+  function onMerged(path: string) {
+    closeBuilder()
+    closeStartMerge()
+    void openFiles([path])
   }
 
   /** The toolbar shows once the persisted layout is loaded (no flash of defaults). */
@@ -248,12 +271,16 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<div class="shell" class:fullscreen={fullscreen.active} class:building={builderOpen && tabs.active}>
+{#snippet mergeTitle()}
+  <h1 class="merge-title">Merge PDFs</h1>
+{/snippet}
+
+<div class="shell" class:fullscreen={fullscreen.active} class:building={(builderOpen && tabs.active) || (startMerge && !tabs.active)}>
   <div class="titlebar-region"><TitleBar /></div>
   <main class="viewer-region">
     {#if tabs.active && builderOpen}
       {#key tabs.active.id}
-        <DocumentBuilder session={tabs.active} onclose={closeBuilder} />
+        <DocumentBuilder session={tabs.active} onclose={closeBuilder} onmerged={onMerged} />
       {/key}
     {:else if tabs.active}
       {#key tabs.active.id}
@@ -274,8 +301,10 @@
           onstyle={editStyle}
         />
       {/key}
+    {:else if startMerge}
+      <MergePage files={startMerge} heading={mergeTitle} onclose={closeStartMerge} onmerged={onMerged} />
     {:else}
-      <EmptyState onOpen={pickAndOpen} />
+      <EmptyState onOpen={pickAndOpen} onMerge={openStartMerge} />
     {/if}
   </main>
   <aside class="toolbar-region">
@@ -329,6 +358,12 @@
   }
   .shell.building .toolbar-region {
     display: none;
+  }
+  .merge-title {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-strong);
   }
   .viewer-region {
     min-width: 0;

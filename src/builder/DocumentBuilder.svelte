@@ -5,6 +5,9 @@
   import { firstOccurrences } from '../core/session/pages'
   import type { DocumentSession } from '../core/session/session.svelte'
   import { toasts } from '../ui/toasts.svelte'
+  import BuilderTabs, { type BuilderView } from './BuilderTabs.svelte'
+  import MergePage from './merge/MergePage.svelte'
+  import { MergeFiles } from './merge/mergeFiles.svelte'
   import PageThumb from './PageThumb.svelte'
   import {
     clampSelection, clickPage, emptySelection, selectAll, selectOnly, sortedSelection, type PageSelection,
@@ -13,11 +16,23 @@
   let {
     session,
     onclose,
+    onmerged,
   }: {
     session: DocumentSession
     /** Leaves the builder; `page` (1-based) is the page to show in the viewer, if any. */
     onclose: (page?: number) => void
+    /** A merge wrote `path` (the caller opens it). */
+    onmerged: (path: string) => void
   } = $props()
+
+  let view = $state<BuilderView>('pages')
+  /** The merge list, created on first use and kept while switching views (the open document comes first). */
+  let mergeFiles = $state.raw<MergeFiles | null>(null)
+  function showView(v: BuilderView) {
+    if (v === 'merge') mergeFiles ??= new MergeFiles([session.path])
+    view = v
+  }
+  onMount(() => () => mergeFiles?.dispose())
 
   const MIN_SIZE = 96
   const MAX_SIZE = 320
@@ -133,6 +148,8 @@
 
   /** Builder keys; they win over the global bindings while the builder is open (undo/redo still pass). */
   function onKeydown(e: KeyboardEvent) {
+    // The merge view handles its own keys.
+    if (view !== 'pages') return
     const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement
     const ctrl = e.ctrlKey || e.metaKey
     let handled = true
@@ -162,13 +179,24 @@
   })
 </script>
 
-<section class="builder" aria-label="Document Builder">
+{#snippet heading()}
+  <h1>Document Builder</h1>
+  <BuilderTabs {view} onchange={showView} />
+  {#if view === 'pages'}
+    <span class="file">{session.fileName} · {count} {count === 1 ? 'page' : 'pages'}</span>
+  {/if}
+{/snippet}
+
+{#if view === 'merge' && mergeFiles}
+  <MergePage files={mergeFiles} {heading} onclose={() => onclose()} {onmerged} />
+{/if}
+<!-- Hidden, not unmounted, while merging: its thumbnails' observer keeps its scroller. -->
+<section class="builder" aria-label="Document Builder" hidden={view !== 'pages'}>
   <header>
     <button type="button" class="icon" aria-label="Back to document" title="Back (Esc)" onclick={() => onclose()}>
       <ArrowLeft size={18} />
     </button>
-    <h1>Document Builder</h1>
-    <span class="file">{session.fileName} · {count} {count === 1 ? 'page' : 'pages'}</span>
+    {@render heading()}
   </header>
 
   <div class="scroller" bind:this={scroller}>
@@ -230,6 +258,9 @@
     min-height: 0;
     background: var(--bg);
     user-select: none;
+  }
+  .builder[hidden] {
+    display: none;
   }
   header {
     display: flex;
