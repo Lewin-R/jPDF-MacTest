@@ -6,6 +6,7 @@
   import type { DocumentSession } from '../core/session/session.svelte'
   import { toasts } from '../ui/toasts.svelte'
   import BuilderTabs, { type BuilderView } from './BuilderTabs.svelte'
+  import ExportMenu from './export/ExportMenu.svelte'
   import MergePage from './merge/MergePage.svelte'
   import { MergeFiles } from './merge/mergeFiles.svelte'
   import PageThumb from './PageThumb.svelte'
@@ -21,11 +22,13 @@
     session: DocumentSession
     /** Leaves the builder; `page` (1-based) is the page to show in the viewer, if any. */
     onclose: (page?: number) => void
-    /** A merge wrote `path` (the caller opens it). */
+    /** A merge wrote `path`, or an exported copy is to be opened (the caller opens it). */
     onmerged: (path: string) => void
   } = $props()
 
   let view = $state<BuilderView>('pages')
+  /** The Export menu is showing: Escape closes it, not the builder. */
+  let exportOpen = $state(false)
   /** The merge list, created on first use and kept while switching views (the open document comes first). */
   let mergeFiles = $state.raw<MergeFiles | null>(null)
   function showView(v: BuilderView) {
@@ -148,8 +151,8 @@
 
   /** Builder keys; they win over the global bindings while the builder is open (undo/redo still pass). */
   function onKeydown(e: KeyboardEvent) {
-    // The merge view handles its own keys.
-    if (view !== 'pages') return
+    // The merge view handles its own keys; an open menu handles Escape and arrows.
+    if (view !== 'pages' || exportOpen) return
     const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement
     const ctrl = e.ctrlKey || e.metaKey
     let handled = true
@@ -197,6 +200,8 @@
       <ArrowLeft size={18} />
     </button>
     {@render heading()}
+    <span class="spacer"></span>
+    <ExportMenu {session} onopen={onmerged} bind:open={exportOpen} />
   </header>
 
   <div class="scroller" bind:this={scroller}>

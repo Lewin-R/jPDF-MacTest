@@ -32,7 +32,20 @@
 
   // Menu at a pointer position (kept inside the window). Choosing an item, Escape
   // or a pointer-down outside closes it. Arrow keys move between items.
-  let { x, y, items, onclose }: { x: number; y: number; items: MenuItem[]; onclose(): void } = $props()
+  let {
+    x,
+    y,
+    items,
+    onclose,
+    anchor,
+  }: {
+    x: number
+    y: number
+    items: MenuItem[]
+    onclose(): void
+    /** The button that opened the menu: pressing it is not "outside" (it toggles the menu itself). */
+    anchor?: HTMLElement
+  } = $props()
 
   const ENABLED = '[role="menuitem"]:not(:disabled)'
 
@@ -75,7 +88,7 @@
   style:top="{y}px"
   onkeydown={onKeydown}
   oncontextmenu={(e) => e.preventDefault()}
-  use:dismissable={{ onclose }}
+  use:dismissable={{ onclose, ignore: [anchor] }}
 >
   {#each items as item (item.label)}
     {#if item.separatorBefore}<div class="separator" role="separator"></div>{/if}

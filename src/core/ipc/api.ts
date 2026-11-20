@@ -58,6 +58,21 @@ export function mergePdfs(paths: string[], targetPath: string): Promise<void> {
   return invoke<void>('merge_pdfs', { paths, targetPath })
 }
 
+/**
+ * Writes a copy of `sourcePath` without annotations (links and form fields
+ * stay) to `targetPath`. `flattened` (pending flattened annotations) are
+ * burned into the pages first; with `pages` the copy has exactly those pages
+ * and `flattened` index them, as in `savePdf`. The source is never changed.
+ */
+export function exportWithoutAnnotations(
+  sourcePath: string,
+  targetPath: string,
+  flattened: Annotation[],
+  pages?: PageSpec[],
+): Promise<void> {
+  return invoke<void>('export_without_annotations', { sourcePath, targetPath, flattened, pages: pages ?? null })
+}
+
 /** Whether a file exists at `path` (true when that cannot be determined). */
 export function pathExists(path: string): Promise<boolean> {
   return invoke<boolean>('path_exists', { path })

@@ -4,13 +4,14 @@
   import GripVertical from '@lucide/svelte/icons/grip-vertical'
   import Merge from '@lucide/svelte/icons/merge'
   import X from '@lucide/svelte/icons/x'
-  import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog'
+  import { open as openDialog } from '@tauri-apps/plugin-dialog'
   import { onMount, tick, type Snippet } from 'svelte'
   import { flip } from 'svelte/animate'
   import { setDropTarget } from '../../app/fileOpening'
   import { saveSession } from '../../app/saveFlow'
   import { tabs } from '../../app/tabs.svelte'
-  import { isAppError, mergePdfs, pathExists } from '../../core/ipc/api'
+  import { isAppError, mergePdfs } from '../../core/ipc/api'
+  import { pickNewPdf } from '../pdfTarget'
   import { toasts } from '../../ui/toasts.svelte'
   import { THUMB_BOX, type MergeFiles } from './mergeFiles.svelte'
   import { blockers, dropIndex, mergedName, readyToMerge, totalPages } from './mergeList'
@@ -65,21 +66,8 @@
       })
       return
     }
-    const picked = await saveDialog({ defaultPath: mergedName(paths[0]), filters: PDF_FILTER })
-    if (!picked) return
-    let target = picked
-    if (!target.toLowerCase().endsWith('.pdf')) {
-      target += '.pdf'
-      // The dialog only confirmed replacing the name as typed.
-      if (await pathExists(target).catch(() => true)) {
-        toasts.show(`${target.split(/[\\/]/).pop()} already exists. Choose it in the dialog to replace it.`, 'error')
-        return
-      }
-    }
-    if (tabs.findByPath(target)) {
-      toasts.show('This file is open in a tab — close it first', 'error')
-      return
-    }
+    const target = await pickNewPdf(mergedName(paths[0]))
+    if (!target) return
     busy = true
     try {
       await mergePdfs(paths, target)

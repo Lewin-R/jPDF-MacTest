@@ -8,6 +8,7 @@ use tauri::State;
 
 use crate::error::AppError;
 use crate::pdf::dto::{AnnotationDto, DeleteRef, PageSpec};
+use crate::pdf::export::without_annotations;
 use crate::pdf::load_document;
 use crate::pdf::merge::merge_loaded;
 use crate::pdf::writer::write_incremental_with_pages;
@@ -120,6 +121,20 @@ pub fn merge_to_path(sources: &[&Path], target: &Path) -> Result<(), AppError> {
     write_atomic(target, &merge_loaded(docs)?)
 }
 
+/// Writes a copy of `source` without annotations to `target` (see
+/// `pdf::export`), with the pending `flattened` annotations burned in and the
+/// page plan `pages` applied if given. `source` is read before the atomic
+/// write and never changed.
+pub fn export_to_path(
+    source: &Path,
+    target: &Path,
+    flattened: &[AnnotationDto],
+    pages: Option<&[PageSpec]>,
+) -> Result<(), AppError> {
+    let original = read_file(&source.to_string_lossy())?;
+    write_atomic(target, &without_annotations(&original, flattened, pages)?)
+}
+
 async fn blocking<T: Send + 'static>(
     f: impl FnOnce() -> Result<T, AppError> + Send + 'static,
 ) -> Result<T, AppError> {
@@ -158,6 +173,19 @@ pub async fn merge_pdfs(paths: Vec<String>, target_path: String) -> Result<(), A
     blocking(move || {
         let sources: Vec<&Path> = paths.iter().map(Path::new).collect();
         merge_to_path(&sources, Path::new(&target_path))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn export_without_annotations(
+    source_path: String,
+    target_path: String,
+    flattened: Vec<AnnotationDto>,
+    pages: Option<Vec<PageSpec>>,
+) -> Result<(), AppError> {
+    blocking(move || {
+        export_to_path(Path::new(&source_path), Path::new(&target_path), &flattened, pages.as_deref())
     })
     .await
 }

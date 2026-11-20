@@ -619,7 +619,7 @@ pub(crate) fn invalid(e: lopdf::Error) -> AppError {
     AppError::InvalidPdf(e.to_string())
 }
 
-fn common_of(dto: &AnnotationDto) -> &Common {
+pub(crate) fn common_of(dto: &AnnotationDto) -> &Common {
     match dto {
         AnnotationDto::Ink { common, .. }
         | AnnotationDto::Highlight { common, .. }
