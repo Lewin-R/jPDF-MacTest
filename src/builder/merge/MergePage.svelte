@@ -220,6 +220,10 @@
           </li>
         {/each}
       </ol>
+      <!-- Right where the next file goes. -->
+      <button type="button" class="add-row" onclick={addFiles} disabled={busy}>
+        <Plus size={16} /> Add PDFs…
+      </button>
       <p class="tip">Drag to reorder · Alt+↑/↓ · drop more files anywhere</p>
     {/if}
   </div>
@@ -343,6 +347,21 @@
   }
   .row.failed .meta {
     color: var(--danger);
+  }
+  .add-row {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    max-width: 640px;
+    height: 44px;
+    margin: 4px auto 0;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-md);
+    color: var(--text-muted);
+  }
+  .add-row:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--text-strong);
   }
   .tip {
     margin: 12px auto 0;

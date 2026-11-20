@@ -125,6 +125,17 @@ describe('MergePage', () => {
     expect(files.items.map((i) => i.name)).toEqual(['b.pdf', 'a.pdf'])
   })
 
+  it('an Add PDFs button right below the last file adds the picked files', async () => {
+    h.picked = ['C:\\d\\c.pdf', 'C:\\d\\d.pdf']
+    const { container, files } = setup(['C:\\d\\a.pdf', 'C:\\d\\b.pdf'])
+    await flush()
+    const below = container.querySelector('ol.list + button') as HTMLButtonElement
+    expect(below.textContent).toContain('Add PDFs…')
+    await fireEvent.click(below)
+    await flush()
+    expect(files.items.map((i) => i.name)).toEqual(['a.pdf', 'b.pdf', 'c.pdf', 'd.pdf'])
+  })
+
   it('Escape closes the page', async () => {
     const { onclose } = setup(['C:\\d\\a.pdf'])
     await fireEvent.keyDown(window, { key: 'Escape' })
